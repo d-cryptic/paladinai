@@ -90,6 +90,18 @@ lint:
 	cd cli && uv run flake8 . && uv run mypy .
 	@echo "✅ Linting completed"
 
+# Run linting for cli
+lint-cli:
+	@echo "🔍 Running linting for CLI..."
+	cd cli && uv run flake8 . && uv run mypy .
+	@echo "✅ Linting completed for CLI"
+
+# Run linting for server
+lint-server:
+	@echo "🔍 Running linting for server..."
+	cd server && uv run flake8 . && uv run mypy .
+	@echo "✅ Linting completed for server"
+
 # Clean build artifacts
 clean:
 	@echo "🧹 Cleaning build artifacts..."
