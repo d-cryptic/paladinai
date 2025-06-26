@@ -9,6 +9,12 @@ wheels/
 # Virtual environments
 .venv
 .env
+server/.venv/
+cli/.venv/
+venv/
+
+# uv cache
+.uv_cache/
 old-docs
 .augment-guidelines
 prompts
