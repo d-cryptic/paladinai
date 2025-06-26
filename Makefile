@@ -90,12 +90,6 @@ lint:
 	cd cli && uv run flake8 . && uv run mypy .
 	@echo "✅ Linting completed"
 
-test:
-	@echo "🧪 Running tests..."
-	cd server && uv run pytest
-	cd cli && uv run pytest
-	@echo "✅ Tests completed"
-
 # Clean build artifacts
 clean:
 	@echo "🧹 Cleaning build artifacts..."
