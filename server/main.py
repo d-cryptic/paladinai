@@ -1,14 +1,15 @@
 """
 FastAPI Server for Paladin AI
-Simple hello world endpoint for testing server-client communication.
+AI-Powered Monitoring & Incident Response Platform
 """
 
 import os
-
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from routes import health_router, chat_router
 
 # Load environment variables
 load_dotenv()
@@ -28,27 +29,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/")
-async def root() -> dict[str, str]:
-    """Simple hello world endpoint"""
-    return {"message": "Hello World from Paladin AI Server!"}
-
-
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "paladin-ai-server"}
-
-
-@app.get("/api/v1/status")
-async def api_status() -> dict[str, str]:
-    """API status endpoint for CLI client"""
-    return {
-        "api_version": "v1",
-        "server_status": "running",
-        "message": "Paladin AI Server is operational",
-    }
+# Include routers
+app.include_router(health_router)
+app.include_router(chat_router)
 
 
 if __name__ == "__main__":
