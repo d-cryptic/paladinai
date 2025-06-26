@@ -36,6 +36,45 @@ async def execute_commands(cli, args: argparse.Namespace, context: Optional[Dict
         print(f"\n🤖 Sending message to OpenAI via server: {args.chat}")
         await cli.chat_with_openai(args.chat, context)
 
+    if args.interactive:
+        print("\n🤖 Starting interactive chat mode...")
+        print("💡 Type 'exit' or 'bye' to quit")
+        print("=" * 50)
+        await interactive_chat(cli, context)
+
     # Show help if no commands were provided
     if not has_any_command(args):
         show_help_message()
+
+
+async def interactive_chat(cli, context: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Start interactive chat mode with continuous user input.
+
+    Args:
+        cli: PaladinCLI instance
+        context: Optional context dictionary for chat commands
+    """
+    while True:
+        try:
+            # Get user input
+            user_input = input("\n💬 You: ").strip()
+
+            # Check for exit commands
+            if user_input.lower() in ['exit', 'bye', 'quit']:
+                print("\n👋 Goodbye! Thanks for using Paladin AI!")
+                break
+
+            # Skip empty inputs
+            if not user_input:
+                continue
+
+            # Send message to OpenAI with loading screen
+            await cli.chat_with_openai_interactive(user_input, context)
+
+        except KeyboardInterrupt:
+            print("\n\n👋 Goodbye! Thanks for using Paladin AI!")
+            break
+        except EOFError:
+            print("\n\n👋 Goodbye! Thanks for using Paladin AI!")
+            break

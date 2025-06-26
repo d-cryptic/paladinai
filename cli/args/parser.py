@@ -29,6 +29,9 @@ def create_parser() -> argparse.ArgumentParser:
         "--chat", type=str, help="Send a message to OpenAI via server"
     )
     parser.add_argument(
+        "--interactive", action="store_true", help="Start interactive chat mode"
+    )
+    parser.add_argument(
         "--context", type=str, help="Additional context as JSON string"
     )
     
@@ -64,9 +67,10 @@ def show_help_message() -> None:
     print("Quick test: python main.py --all")
     print("\nOpenAI Examples:")
     print("  python main.py --chat 'What is the status of our system?'")
+    print("  python main.py --interactive  # Start continuous chat mode")
     print("  python main.py --chat 'Check system health' --context '{\"environment\": \"production\"}'")
 
 
 def has_any_command(args: argparse.Namespace) -> bool:
     """Check if any command arguments were provided."""
-    return any([args.test, args.hello, args.status, args.all, args.chat])
+    return any([args.test, args.hello, args.status, args.all, args.chat, args.interactive])
