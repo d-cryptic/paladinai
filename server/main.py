@@ -30,19 +30,19 @@ app.add_middleware(
 
 
 @app.get("/")
-async def root():
+async def root() -> dict[str, str]:
     """Simple hello world endpoint"""
     return {"message": "Hello World from Paladin AI Server!"}
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, str]:
     """Health check endpoint"""
     return {"status": "healthy", "service": "paladin-ai-server"}
 
 
 @app.get("/api/v1/status")
-async def api_status():
+async def api_status() -> dict[str, str]:
     """API status endpoint for CLI client"""
     return {
         "api_version": "v1",
@@ -55,4 +55,10 @@ if __name__ == "__main__":
     host = os.getenv("SERVER_HOST", "127.0.0.1")
     port = int(os.getenv("SERVER_PORT", "8000"))
 
-    uvicorn.run("main:app", host=host, port=port, reload=True, log_level="info")
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=True,
+        log_level="info"
+    )

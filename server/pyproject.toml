@@ -70,3 +70,8 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "--cov=. --cov-report=term-missing"
+
+[tool.flake8]
+max-line-length = 120
+ignore = ["E501", "W291", "W292"]
+exclude = [".git", "__pycache__", ".pytest_cache"]
