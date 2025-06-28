@@ -6,12 +6,13 @@ Contains methods for OpenAI chat completion functionality.
 from typing import Optional, Dict, Any
 
 from .base import BaseHTTPClient
+from utils.formatter import formatter
 
 
 class OpenAIMixin:
     """Mixin class for OpenAI functionality."""
 
-    async def chat_with_openai(self, message: str, context: Optional[Dict[str, Any]] = None, interactive: bool = False) -> bool:
+    async def chat_with_openai(self, message: str, context: Optional[Dict[str, Any]] = None, interactive: bool = False, analysis_only: bool = False) -> bool:
         """
         Send a message to OpenAI via server endpoint.
 
@@ -19,6 +20,7 @@ class OpenAIMixin:
             message: The message to send to OpenAI
             context: Optional context dictionary
             interactive: If True, shows loading screen and simplified output format
+            analysis_only: If True, shows only analysis section of the response
 
         Returns:
             bool: True if successful, False otherwise
@@ -43,28 +45,27 @@ class OpenAIMixin:
 
         # Handle response
         if success:
-            if data.get("success"):
+            # Use the appropriate formatter based on analysis_only flag
+            if analysis_only:
+                print("🤖 Paladin AI Response:")
+                formatted_response = formatter.format_analysis_only(data)
+                print(formatted_response)
+            else:
+                # Use the standard formatter to display workflow results
                 if interactive:
                     print("\n🤖 Paladin AI:")
-                    print(f"   {data.get('content', 'No content')}")
-
-                    if data.get("usage"):
-                        usage = data["usage"]
-                        print(f"\n📊 Tokens: {usage['total_tokens']} total")
+                    formatted_response = formatter.format_workflow_response(data, interactive=True)
+                    print(formatted_response)
                 else:
-                    print("🤖 OpenAI Response:")
-                    print(f"   Content: {data.get('content', 'No content')}")
-                    print(f"   Model: {data.get('model', 'Unknown')}")
+                    print("🤖 Paladin AI Response:")
+                    formatted_response = formatter.format_workflow_response(data, interactive=False)
+                    print(formatted_response)
 
-                    if data.get("usage"):
-                        usage = data["usage"]
-                        print(f"\n📊 Token Usage: {usage['total_tokens']} total "
-                              f"({usage['prompt_tokens']} prompt + {usage['completion_tokens']} completion)")
-                return True
-            else:
-                error_prefix = "\n❌" if interactive else "❌"
-                print(f"{error_prefix} OpenAI Error: {data.get('error')}")
-                return False
+            # Show session info if available (only if not analysis_only)
+            if data.get("session_id") and not analysis_only:
+                print(f"\n📋 Session: {data['session_id']}")
+
+            return True
         else:
             error_prefix = "\n❌" if interactive else "❌"
             error_msg = data.get('error', 'Unknown error')

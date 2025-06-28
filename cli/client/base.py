@@ -36,8 +36,8 @@ class BaseHTTPClient:
 
         timeout = aiohttp.ClientTimeout(
             total=self.timeout,
-            connect=10,  # Connection timeout
-            sock_read=30   # Socket read timeout
+            connect=min(60, self.timeout // 10),  # Connection timeout (max 60s or 1/10 of total)
+            sock_read=min(300, self.timeout // 4)   # Socket read timeout (max 5min or 1/4 of total)
         )
 
         self.session = aiohttp.ClientSession(
@@ -81,7 +81,8 @@ class BaseHTTPClient:
         Returns:
             Tuple of (success, data)
         """
-        return await self._request_with_retry("POST", endpoint, payload)
+        response = await self._request_with_retry("POST", endpoint, payload)
+        return response
 
     async def _request_with_retry(self, method: str, endpoint: str, payload: Optional[dict] = None) -> tuple[bool, dict]:
         """
