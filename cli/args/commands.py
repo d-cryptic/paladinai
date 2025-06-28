@@ -34,26 +34,29 @@ async def execute_commands(cli, args: argparse.Namespace, context: Optional[Dict
     # OpenAI functionality
     if args.chat:
         print(f"\n🤖 Sending message to OpenAI via server: {args.chat}")
-        await cli.chat_with_openai(args.chat, context)
+        await cli.chat_with_openai(args.chat, context, analysis_only=args.analysis_only)
 
     if args.interactive:
         print("\n🤖 Starting interactive chat mode...")
         print("💡 Type 'exit' or 'bye' to quit")
+        if args.analysis_only:
+            print("📊 Analysis-only mode enabled")
         print("=" * 50)
-        await interactive_chat(cli, context)
+        await interactive_chat(cli, context, analysis_only=args.analysis_only)
 
     # Show help if no commands were provided
     if not has_any_command(args):
         show_help_message()
 
 
-async def interactive_chat(cli, context: Optional[Dict[str, Any]] = None) -> None:
+async def interactive_chat(cli, context: Optional[Dict[str, Any]] = None, analysis_only: bool = False) -> None:
     """
     Start interactive chat mode with continuous user input.
 
     Args:
         cli: PaladinCLI instance
         context: Optional context dictionary for chat commands
+        analysis_only: If True, shows only analysis section of responses
     """
     while True:
         try:
@@ -70,7 +73,7 @@ async def interactive_chat(cli, context: Optional[Dict[str, Any]] = None) -> Non
                 continue
 
             # Send message to OpenAI with loading screen
-            await cli.chat_with_openai_interactive(user_input, context)
+            await cli.chat_with_openai(user_input, context, interactive=True, analysis_only=analysis_only)
 
         except KeyboardInterrupt:
             print("\n\n👋 Goodbye! Thanks for using Paladin AI!")

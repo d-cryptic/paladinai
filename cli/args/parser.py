@@ -29,6 +29,9 @@ def create_parser() -> argparse.ArgumentParser:
         "--chat", type=str, help="Send a message to OpenAI via server"
     )
     parser.add_argument(
+        "--analysis-only", action="store_true", help="Show only analysis section in responses"
+    )
+    parser.add_argument(
         "--interactive", action="store_true", help="Start interactive chat mode"
     )
     parser.add_argument(
