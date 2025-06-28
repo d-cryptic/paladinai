@@ -24,6 +24,7 @@ from .state import (
 )
 from .nodes import (
     start_node,
+    guardrail_node,
     categorization_node,
     result_node,
     error_handler_node
@@ -56,6 +57,7 @@ __all__ = [
 
     # Nodes
     "start_node",
+    "guardrail_node",
     "categorization_node",
     "result_node",
     "error_handler_node"

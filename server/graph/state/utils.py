@@ -288,8 +288,9 @@ def validate_state_transition(
     """
     # Define valid transitions
     valid_transitions = {
-        "start": ["categorization", "error_handler"],
-        "categorization": ["result", "error_handler"],
+        "start": ["guardrail", "error_handler"],
+        "guardrail": ["categorize", "result", "error_handler"],
+        "categorize": ["result", "error_handler"],
         "result": [],  # Terminal node
         "error_handler": []  # Terminal node
     }

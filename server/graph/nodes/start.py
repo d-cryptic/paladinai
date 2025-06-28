@@ -94,8 +94,8 @@ class StartNode:
         if state.error_message:
             return "error_handler"
         
-        # Always proceed to categorization after successful start
-        return "categorize"
+        # Always proceed to guardrail after successful start
+        return "guardrail"
 
 
 # Create singleton instance

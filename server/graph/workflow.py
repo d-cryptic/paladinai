@@ -14,7 +14,7 @@ from langgraph.graph import StateGraph, END
 from langfuse import observe
 
 from .state import WorkflowState, GraphConfig, create_initial_state
-from .nodes import start_node, categorization_node, result_node, error_handler_node
+from .nodes import start_node, guardrail_node, categorization_node, result_node, error_handler_node
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ class PaladinWorkflow:
 
         # Add nodes
         workflow.add_node("start", self._start_node_wrapper)
+        workflow.add_node("guardrail", self._guardrail_node_wrapper)
         workflow.add_node("categorize", self._categorization_node_wrapper)
         workflow.add_node("result", self._result_node_wrapper)
         workflow.add_node("error_handler", self._error_handler_node_wrapper)
@@ -74,7 +75,17 @@ class PaladinWorkflow:
             "start",
             self._route_from_start,
             {
+                "guardrail": "guardrail",
+                "error_handler": "error_handler"
+            }
+        )
+
+        workflow.add_conditional_edges(
+            "guardrail",
+            self._route_from_guardrail,
+            {
                 "categorize": "categorize",
+                "result": "result",
                 "error_handler": "error_handler"
             }
         )
@@ -101,7 +112,11 @@ class PaladinWorkflow:
     async def _start_node_wrapper(self, state: WorkflowState) -> WorkflowState:
         """Wrapper for start node execution."""
         return await start_node.execute(state)
-    
+
+    async def _guardrail_node_wrapper(self, state: WorkflowState) -> WorkflowState:
+        """Wrapper for guardrail node execution."""
+        return await guardrail_node.execute(state)
+
     async def _categorization_node_wrapper(self, state: WorkflowState) -> WorkflowState:
         """Wrapper for categorization node execution."""
         return await categorization_node.execute(state)
@@ -117,7 +132,11 @@ class PaladinWorkflow:
     def _route_from_start(self, state: WorkflowState) -> str:
         """Route from start node based on state."""
         return start_node.get_next_node(state)
-    
+
+    def _route_from_guardrail(self, state: WorkflowState) -> str:
+        """Route from guardrail node based on state."""
+        return guardrail_node.get_next_node(state)
+
     def _route_from_categorization(self, state: WorkflowState) -> str:
         """Route from categorization node based on state."""
         return categorization_node.get_next_node(state)

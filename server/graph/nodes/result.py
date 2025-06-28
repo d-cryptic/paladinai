@@ -87,7 +87,7 @@ class ResultNode:
         if not state.categorization:
             return {
                 "success": False,
-                "error": "No categorization result available",
+                "error": "I am a very dumb intern. I don't know anything other than SRE, DevOps, and system reliability. Please ask questions related to SRE, incident, or related technical operations.",
                 "session_id": state.session_id,
                 "execution_path": state.execution_path
             }
