@@ -4,6 +4,7 @@ Handles Prometheus API calls for metrics querying and monitoring.
 """
 
 import os
+import logging
 import aiohttp
 from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
@@ -22,6 +23,9 @@ from .models import (
 # Load environment variables
 load_dotenv()
 
+# Setup logger
+logger = logging.getLogger(__name__)
+
 
 class PrometheusService:
     """Service class for handling Prometheus API calls."""
@@ -33,7 +37,8 @@ class PrometheusService:
         self.auth_token = os.getenv("PROMETHEUS_AUTH_TOKEN")
         
         # Remove trailing slash from base URL
-        self.base_url = self.base_url.rstrip('/')
+        if self.base_url:
+            self.base_url = self.base_url.rstrip('/')
         
         # Setup headers
         self.headers = {"Content-Type": "application/json"}
@@ -62,12 +67,20 @@ class PrometheusService:
                     json=data
                 ) as response:
                     result = await response.json()
-                    
+
                     if response.status == 200:
-                        return {"success": True, **result}
+                        # Map Prometheus API response to our model format
+                        return {
+                            "success": True,
+                            "status": result.get("status", "success"),
+                            "data": result.get("data"),
+                            "error": result.get("error")
+                        }
                     else:
                         return {
                             "success": False,
+                            "status": "error",
+                            "data": None,
                             "error": f"HTTP {response.status}: {result.get('error', 'Unknown error')}",
                             "status_code": response.status
                         }
@@ -75,11 +88,15 @@ class PrometheusService:
         except aiohttp.ClientError as e:
             return {
                 "success": False,
+                "status": "error",
+                "data": None,
                 "error": f"Connection error: {str(e)}"
             }
         except Exception as e:
             return {
                 "success": False,
+                "status": "error",
+                "data": None,
                 "error": f"Unexpected error: {str(e)}"
             }
     
@@ -150,10 +167,51 @@ class PrometheusService:
         if result.get("success"):
             # Transform the response to match our model
             data = result.get("data", {})
+
+            # Transform active targets to match our model structure
+            active_targets = []
+            for target in data.get("activeTargets", []):
+                try:
+                    transformed_target = {
+                        "discovered_labels": target.get("discoveredLabels", {}),
+                        "labels": target.get("labels", {}),
+                        "scrape_pool": target.get("scrapePool", ""),
+                        "scrape_url": target.get("scrapeUrl", ""),
+                        "global_url": target.get("globalUrl", ""),
+                        "last_error": target.get("lastError", ""),
+                        "last_scrape": target.get("lastScrape", ""),
+                        "last_scrape_duration": float(target.get("lastScrapeDuration", "0").rstrip("s")),
+                        "health": target.get("health", "unknown")
+                    }
+                    active_targets.append(transformed_target)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to transform target data: {str(e)}")
+                    continue
+
+            # Transform dropped targets similarly
+            dropped_targets = []
+            for target in data.get("droppedTargets", []):
+                try:
+                    transformed_target = {
+                        "discovered_labels": target.get("discoveredLabels", {}),
+                        "labels": target.get("labels", {}),
+                        "scrape_pool": target.get("scrapePool", ""),
+                        "scrape_url": target.get("scrapeUrl", ""),
+                        "global_url": target.get("globalUrl", ""),
+                        "last_error": target.get("lastError", ""),
+                        "last_scrape": target.get("lastScrape", ""),
+                        "last_scrape_duration": float(target.get("lastScrapeDuration", "0").rstrip("s")),
+                        "health": target.get("health", "unknown")
+                    }
+                    dropped_targets.append(transformed_target)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to transform dropped target data: {str(e)}")
+                    continue
+
             return PrometheusTargetsResponse(
                 success=True,
-                active_targets=data.get("activeTargets", []),
-                dropped_targets=data.get("droppedTargets", [])
+                active_targets=active_targets,
+                dropped_targets=dropped_targets
             )
         else:
             return PrometheusTargetsResponse(

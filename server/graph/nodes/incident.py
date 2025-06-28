@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from langfuse import observe
-from server.prompts.workflows.analysis import get_analysis_prompt
+from server.prompts.workflows.analysis import get_analysis_prompt, get_incident_analysis_prompt
 
 from ..state import WorkflowState, NodeResult, update_state_node
 from llm.openai import openai
@@ -152,7 +152,7 @@ class IncidentNode:
             Dictionary containing incident analysis results
         """
         try:
-            analysis_prompt = get_analysis_prompt(user_input)
+            analysis_prompt = get_incident_analysis_prompt(user_input)
             
             response = await openai.chat_completion(
                 user_message=analysis_prompt,

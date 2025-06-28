@@ -35,9 +35,11 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         """
         try:
             # Set a timeout for the entire request
+            import os
+            timeout_seconds = float(os.getenv("REQUEST_TIMEOUT", "300"))
             response = await asyncio.wait_for(
                 call_next(request),
-                timeout=300.0  # 5 minute timeout for complex workflows
+                timeout=timeout_seconds  # Use configurable timeout from environment
             )
             return response
             
