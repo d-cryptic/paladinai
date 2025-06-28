@@ -10,10 +10,10 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from langfuse import observe
-from server.prompts.data_collection.incident_prompts import get_incident_prompt
-from server.prompts.workflows.planning import get_planning_prompt
-from server.prompts.workflows.processing import get_action_query_processing_prompt, get_incident_processing_prompt, get_processing_prompt
-from server.prompts.workflows.tool_decision import get_tool_decision_prompt
+from prompts.data_collection.incident_prompts import get_incident_prompt
+from prompts.workflows.planning import get_planning_prompt
+from prompts.workflows.processing import get_action_query_processing_prompt, get_incident_processing_prompt
+from prompts.workflows.tool_decision import get_tool_decision_prompt
 
 from ..state import WorkflowState, update_state_node
 from llm.openai import openai

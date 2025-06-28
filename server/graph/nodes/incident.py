@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from langfuse import observe
-from server.prompts.workflows.analysis import get_analysis_prompt, get_incident_analysis_prompt
+from prompts.workflows.analysis import get_query_analysis_prompt, get_incident_analysis_prompt
 
 from ..state import WorkflowState, NodeResult, update_state_node
 from llm.openai import openai
@@ -245,11 +245,21 @@ class IncidentNode:
             # Serialize prometheus data to handle Pydantic objects
             serialized_prometheus_data = self._serialize_prometheus_data(prometheus_data)
 
+            # Limit the size of data passed to OpenAI to prevent token overflow
+            data_str = json.dumps(serialized_prometheus_data, indent=2)
+            if len(data_str) > 10000:  # Limit to ~10k characters
+                # Truncate and add summary
+                truncated_data = data_str[:10000] + "\n... [Data truncated for processing]"
+                logger.warning(f"Prometheus data truncated from {len(data_str)} to 10000 characters")
+                data_for_prompt = truncated_data
+            else:
+                data_for_prompt = data_str
+
             # Use incident investigation prompt for detailed analysis
             investigation_prompt = get_incident_prompt(
                 "investigation",
                 user_input=state.user_input,
-                collected_data=json.dumps(serialized_prometheus_data, indent=2)
+                collected_data=data_for_prompt
             )
             
             investigation_response = await openai.chat_completion(
@@ -264,17 +274,23 @@ class IncidentNode:
             investigation_result = json.loads(investigation_response["content"])
             
             # Now create the final incident report
+            # Use the same truncated data for consistency
+            timeline_str = json.dumps(timeline, indent=2)
+            if len(timeline_str) > 5000:  # Limit timeline data too
+                timeline_str = timeline_str[:5000] + "\n... [Timeline truncated]"
+
             report_prompt = get_incident_prompt(
                 "output_formatting",
                 user_input=state.user_input,
-                collected_data=json.dumps(serialized_prometheus_data, indent=2),
-                timeline=json.dumps(timeline, indent=2)
+                collected_data=data_for_prompt,
+                timeline=timeline_str
             )
             
             report_response = await openai.chat_completion(
                 user_message=report_prompt,
                 system_prompt="You are an expert SRE creating comprehensive incident reports. Always include the word 'json' in your response when using JSON format.",
-                temperature=0.3
+                temperature=0.3,
+                max_tokens=16000  # Increase token limit for incident reports
             )
 
             if not report_response["success"]:

@@ -9,7 +9,8 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from langfuse import observe
-from server.prompts.workflows.response_type import get_response_type_prompt
+from prompts.workflows.response_type import get_response_type_prompt
+from prompts.workflows.analysis import get_action_analysis_prompt
 
 from ..state import WorkflowState, NodeResult, update_state_node
 from llm.openai import openai
@@ -150,7 +151,7 @@ class ActionNode:
             Dictionary containing action analysis results
         """
         try:
-            analysis_prompt = get_action_prompt(user_input)
+            analysis_prompt = get_action_analysis_prompt(user_input)
             
             response = await openai.chat_completion(
                 user_message=analysis_prompt,

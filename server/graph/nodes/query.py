@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from langfuse import observe
-from server.prompts.workflows.analysis import get_query_analysis_prompt
+from prompts import get_query_analysis_prompt
 
 from ..state import WorkflowState, NodeResult, update_state_node
 from llm.openai import openai

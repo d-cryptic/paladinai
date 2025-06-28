@@ -372,12 +372,12 @@ class ResponseFormatter:
                         lines.append(f"   • {key}: {value}")
 
         elif "incident_result" in response:
-            incident_result = response["incident_result"]
+            incident_report = response["incident_result"]["incident_report"]
 
             # Root cause analysis
-            if "root_cause_analysis" in incident_result:
+            if "root_cause_analysis" in incident_report:
                 lines.append(f"{self.icons['info']} Root Cause Analysis:")
-                rca = incident_result["root_cause_analysis"]
+                rca = incident_report["root_cause_analysis"]
                 if isinstance(rca, dict):
                     for key, value in rca.items():
                         lines.append(f"   • {key}: {value}")
@@ -385,9 +385,9 @@ class ResponseFormatter:
                     lines.append(f"   {rca}")
 
             # Recommendations
-            if "recommendations" in incident_result:
+            if "recommendations" in incident_report:
                 lines.append(f"\n💡 Recommendations:")
-                recommendations = incident_result["recommendations"]
+                recommendations = incident_report["recommendations"]
                 if isinstance(recommendations, list):
                     for rec in recommendations:
                         lines.append(f"   • {rec}")
@@ -417,20 +417,36 @@ class ResponseFormatter:
     def _format_incident_response(self, response: Dict[str, Any], interactive: bool) -> str:
         """Format incident workflow responses."""
         incident_result = response.get("incident_result", {})
-        
+
         lines = [f"{self.icons['incident']} Incident Report"]
-        
+
+        # Check for error in incident result
+        if "error" in incident_result:
+            lines.append(f"\n❌ Error: {incident_result['error']}")
+            if "incident_summary" in incident_result:
+                lines.append(f"\n📋 Summary:")
+                lines.append(f"   {incident_result['incident_summary']}")
+            if "recommendations" in incident_result:
+                lines.append(f"\n💡 Recommendations:")
+                recommendations = incident_result["recommendations"]
+                if isinstance(recommendations, list):
+                    for rec in recommendations:
+                        lines.append(f"   • {rec}")
+                else:
+                    lines.append(f"   {recommendations}")
+            return "\n".join(lines)
+
         # Severity
         if "severity" in incident_result:
             severity = incident_result["severity"].upper()
             severity_icon = "🔴" if severity == "CRITICAL" else "🟡" if severity == "HIGH" else "🟢"
             lines.append(f"   Severity: {severity_icon} {severity}")
-        
+
         # Incident report
         if "incident_report" in incident_result:
             lines.append(f"\n📋 Summary:")
             lines.append(f"   {incident_result['incident_report']}")
-        
+
         # Impact assessment
         if "impact_assessment" in incident_result:
             lines.append(f"\n💥 Impact:")
@@ -440,7 +456,7 @@ class ResponseFormatter:
             elif isinstance(impact, dict):
                 for key, value in impact.items():
                     lines.append(f"   • {key}: {value}")
-        
+
         # Root cause analysis
         if "root_cause_analysis" in incident_result:
             lines.append(f"\n🔍 Root Cause:")
@@ -450,7 +466,7 @@ class ResponseFormatter:
             elif isinstance(rca, dict):
                 for key, value in rca.items():
                     lines.append(f"   • {key}: {value}")
-        
+
         # Next steps
         if "next_steps" in incident_result:
             lines.append(f"\n⏭️ Next Steps:")
@@ -460,7 +476,7 @@ class ResponseFormatter:
                     lines.append(f"   • {step}")
             else:
                 lines.append(f"   {next_steps}")
-        
+
         return "\n".join(lines)
     
     def _format_generic_response(self, response: Dict[str, Any], interactive: bool) -> str:
