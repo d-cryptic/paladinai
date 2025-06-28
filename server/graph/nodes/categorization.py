@@ -174,22 +174,35 @@ class CategorizationNode:
     def get_next_node(self, state: WorkflowState) -> str:
         """
         Determine the next node based on categorization results.
-        
+
         Args:
             state: Current workflow state with categorization
-            
+
         Returns:
             Name of the next node to execute
         """
         if state.error_message:
             return "error_handler"
-        
+
         if not state.categorization:
             return "error_handler"
-        
-        # For now, return to result node since we're implementing basic categorization
-        # In future, this would route to specific workflow handlers
-        return "result"
+
+        # Route to appropriate workflow node based on categorization
+        workflow_type = state.categorization.workflow_type
+
+        # Handle both enum and string values (due to use_enum_values = True)
+        workflow_type_value = workflow_type.value if hasattr(workflow_type, 'value') else workflow_type
+
+        if workflow_type_value == "QUERY":
+            return "query"
+        elif workflow_type_value == "ACTION":
+            return "action"
+        elif workflow_type_value == "INCIDENT":
+            return "incident"
+        else:
+            # Fallback to result node for unknown types
+            logger.warning(f"Unknown workflow type: {workflow_type_value}, routing to result")
+            return "result"
 
 
 # Create singleton instance

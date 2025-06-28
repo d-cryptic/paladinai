@@ -14,7 +14,11 @@ from langgraph.graph import StateGraph, END
 from langfuse import observe
 
 from .state import WorkflowState, GraphConfig, create_initial_state
-from .nodes import start_node, guardrail_node, categorization_node, result_node, error_handler_node
+from .nodes import (
+    start_node, guardrail_node, categorization_node,
+    query_node, action_node, incident_node, prometheus_node,
+    result_node, error_handler_node
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,10 @@ class PaladinWorkflow:
         workflow.add_node("start", self._start_node_wrapper)
         workflow.add_node("guardrail", self._guardrail_node_wrapper)
         workflow.add_node("categorize", self._categorization_node_wrapper)
+        workflow.add_node("query", self._query_node_wrapper)
+        workflow.add_node("action", self._action_node_wrapper)
+        workflow.add_node("incident", self._incident_node_wrapper)
+        workflow.add_node("prometheus", self._prometheus_node_wrapper)
         workflow.add_node("result", self._result_node_wrapper)
         workflow.add_node("error_handler", self._error_handler_node_wrapper)
 
@@ -94,7 +102,52 @@ class PaladinWorkflow:
             "categorize",
             self._route_from_categorization,
             {
+                "query": "query",
+                "action": "action",
+                "incident": "incident",
                 "result": "result",
+                "error_handler": "error_handler"
+            }
+        )
+
+        # Add routing from workflow nodes to prometheus and back
+        workflow.add_conditional_edges(
+            "query",
+            self._route_from_query,
+            {
+                "prometheus": "prometheus",
+                "query_output": "result",
+                "error_handler": "error_handler"
+            }
+        )
+
+        workflow.add_conditional_edges(
+            "action",
+            self._route_from_action,
+            {
+                "prometheus": "prometheus",
+                "action_output": "result",
+                "error_handler": "error_handler"
+            }
+        )
+
+        workflow.add_conditional_edges(
+            "incident",
+            self._route_from_incident,
+            {
+                "prometheus": "prometheus",
+                "incident_output": "result",
+                "error_handler": "error_handler"
+            }
+        )
+
+        workflow.add_conditional_edges(
+            "prometheus",
+            self._route_from_prometheus,
+            {
+                "query_prometheus_return": "query",
+                "action_prometheus_return": "action",
+                "incident_prometheus_return": "incident",
                 "error_handler": "error_handler"
             }
         )
@@ -128,6 +181,37 @@ class PaladinWorkflow:
     async def _error_handler_node_wrapper(self, state: WorkflowState) -> WorkflowState:
         """Wrapper for error handler node execution."""
         return await error_handler_node.execute(state)
+
+    async def _query_node_wrapper(self, state: WorkflowState) -> WorkflowState:
+        """Wrapper for query node execution."""
+        # Check if returning from prometheus
+        if state.metadata.get("prometheus_collection_complete"):
+            prometheus_data = state.metadata.get("prometheus_data", {})
+            return await query_node.process_prometheus_result(state, prometheus_data)
+        else:
+            return await query_node.execute(state)
+
+    async def _action_node_wrapper(self, state: WorkflowState) -> WorkflowState:
+        """Wrapper for action node execution."""
+        # Check if returning from prometheus
+        if state.metadata.get("prometheus_collection_complete"):
+            prometheus_data = state.metadata.get("prometheus_data", {})
+            return await action_node.process_prometheus_result(state, prometheus_data)
+        else:
+            return await action_node.execute(state)
+
+    async def _incident_node_wrapper(self, state: WorkflowState) -> WorkflowState:
+        """Wrapper for incident node execution."""
+        # Check if returning from prometheus
+        if state.metadata.get("prometheus_collection_complete"):
+            prometheus_data = state.metadata.get("prometheus_data", {})
+            return await incident_node.process_prometheus_result(state, prometheus_data)
+        else:
+            return await incident_node.execute(state)
+
+    async def _prometheus_node_wrapper(self, state: WorkflowState) -> WorkflowState:
+        """Wrapper for prometheus node execution."""
+        return await prometheus_node.execute(state)
     
     def _route_from_start(self, state: WorkflowState) -> str:
         """Route from start node based on state."""
@@ -140,6 +224,22 @@ class PaladinWorkflow:
     def _route_from_categorization(self, state: WorkflowState) -> str:
         """Route from categorization node based on state."""
         return categorization_node.get_next_node(state)
+
+    def _route_from_query(self, state: WorkflowState) -> str:
+        """Route from query node based on state."""
+        return query_node.get_next_node(state)
+
+    def _route_from_action(self, state: WorkflowState) -> str:
+        """Route from action node based on state."""
+        return action_node.get_next_node(state)
+
+    def _route_from_incident(self, state: WorkflowState) -> str:
+        """Route from incident node based on state."""
+        return incident_node.get_next_node(state)
+
+    def _route_from_prometheus(self, state: WorkflowState) -> str:
+        """Route from prometheus node based on state."""
+        return prometheus_node.get_next_node(state)
     
     @observe(name="workflow_execution")
     async def execute(

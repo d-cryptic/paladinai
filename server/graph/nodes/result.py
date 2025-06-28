@@ -92,7 +92,7 @@ class ResultNode:
                 "execution_path": state.execution_path
             }
         
-        # Format successful categorization result
+        # Get workflow type for result formatting
         workflow_type_value = state.categorization.workflow_type
         if hasattr(workflow_type_value, 'value'):
             workflow_type_value = workflow_type_value.value
@@ -101,9 +101,13 @@ class ResultNode:
         if hasattr(complexity_value, 'value'):
             complexity_value = complexity_value.value
 
+        # Check for workflow-specific results
+        query_result = state.metadata.get("query_result")
+        action_result = state.metadata.get("action_result")
+        incident_result = state.metadata.get("incident_result")
+
         result = {
             "success": True,
-            "content": f"✅ Categorized as {workflow_type_value} workflow\n📊 Confidence: {state.categorization.confidence:.1%}\n💡 {state.categorization.reasoning}\n🎯 Suggested approach: {state.categorization.suggested_approach}",
             "session_id": state.session_id,
             "user_input": state.user_input,
             "categorization": {
@@ -119,6 +123,20 @@ class ResultNode:
                 "input_length": len(state.user_input)
             }
         }
+
+        # Add workflow-specific results
+        if query_result:
+            result["query_result"] = query_result
+            result["content"] = f"✅ Query processed successfully"
+        elif action_result:
+            result["action_result"] = action_result
+            result["content"] = f"✅ Action completed successfully"
+        elif incident_result:
+            result["incident_result"] = incident_result
+            result["content"] = f"✅ Incident analysis completed"
+        else:
+            # Fallback to categorization-only result
+            result["content"] = f"✅ Categorized as {workflow_type_value} workflow\n📊 Confidence: {state.categorization.confidence:.1%}\n💡 {state.categorization.reasoning}\n🎯 Suggested approach: {state.categorization.suggested_approach}"
         
         # Add workflow-specific guidance
         workflow_type_for_guidance = state.categorization.workflow_type
@@ -168,15 +186,15 @@ class ResultNode:
     
     def get_next_node(self, state: WorkflowState) -> str:
         """
-        Determine the next node (should be None for result node).
-        
+        Determine the next node (terminal node).
+
         Args:
             state: Current workflow state
-            
+
         Returns:
-            None as this is the final node
+            Empty string as this is the final node
         """
-        return None  # Result node is terminal
+        return ""  # Result node is terminal
 
 
 # Create singleton instance
