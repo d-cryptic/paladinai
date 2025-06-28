@@ -67,7 +67,29 @@ class OpenAIMixin:
                 return False
         else:
             error_prefix = "\n❌" if interactive else "❌"
-            print(f"{error_prefix} Error communicating with server: {data.get('error')}")
+            error_msg = data.get('error', 'Unknown error')
+            error_type = data.get('error_type', 'unknown')
+            attempts = data.get('attempts', 1)
+
+            # Provide specific guidance based on error type
+            if error_type == 'connection_error':
+                print(f"{error_prefix} Connection Error: {error_msg}")
+                if attempts > 1:
+                    print(f"   🔄 Tried {attempts} times with exponential backoff")
+                print("   💡 Suggestions:")
+                print("      • Check if the server is running: make run-server")
+                print("      • Verify server URL in cli/.env")
+                print("      • Check network connectivity")
+            elif error_type == 'timeout_error':
+                print(f"{error_prefix} Timeout Error: {error_msg}")
+                print("   💡 The request took too long to complete")
+                print("      • Try a simpler query")
+                print("      • Check server logs for issues")
+            else:
+                print(f"{error_prefix} Error communicating with server: {error_msg}")
+                if error_type != 'unknown':
+                    print(f"   Error type: {error_type}")
+
             return False
 
     async def chat_with_openai_interactive(self, message: str, context: Optional[Dict[str, Any]] = None) -> bool:
