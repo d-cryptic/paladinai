@@ -20,3 +20,4 @@ old-docs
 prompts
 .mypy_cache
 docs
+tests
