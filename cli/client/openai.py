@@ -6,7 +6,7 @@ Contains methods for OpenAI chat completion functionality.
 from typing import Optional, Dict, Any
 
 from .base import BaseHTTPClient
-from utils.formatter import formatter
+from cli.utils.formatter.formatter import formatter
 
 
 class OpenAIMixin:

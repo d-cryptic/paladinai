@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 from langfuse import observe
 from prompts.workflows.analysis import get_query_analysis_prompt, get_incident_analysis_prompt
 
-from ..state import WorkflowState, NodeResult, update_state_node
+from ...state import WorkflowState, NodeResult, update_state_node
 from llm.openai import openai
 from prompts.data_collection.incident_prompts import get_incident_prompt
 

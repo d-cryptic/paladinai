@@ -12,7 +12,7 @@ from langfuse import observe
 from prompts.workflows.response_type import get_response_type_prompt
 from prompts.workflows.analysis import get_action_analysis_prompt
 
-from ..state import WorkflowState, NodeResult, update_state_node
+from ...state import WorkflowState, NodeResult, update_state_node
 from llm.openai import openai
 from prompts.data_collection.action_prompts import get_action_prompt
 

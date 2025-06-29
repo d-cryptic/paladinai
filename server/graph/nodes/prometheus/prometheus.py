@@ -15,7 +15,7 @@ from prompts.workflows.planning import get_planning_prompt
 from prompts.workflows.processing import get_action_query_processing_prompt, get_incident_processing_prompt
 from prompts.workflows.tool_decision import get_tool_decision_prompt
 
-from ..state import WorkflowState, update_state_node
+from ...state import WorkflowState, update_state_node
 from llm.openai import openai
 from tools.prometheus import prometheus, PrometheusQueryRequest, PrometheusRangeQueryRequest
 

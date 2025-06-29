@@ -8,10 +8,10 @@ LangGraph workflow for categorizing and processing user requests.
 from .start import start_node
 from .guardrail import guardrail_node
 from .categorization import categorization_node
-from .query import query_node
-from .action import action_node
-from .incident import incident_node
-from .prometheus import prometheus_node
+from .query.query import query_node
+from .action.action import action_node
+from .incident.incident import incident_node
+from .prometheus.prometheus import prometheus_node
 from .result import result_node
 from .error_handler import error_handler_node
 
