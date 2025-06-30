@@ -6,29 +6,33 @@ import json
 import logging
 from typing import Dict, Any
 from llm.openai import openai
-from prompts import get_query_analysis_prompt
 from prompts.data_collection.query_prompts import get_query_prompt
+from prompts.workflows.analyzer_prompts import get_analyzer_prompt, ANALYZER_SYSTEM_PROMPT
+from prompts.workflows.processor_prompts import get_processor_system_prompt
 
 logger = logging.getLogger(__name__)
 
 
-async def analyze_metrics_requirement(user_input: str) -> bool:
+async def analyze_data_requirements(user_input: str) -> Dict[str, bool]:
     """
-    Analyze if the user query requires metrics data from Prometheus.
+    Analyze if the user query requires metrics data from Prometheus and/or logs from Loki.
     
     Args:
         user_input: The user's query
         
     Returns:
-        Boolean indicating if metrics data is needed
+        Dictionary with flags for needs_metrics and needs_logs
     """
     try:
-        # Use OpenAI to determine if metrics are needed
-        analysis_prompt = get_query_analysis_prompt(user_input)
+        # Use the imported analyzer prompt
+        analysis_prompt = get_analyzer_prompt(
+            "QUERY",
+            user_input=user_input
+        )
         
         response = await openai.chat_completion(
             user_message=analysis_prompt,
-            system_prompt="You are an expert SRE analyzing monitoring queries. Always include the word 'json' in your response when using JSON format.",
+            system_prompt=ANALYZER_SYSTEM_PROMPT,
             temperature=0.1
         )
 
@@ -36,12 +40,15 @@ async def analyze_metrics_requirement(user_input: str) -> bool:
             raise Exception(response.get("error", "OpenAI request failed"))
 
         result = json.loads(response["content"])
-        return result.get("needs_metrics", False)
+        return {
+            "needs_metrics": result.get("needs_metrics", False),
+            "needs_logs": result.get("needs_logs", False)
+        }
         
     except Exception as e:
-        logger.error(f"Error analyzing metrics requirement: {str(e)}")
-        # Default to requiring metrics if analysis fails
-        return True
+        logger.error(f"Error analyzing data requirements: {str(e)}")
+        # Default to not requiring either if analysis fails
+        return {"needs_metrics": False, "needs_logs": False}
 
 
 async def process_non_metrics_query(user_input: str) -> Dict[str, Any]:
@@ -65,7 +72,7 @@ async def process_non_metrics_query(user_input: str) -> Dict[str, Any]:
         
         response = await openai.chat_completion(
             user_message=prompt,
-            system_prompt="You are an expert SRE providing direct answers to non-metrics queries. Always include the word 'json' in your response when using JSON format.",
+            system_prompt=get_processor_system_prompt("QUERY", "non_metrics"),
             temperature=0.3
         )
 
