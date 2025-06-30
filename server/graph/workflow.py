@@ -17,7 +17,7 @@ from .state import WorkflowState, GraphConfig, create_initial_state
 from .nodes import (
     start_node, guardrail_node, categorization_node,
     query_node, action_node, incident_node, prometheus_node,
-    result_node, error_handler_node
+    loki_node, result_node, error_handler_node
 )
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ class PaladinWorkflow:
         workflow.add_node("action", self._action_node_wrapper)
         workflow.add_node("incident", self._incident_node_wrapper)
         workflow.add_node("prometheus", self._prometheus_node_wrapper)
+        workflow.add_node("loki", self._loki_node_wrapper)
         workflow.add_node("result", self._result_node_wrapper)
         workflow.add_node("error_handler", self._error_handler_node_wrapper)
 
@@ -110,12 +111,13 @@ class PaladinWorkflow:
             }
         )
 
-        # Add routing from workflow nodes to prometheus and back
+        # Add routing from workflow nodes to prometheus/loki and back
         workflow.add_conditional_edges(
             "query",
             self._route_from_query,
             {
                 "prometheus": "prometheus",
+                "loki": "loki",
                 "query_output": "result",
                 "error_handler": "error_handler"
             }
@@ -126,6 +128,7 @@ class PaladinWorkflow:
             self._route_from_action,
             {
                 "prometheus": "prometheus",
+                "loki": "loki",
                 "action_output": "result",
                 "error_handler": "error_handler"
             }
@@ -136,6 +139,7 @@ class PaladinWorkflow:
             self._route_from_incident,
             {
                 "prometheus": "prometheus",
+                "loki": "loki",
                 "incident_output": "result",
                 "error_handler": "error_handler"
             }
@@ -148,6 +152,17 @@ class PaladinWorkflow:
                 "query_prometheus_return": "query",
                 "action_prometheus_return": "action",
                 "incident_prometheus_return": "incident",
+                "error_handler": "error_handler"
+            }
+        )
+
+        workflow.add_conditional_edges(
+            "loki",
+            self._route_from_loki,
+            {
+                "query_loki_return": "query",
+                "action_loki_return": "action",
+                "incident_loki_return": "incident",
                 "error_handler": "error_handler"
             }
         )
@@ -188,6 +203,10 @@ class PaladinWorkflow:
         if state.metadata.get("prometheus_collection_complete"):
             prometheus_data = state.metadata.get("prometheus_data", {})
             return await query_node.process_prometheus_result(state, prometheus_data)
+        # Check if returning from loki
+        elif state.metadata.get("loki_collection_complete"):
+            loki_data = state.metadata.get("loki_data", {})
+            return await query_node.process_loki_result(state, loki_data)
         else:
             return await query_node.execute(state)
 
@@ -197,6 +216,10 @@ class PaladinWorkflow:
         if state.metadata.get("prometheus_collection_complete"):
             prometheus_data = state.metadata.get("prometheus_data", {})
             return await action_node.process_prometheus_result(state, prometheus_data)
+        # Check if returning from loki
+        elif state.metadata.get("loki_collection_complete"):
+            loki_data = state.metadata.get("loki_data", {})
+            return await action_node.process_loki_result(state, loki_data)
         else:
             return await action_node.execute(state)
 
@@ -206,12 +229,20 @@ class PaladinWorkflow:
         if state.metadata.get("prometheus_collection_complete"):
             prometheus_data = state.metadata.get("prometheus_data", {})
             return await incident_node.process_prometheus_result(state, prometheus_data)
+        # Check if returning from loki
+        elif state.metadata.get("loki_collection_complete"):
+            loki_data = state.metadata.get("loki_data", {})
+            return await incident_node.process_loki_result(state, loki_data)
         else:
             return await incident_node.execute(state)
 
     async def _prometheus_node_wrapper(self, state: WorkflowState) -> WorkflowState:
         """Wrapper for prometheus node execution."""
         return await prometheus_node.execute(state)
+    
+    async def _loki_node_wrapper(self, state: WorkflowState) -> WorkflowState:
+        """Wrapper for loki node execution."""
+        return await loki_node.execute(state)
     
     def _route_from_start(self, state: WorkflowState) -> str:
         """Route from start node based on state."""
@@ -241,6 +272,10 @@ class PaladinWorkflow:
         """Route from prometheus node based on state."""
         return prometheus_node.get_next_node(state)
     
+    def _route_from_loki(self, state: WorkflowState) -> str:
+        """Route from loki node based on state."""
+        return loki_node.get_next_node(state)
+    
     @observe(name="workflow_execution")
     async def execute(
         self,
@@ -266,21 +301,14 @@ class PaladinWorkflow:
             
             # Execute workflow
             final_state = await self.graph.ainvoke(initial_state)
-            
-            # Return final result - access from AddableValuesDict
+            # Extract and return the final result with formatted markdown
             if hasattr(final_state, 'final_result') and final_state.final_result:
                 return final_state.final_result
-            elif 'final_result' in final_state and final_state['final_result']:
+            elif isinstance(final_state, dict) and 'final_result' in final_state:
                 return final_state['final_result']
             else:
-                # Fallback if no final result was set
-                execution_path = getattr(final_state, 'execution_path', final_state.get('execution_path', []))
-                return {
-                    "success": False,
-                    "error": "Workflow completed but no result was generated",
-                    "session_id": session_id,
-                    "execution_path": execution_path
-                }
+                # Return the raw state if no final result
+                return final_state 
                 
         except Exception as e:
             error_msg = f"Workflow execution failed: {str(e)}"
