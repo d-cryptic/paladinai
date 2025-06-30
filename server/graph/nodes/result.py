@@ -206,10 +206,12 @@ class ResultNode:
                 format_data["action_result"] = state.metadata.get("action_result", {})
                 format_data["prometheus_data"] = state.metadata.get("prometheus_data", {})
                 format_data["loki_data"] = state.metadata.get("loki_data", {})
+                format_data["alertmanager_data"] = state.metadata.get("alertmanager_data", {})
             elif workflow_type == "INCIDENT":
                 format_data["incident_result"] = state.metadata.get("incident_result", {})
                 format_data["prometheus_data"] = state.metadata.get("prometheus_data", {})
                 format_data["loki_data"] = state.metadata.get("loki_data", {})
+                format_data["alertmanager_data"] = state.metadata.get("alertmanager_data", {})
                 format_data["incident_analysis"] = state.metadata.get("incident_analysis", {})
             
             # Create the prompt based on workflow type
@@ -229,13 +231,27 @@ class ResultNode:
                         'line': log.get('line', '').strip()
                     })
                 
+                # Extract alert entries if available
+                alert_data = format_data.get('alertmanager_data', {})
+                alerts = alert_data.get('alerts', [])
+                alert_entries = []
+                for alert in alerts[:10]:  # Get up to 10 alerts
+                    alert_entries.append({
+                        'alertname': alert.get('labels', {}).get('alertname', 'Unknown'),
+                        'severity': alert.get('labels', {}).get('severity', 'unknown'),
+                        'state': alert.get('status', {}).get('state', 'unknown'),
+                        'summary': alert.get('annotations', {}).get('summary', '')
+                    })
+                
                 prompt = get_formatting_prompt(
                     "ACTION",
                     user_request=format_data['user_request'],
                     action_result=json.dumps(format_data.get('action_result', {}), indent=2),
                     metrics_data=json.dumps(format_data.get('prometheus_data', {}).get('processed_metrics', {}), indent=2),
                     logs_data=json.dumps(log_entries, indent=2),
-                    total_logs=len(loki_logs)
+                    total_logs=len(loki_logs),
+                    alerts_data=json.dumps(alert_entries, indent=2),
+                    total_alerts=len(alerts)
                 )
             elif workflow_type == "INCIDENT":
                 prompt = get_formatting_prompt(
@@ -243,7 +259,8 @@ class ResultNode:
                     user_request=format_data['user_request'],
                     incident_analysis=json.dumps(format_data.get('incident_result', {}), indent=2),
                     metrics_data=json.dumps(format_data.get('prometheus_data', {}), indent=2),
-                    logs_data=json.dumps(format_data.get('loki_data', {}), indent=2)
+                    logs_data=json.dumps(format_data.get('loki_data', {}), indent=2),
+                    alerts_data=json.dumps(format_data.get('alertmanager_data', {}), indent=2)
                 )
             else:
                 # Fallback formatting
