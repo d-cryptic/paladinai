@@ -35,8 +35,23 @@ async def chat_completion(request: ChatRequest) -> Dict[str, Any]:
             user_input=request.message,
             session_id=session_id
         )
-
-        return result
+        
+        # If formatted markdown is available, return it as the primary response
+        if isinstance(result, dict) and 'formatted_markdown' in result:
+            return {
+                "success": result.get("success", True),
+                "session_id": session_id,
+                "content": result["formatted_markdown"],
+                "metadata": {
+                    "workflow_type": result.get("categorization", {}).get("workflow_type", "unknown"),
+                    "execution_time_ms": result.get("execution_time_ms", 0),
+                    "execution_path": result.get("execution_metadata", {}).get("execution_path", [])
+                },
+                "raw_result": result  # Include full result for debugging if needed
+            }
+        else:
+            # Fallback to returning the raw result
+            return result
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Workflow execution error: {str(e)}")

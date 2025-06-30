@@ -127,5 +127,72 @@ class OpenAIService:
             context_lines.append(f"- {key}: {value}")
         return "\n".join(context_lines)
 
+    @observe(name="openai_markdown_formatting")
+    async def markdown_formatting(
+        self,
+        user_message: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Make a chat completion request to OpenAI API for markdown formatting.
+        This method returns plain text/markdown instead of JSON.
+        
+        Args:
+            user_message: The user's message/query
+            system_prompt: Custom system prompt
+            model: Model to use (defaults to configured model)
+            max_tokens: Maximum tokens for response
+            temperature: Temperature for response generation
+            
+        Returns:
+            Dict containing the response and metadata
+        """
+        try:
+            # Use provided parameters or fall back to defaults
+            model = model or self.model
+            max_tokens = max_tokens or self.max_tokens
+            temperature = temperature or self.temperature
+            system_prompt = system_prompt or "You are an expert technical writer."
+            
+            # Build messages array
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ]
+            
+            # Make API call WITHOUT json format constraint
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+                # No response_format here - we want plain text/markdown
+            )
+            
+            # Extract response content
+            content = response.choices[0].message.content
+            
+            return {
+                "success": True,
+                "content": content,
+                "model": model,
+                "usage": {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                },
+                "finish_reason": response.choices[0].finish_reason
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "content": None
+            }
+
 # Global service instance
 openai = OpenAIService()
