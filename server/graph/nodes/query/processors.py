@@ -107,8 +107,9 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
     logger.info("Processing loki results in query node")
 
     try:
-        # Check if we have both prometheus and loki data
+       # Check if we have multiple data sources
         has_prometheus_data = state.metadata.get("prometheus_data") is not None
+        has_alertmanager_data = state.metadata.get("alertmanager_data") is not None
         
         # Prepare collected data
         collected_data = {}
@@ -125,6 +126,13 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
         logger.info(f"Loki data contains: {len(loki_data.get('logs', []))} logs")
         collected_data["logs"] = loki_data
         data_sources.append("Loki")
+        
+        # Add alertmanager data if available
+        if has_alertmanager_data:
+            alert_data = state.metadata.get("alertmanager_data", {})
+            collected_data["alerts"] = alert_data
+            data_sources.append("Alertmanager")
+            logger.info(f"Alertmanager data contains: {len(alert_data.get('alerts', []))} alerts")
         
         # Format the final response with all collected data
         prompt = get_query_prompt(
