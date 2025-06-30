@@ -49,27 +49,45 @@ class ActionNode:
             # Analyze the action request to determine data requirements
             action_analysis = await analyze_action_requirements(state.user_input)
             
-            if action_analysis.get("needs_metrics", False):
-                logger.info("Action requires metrics data - routing to prometheus node")
-                # Set flag to route to prometheus node
+            # Extract data requirements
+            needs_metrics = action_analysis.get("needs_metrics", False)
+            needs_logs = action_analysis.get("needs_logs", False)
+            
+            logger.info(f"Data requirements - Metrics: {needs_metrics}, Logs: {needs_logs}")
+            
+            # Store data requirements and context
+            state.metadata["data_requirements"] = action_analysis
+            state.metadata["originating_node"] = "action"
+            state.metadata["action_context"] = {
+                "workflow_type": "action",
+                "user_input": state.user_input,
+                "action_type": action_analysis.get("action_type", "data_analysis"),
+                "data_requirements": action_analysis.get("data_requirements", {}),
+                "processing_stage": "data_collection"
+            }
+            
+            # Determine routing based on data needs
+            if needs_metrics and needs_logs:
+                logger.info("Action requires both metrics and logs")
+                # First collect metrics, then logs
                 state.metadata["needs_prometheus"] = True
-                state.metadata["originating_node"] = "action"
+                state.metadata["needs_loki"] = True
+                state.metadata["next_node"] = "prometheus"
+                state.metadata["data_collection_sequence"] = ["prometheus", "loki"]
                 
-                # Store action context for prometheus node
-                state.metadata["action_context"] = {
-                    "workflow_type": "action",
-                    "user_input": state.user_input,
-                    "action_type": action_analysis.get("action_type", "data_analysis"),
-                    "data_requirements": action_analysis.get("data_requirements", {}),
-                    "processing_stage": "data_collection"
-                }
-                
-                # Set next node to prometheus
+            elif needs_metrics:
+                logger.info("Action requires only metrics data")
+                state.metadata["needs_prometheus"] = True
                 state.metadata["next_node"] = "prometheus"
                 
+            elif needs_logs:
+                logger.info("Action requires only log data")
+                state.metadata["needs_loki"] = True
+                state.metadata["next_node"] = "loki"
+                
             else:
-                logger.info("Action can be handled without metrics data")
-                # Process action directly without metrics
+                logger.info("Action can be handled without external data")
+                # Process action directly without metrics or logs
                 result = await process_non_metrics_action(state.user_input, action_analysis)
                 
                 if result["success"]:
@@ -86,7 +104,8 @@ class ActionNode:
             state.metadata[f"{self.node_name}_execution"] = {
                 "timestamp": state.metadata.get("current_timestamp"),
                 "status": "completed" if not state.error_message else "error",
-                "needs_metrics": action_analysis.get("needs_metrics", False),
+                "needs_metrics": needs_metrics,
+                "needs_logs": needs_logs,
                 "action_type": action_analysis.get("action_type", "unknown")
             }
             
@@ -119,6 +138,21 @@ class ActionNode:
         """
         return await process_prometheus_result(state, prometheus_data, self.node_name)
     
+    async def process_loki_result(self, state: WorkflowState, loki_data: Dict[str, Any]) -> WorkflowState:
+        """
+        Process results returned from loki node.
+        
+        Args:
+            state: Current workflow state
+            loki_data: Data returned from loki node
+            
+        Returns:
+            Updated workflow state with processed results
+        """
+        # Import here to avoid circular dependency
+        from .processors import process_loki_result
+        return await process_loki_result(state, loki_data, self.node_name)
+    
     def get_next_node(self, state: WorkflowState) -> str:
         """
         Determine the next node based on action processing results.
@@ -132,14 +166,30 @@ class ActionNode:
         if state.error_message:
             return "error_handler"
 
-        # Check if prometheus processing is complete first
+        # Check if we're in a data collection sequence
+        collection_sequence = state.metadata.get("data_collection_sequence", [])
+        
+        # Check if prometheus processing is complete
         if state.metadata.get("prometheus_collection_complete"):
-            # Prometheus data has been collected and processed, route to output
+            # If we still need loki data and haven't collected it yet
+            if state.metadata.get("needs_loki") and not state.metadata.get("loki_collection_complete"):
+                return "loki"
+            # Otherwise, route to output
+            return state.metadata.get("next_node", "action_output")
+        
+        # Check if loki processing is complete
+        if state.metadata.get("loki_collection_complete"):
+            # If we still need prometheus data and haven't collected it yet
+            if state.metadata.get("needs_prometheus") and not state.metadata.get("prometheus_collection_complete"):
+                return "prometheus"
+            # Otherwise, route to output
             return state.metadata.get("next_node", "action_output")
 
-        # Check if we need to route to prometheus
-        if state.metadata.get("needs_prometheus"):
+        # Initial routing based on needs
+        if state.metadata.get("needs_prometheus") and not state.metadata.get("prometheus_collection_complete"):
             return "prometheus"
+        elif state.metadata.get("needs_loki") and not state.metadata.get("loki_collection_complete"):
+            return "loki"
 
         # Otherwise route to output
         return state.metadata.get("next_node", "action_output")

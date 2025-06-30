@@ -10,7 +10,7 @@ import logging
 from typing import Dict, Any
 
 from llm.openai import openai
-from prompts.workflows.analysis import get_action_analysis_prompt
+from prompts.workflows.analyzer_prompts import get_analyzer_prompt, ANALYZER_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +26,15 @@ async def analyze_action_requirements(user_input: str) -> Dict[str, Any]:
         Dictionary containing action analysis results
     """
     try:
-        analysis_prompt = get_action_analysis_prompt(user_input)
+        # Use the centralized analyzer prompt
+        analysis_prompt = get_analyzer_prompt(
+            "ACTION",
+            user_input=user_input
+        )
         
         response = await openai.chat_completion(
             user_message=analysis_prompt,
-            system_prompt="You are an expert SRE analyzing action requests for monitoring systems. Always include the word 'json' in your response when using JSON format.",
+            system_prompt=ANALYZER_SYSTEM_PROMPT,
             temperature=0.1
         )
 
@@ -42,9 +46,10 @@ async def analyze_action_requirements(user_input: str) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Error analyzing action requirements: {str(e)}")
-        # Default to requiring metrics if analysis fails
+        # Default to not requiring either if analysis fails
         return {
-            "needs_metrics": True,
+            "needs_metrics": False,
+            "needs_logs": False,
             "action_type": "data_analysis",
             "data_requirements": {},
             "analysis_level": "basic",

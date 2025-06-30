@@ -12,8 +12,10 @@ from typing import Dict, Any
 from llm.openai import openai
 from prompts.data_collection.action_prompts import get_action_prompt
 from prompts.workflows.response_type import get_response_type_prompt
+from prompts.workflows.processor_prompts import get_processor_system_prompt
 from .serializers import serialize_prometheus_data
 from ...state import WorkflowState
+from langfuse import observe
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ async def process_non_metrics_action(user_input: str, action_analysis: Dict[str,
         
         response = await openai.chat_completion(
             user_message=prompt,
-            system_prompt="You are an expert SRE handling non-metrics action requests. Always include the word 'json' in your response when using JSON format.",
+            system_prompt=get_processor_system_prompt("ACTION", "non_metrics"),
             temperature=0.3
         )
 
@@ -116,7 +118,7 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
 
         response_type_response = await openai.chat_completion(
             user_message=response_type_prompt,
-            system_prompt="You are an expert SRE determining appropriate response types. Always include the word 'json' in your response when using JSON format.",
+            system_prompt=get_processor_system_prompt("ACTION", "response_type"),
             temperature=0.1
         )
 
@@ -155,7 +157,7 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
         
         response = await openai.chat_completion(
             user_message=prompt,
-            system_prompt="You are an expert SRE processing action results with metrics data. Always include the word 'json' in your response when using JSON format.",
+            system_prompt=get_processor_system_prompt("ACTION", "metrics"),
             temperature=0.3
         )
 
@@ -232,4 +234,132 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
         state.metadata["needs_prometheus"] = False
         state.metadata["prometheus_collection_complete"] = False
     
+    return state
+
+
+@observe(name="process_loki_result_action")
+async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], node_name: str) -> WorkflowState:
+    """
+    Process results returned from loki node for action workflows.
+
+    Args:
+        state: Current workflow state
+        loki_data: Data returned from loki node
+        node_name: Name of the action node
+
+    Returns:
+        Updated workflow state with processed results
+    """
+    logger.info("Processing loki results in action node")
+
+    try:
+        # Get action analysis
+        action_analysis = state.metadata.get("action_analysis", {})
+        action_type = action_analysis.get("action_type", "data_analysis")
+        
+        # Check if we have both prometheus and loki data
+        has_prometheus_data = state.metadata.get("prometheus_data") is not None
+        
+        # Prepare collected data
+        collected_data = {}
+        data_sources = []
+        
+        if has_prometheus_data:
+            # Serialize prometheus data
+            prometheus_data = state.metadata.get("prometheus_data", {})
+            from .serializers import serialize_prometheus_data
+            serialized_prometheus = serialize_prometheus_data(prometheus_data)
+            collected_data["metrics"] = serialized_prometheus
+            data_sources.append("Prometheus")
+        
+        # Add loki data
+        collected_data["logs"] = loki_data
+        data_sources.append("Loki")
+        
+        # Format the final response with all collected data
+        from prompts.data_collection.action_prompts import get_action_prompt
+        
+        # Determine which prompt to use based on collected data
+        if collected_data.get("logs") and collected_data.get("metrics"):
+            # We have both logs and metrics, use combined analysis prompt
+            prompt = get_action_prompt(
+                "combined_analysis",
+                user_input=state.user_input,
+                collected_data=json.dumps(collected_data, indent=2),
+                action_type=action_type
+            )
+            logger.info("Using combined_analysis prompt for logs and metrics data")
+        elif collected_data.get("logs") and not collected_data.get("metrics"):
+            # We have only logs, use log analysis prompt
+            prompt = get_action_prompt(
+                "log_analysis",
+                user_input=state.user_input,
+                collected_data=json.dumps(collected_data, indent=2),
+                action_type=action_type
+            )
+            logger.info("Using log_analysis prompt for logs-only data")
+        elif collected_data.get("metrics") and not collected_data.get("logs"):
+            # We have only metrics, use the standard output formatting
+            prompt = get_action_prompt(
+                "output_formatting",
+                user_input=state.user_input,
+                collected_data=json.dumps(collected_data, indent=2),
+                action_type=action_type
+            )
+            logger.info("Using output_formatting prompt for metrics-only data")
+        else:
+            # We have neither, use analysis prompt
+            prompt = get_action_prompt(
+                "analysis",
+                user_input=state.user_input,
+                collected_data=json.dumps(collected_data, indent=2),
+                analysis_scope=action_type
+            )
+            logger.info("Using analysis prompt for empty data")
+
+        # Adjust system prompt based on data type
+        if collected_data.get("logs") and collected_data.get("metrics"):
+            system_prompt = get_processor_system_prompt("ACTION", "combined_data")
+        elif collected_data.get("logs") and not collected_data.get("metrics"):
+            system_prompt = get_processor_system_prompt("ACTION", "logs_only")
+        elif collected_data.get("metrics") and not collected_data.get("logs"):
+            system_prompt = get_processor_system_prompt("ACTION", "metrics_only")
+        else:
+            system_prompt = get_processor_system_prompt("ACTION", "general")
+        
+        response = await openai.chat_completion(
+            user_message=prompt,
+            system_prompt=system_prompt,
+            temperature=0.3
+        )
+
+        if not response["success"]:
+            raise Exception(response.get("error", "OpenAI request failed"))
+
+        result = json.loads(response["content"])
+
+        # Set action result and route to output
+        state.metadata["action_result"] = result
+        state.metadata["next_node"] = "action_output"
+
+        # Clear loki routing flags to prevent loops
+        state.metadata["needs_loki"] = False
+        state.metadata["loki_collection_complete"] = False
+
+        # Store loki processing info in metadata
+        state.metadata[f"{node_name}_loki_processing"] = {
+            "timestamp": state.metadata.get("current_timestamp"),
+            "status": "completed",
+            "data_processed": True,
+            "action_type": action_type
+        }
+
+    except Exception as e:
+        logger.error(f"Error processing loki results: {str(e)}")
+        state.error_message = f"Failed to process loki results: {str(e)}"
+        state.metadata["next_node"] = "error_handler"
+        # Clear loki routing flags even on error
+        state.metadata["needs_loki"] = False
+        state.metadata["loki_collection_complete"] = False
+
     return state
