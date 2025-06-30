@@ -122,6 +122,32 @@ class LokiNode:
         import time
         from datetime import datetime, timedelta
         
+        def convert_time_to_ns(time_param: str) -> str:
+            """Convert time parameter to Unix nanoseconds."""
+            now = datetime.now()
+            
+            if time_param == "now":
+                return str(int(now.timestamp() * 1e9))
+            elif time_param.startswith("now-"):
+                # Parse duration like "now-1h", "now-24h", etc.
+                duration_str = time_param[4:]  # Remove "now-"
+                if duration_str.endswith('h'):
+                    hours = int(duration_str[:-1])
+                    target_time = now - timedelta(hours=hours)
+                elif duration_str.endswith('m'):
+                    minutes = int(duration_str[:-1])
+                    target_time = now - timedelta(minutes=minutes)
+                elif duration_str.endswith('d'):
+                    days = int(duration_str[:-1])
+                    target_time = now - timedelta(days=days)
+                else:
+                    # Default to 1 hour ago
+                    target_time = now - timedelta(hours=1)
+                return str(int(target_time.timestamp() * 1e9))
+            else:
+                # Assume it's already a timestamp
+                return time_param
+        
         # Get available tools
         available_tools = [
             "loki.query",
@@ -203,41 +229,8 @@ class LokiNode:
                     start_param = params.get("start", "now-1h")
                     end_param = params.get("end", "now")
                     
-                    # Parse time parameters
-                    now = datetime.now()
-                    
-                    # Convert start time
-                    if start_param == "now":
-                        start_ns = str(int(now.timestamp() * 1e9))
-                    elif start_param.startswith("now-"):
-                        # Parse duration like "now-1h", "now-24h", etc.
-                        duration_str = start_param[4:]  # Remove "now-"
-                        if duration_str.endswith('h'):
-                            hours = int(duration_str[:-1])
-                            start_time = now - timedelta(hours=hours)
-                            start_ns = str(int(start_time.timestamp() * 1e9))
-                        elif duration_str.endswith('m'):
-                            minutes = int(duration_str[:-1])
-                            start_time = now - timedelta(minutes=minutes)
-                            start_ns = str(int(start_time.timestamp() * 1e9))
-                        elif duration_str.endswith('d'):
-                            days = int(duration_str[:-1])
-                            start_time = now - timedelta(days=days)
-                            start_ns = str(int(start_time.timestamp() * 1e9))
-                        else:
-                            # Default to 1 hour ago
-                            start_time = now - timedelta(hours=1)
-                            start_ns = str(int(start_time.timestamp() * 1e9))
-                    else:
-                        # Assume it's already a timestamp
-                        start_ns = start_param
-                    
-                    # Convert end time
-                    if end_param == "now":
-                        end_ns = str(int(now.timestamp() * 1e9))
-                    else:
-                        # Assume it's already a timestamp
-                        end_ns = end_param
+                    start_ns = convert_time_to_ns(start_param)
+                    end_ns = convert_time_to_ns(end_param)
                     
                     logger.info(f"Converted time range: start={start_param} -> {start_ns}, end={end_param} -> {end_ns}")
                     
@@ -251,28 +244,53 @@ class LokiNode:
                     result = await loki.query_range(request)
                     
                 elif tool_name == "loki.get_labels":
+                    # Convert time parameters if provided
+                    start = params.get("start")
+                    end = params.get("end")
+                    if start:
+                        start = convert_time_to_ns(start)
+                    if end:
+                        end = convert_time_to_ns(end)
+                    
                     result = await loki.get_labels(
-                        start=params.get("start"),
-                        end=params.get("end")
+                        start=start,
+                        end=end
                     )
                     if result.success and result.labels:
                         collected_data["labels"]["available_labels"] = result.labels
                     
                 elif tool_name == "loki.get_label_values":
+                    # Convert time parameters if provided
+                    start = params.get("start")
+                    end = params.get("end")
+                    if start:
+                        start = convert_time_to_ns(start)
+                    if end:
+                        end = convert_time_to_ns(end)
+                    
                     result = await loki.get_label_values(
                         label_name=params.get("label"),
-                        start=params.get("start"),
-                        end=params.get("end")
+                        start=start,
+                        end=end
                     )
                     if result.success and result.values:
                         label_name = params.get("label")
                         collected_data["labels"][label_name] = result.values
                     
                 elif tool_name == "loki.query_metrics":
+                    # Convert relative time to Unix nanoseconds (same as query_range)
+                    start_param = params.get("start", "now-1h")
+                    end_param = params.get("end", "now")
+                    
+                    start_ns = convert_time_to_ns(start_param)
+                    end_ns = convert_time_to_ns(end_param)
+                    
+                    logger.info(f"query_metrics: Converted time range: start={start_param} -> {start_ns}, end={end_param} -> {end_ns}")
+                    
                     request = LokiRangeQueryRequest(
                         query=params.get("query"),
-                        start=params.get("start", "now-1h"),
-                        end=params.get("end", "now"),
+                        start=start_ns,
+                        end=end_ns,
                         step=params.get("step")
                     )
                     result = await loki.query_range(request)
