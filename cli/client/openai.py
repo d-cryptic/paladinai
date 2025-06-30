@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any
 
 from .base import BaseHTTPClient
 from utils.formatter.formatter import formatter
+from utils.formatter.markdown_formatter import markdown_formatter
 
 
 class OpenAIMixin:
@@ -45,8 +46,34 @@ class OpenAIMixin:
 
         # Handle response
         if success:
-            # Use the appropriate formatter based on analysis_only flag
-            if analysis_only:
+            # Check if we have markdown content to display
+            # The server returns markdown in the 'content' field when formatted_markdown is available
+            has_markdown = False
+            markdown_content = None
+            
+            # Check for markdown in content field (from server restructuring)
+            if "content" in data and isinstance(data["content"], str) and len(data["content"].strip()) > 50:
+                # This is likely markdown content from the server (check it's not just empty whitespace)
+                markdown_content = data["content"]
+                has_markdown = True
+            # Also check raw_result for formatted_markdown
+            elif "raw_result" in data and "formatted_markdown" in data["raw_result"]:
+                markdown_content = data["raw_result"]["formatted_markdown"]
+                has_markdown = True
+            
+            # Use markdown formatter if available, otherwise fall back to standard formatter
+            if has_markdown and markdown_content and not analysis_only:
+                # Create a proper response structure for the markdown formatter
+                markdown_response = {
+                    "success": data.get("success", True),
+                    "session_id": data.get("session_id"),
+                    "formatted_markdown": markdown_content,
+                    "metadata": data.get("metadata", {}),
+                    "categorization": data.get("raw_result", {}).get("categorization", {})
+                }
+                # Use Rich markdown formatter for better display
+                markdown_formatter.format_response(markdown_response)
+            elif analysis_only:
                 print("🤖 Paladin AI Response:")
                 formatted_response = formatter.format_analysis_only(data)
                 print(formatted_response)
@@ -60,37 +87,19 @@ class OpenAIMixin:
                     print("🤖 Paladin AI Response:")
                     formatted_response = formatter.format_workflow_response(data, interactive=False)
                     print(formatted_response)
-
-            # Show session info if available (only if not analysis_only)
-            if data.get("session_id") and not analysis_only:
-                print(f"\n📋 Session: {data['session_id']}")
+                
+                # Show session info if available (only if not analysis_only)
+                if data.get("session_id"):
+                    print(f"\n📋 Session: {data['session_id']}")
 
             return True
         else:
-            error_prefix = "\n❌" if interactive else "❌"
             error_msg = data.get('error', 'Unknown error')
             error_type = data.get('error_type', 'unknown')
-            attempts = data.get('attempts', 1)
-
-            # Provide specific guidance based on error type
-            if error_type == 'connection_error':
-                print(f"{error_prefix} Connection Error: {error_msg}")
-                if attempts > 1:
-                    print(f"   🔄 Tried {attempts} times with exponential backoff")
-                print("   💡 Suggestions:")
-                print("      • Check if the server is running: make run-server")
-                print("      • Verify server URL in cli/.env")
-                print("      • Check network connectivity")
-            elif error_type == 'timeout_error':
-                print(f"{error_prefix} Timeout Error: {error_msg}")
-                print("   💡 The request took too long to complete")
-                print("      • Try a simpler query")
-                print("      • Check server logs for issues")
-            else:
-                print(f"{error_prefix} Error communicating with server: {error_msg}")
-                if error_type != 'unknown':
-                    print(f"   Error type: {error_type}")
-
+            
+            # Use markdown formatter for better error display
+            markdown_formatter.format_error_response(error_msg, error_type)
+            
             return False
 
     async def chat_with_openai_interactive(self, message: str, context: Optional[Dict[str, Any]] = None) -> bool:

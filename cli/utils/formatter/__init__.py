@@ -6,5 +6,6 @@ server responses in the CLI.
 """
 
 from .formatter import ResponseFormatter, formatter
+from .markdown_formatter import MarkdownFormatter, markdown_formatter
 
-__all__ = ["ResponseFormatter", "formatter"]
+__all__ = ["ResponseFormatter", "formatter", "MarkdownFormatter", "markdown_formatter"]

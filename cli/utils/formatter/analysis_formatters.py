@@ -40,10 +40,18 @@ def format_analysis_only(response: Dict[str, Any], icons: Dict[str, str]) -> str
         return f"{icons['error']} {response.get('error', 'Unknown error occurred')}"
 
     lines = []
+    
+    # Check if we have the new server response format
+    if "raw_result" in response:
+        # Use the raw_result for analysis
+        result_data = response["raw_result"]
+    else:
+        # Use the response directly
+        result_data = response
 
     # Handle different response types
-    if "action_result" in response:
-        action_result = response["action_result"]
+    if "action_result" in result_data:
+        action_result = result_data["action_result"]
 
         # New format - data response
         if "data_response" in action_result:
@@ -87,8 +95,8 @@ def format_analysis_only(response: Dict[str, Any], icons: Dict[str, str]) -> str
             else:
                 lines.append(f"   {recommendations}")
 
-    elif "query_result" in response:
-        query_result = response["query_result"]
+    elif "query_result" in result_data:
+        query_result = result_data["query_result"]
 
         # New format - data response
         if "data_response" in query_result:
@@ -119,8 +127,8 @@ def format_analysis_only(response: Dict[str, Any], icons: Dict[str, str]) -> str
                 for key, value in supporting_data.items():
                     lines.append(f"   • {key}: {value}")
 
-    elif "incident_result" in response:
-        incident_report = response["incident_result"]["incident_report"]
+    elif "incident_result" in result_data:
+        incident_report = result_data["incident_result"]["incident_report"]
 
         # Root cause analysis
         if "root_cause_analysis" in incident_report:
