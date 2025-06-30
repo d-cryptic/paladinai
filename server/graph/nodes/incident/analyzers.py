@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Dict, Any
 from llm.openai import openai
-from prompts.workflows.analysis import get_incident_analysis_prompt
+from prompts.workflows.analyzer_prompts import get_analyzer_prompt, ANALYZER_SYSTEM_PROMPT
 from prompts.data_collection.incident_prompts import get_incident_prompt
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,15 @@ async def analyze_incident_requirements(user_input: str) -> Dict[str, Any]:
         Dictionary containing incident analysis results
     """
     try:
-        analysis_prompt = get_incident_analysis_prompt(user_input)
+        # Use the centralized analyzer prompt
+        analysis_prompt = get_analyzer_prompt(
+            "INCIDENT",
+            user_input=user_input
+        )
         
         response = await openai.chat_completion(
             user_message=analysis_prompt,
-            system_prompt="You are an expert SRE analyzing incident reports for investigation planning. Always include the word 'json' in your response when using JSON format.",
+            system_prompt=ANALYZER_SYSTEM_PROMPT,
             temperature=0.1
         )
 
@@ -39,24 +43,28 @@ async def analyze_incident_requirements(user_input: str) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Error analyzing incident requirements: {str(e)}")
-        # Default to requiring metrics for incidents
+        # Default to requiring both for incidents (typical for investigations)
         return {
             "needs_metrics": True,
+            "needs_logs": True,
             "incident_type": "general",
             "severity": "medium",
-            "investigation_focus": ["performance", "availability"],
+            "investigation_focus": ["performance", "availability", "errors"],
             "urgency": "normal",
-            "reasoning": f"Analysis failed: {str(e)}"
+            "reasoning": f"Analysis failed: {str(e)}",
+            "data_requirements": {
+                "metrics": ["cpu", "memory", "error_rate"],
+                "logs": ["error_logs", "application_logs"]
+            }
         }
 
 
-async def process_non_metrics_incident(user_input: str, incident_analysis: Dict[str, Any]) -> Dict[str, Any]:
+async def process_non_metrics_incident(user_input: str) -> Dict[str, Any]:
     """
     Process incidents that don't require metrics data (rare case).
     
     Args:
         user_input: The user's incident description
-        incident_analysis: Analysis results from incident requirements
         
     Returns:
         Dictionary with processing results
