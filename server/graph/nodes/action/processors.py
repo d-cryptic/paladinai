@@ -132,26 +132,37 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
             except:
                 response_type = "simple_data"
 
+        # Check if we have alertmanager data to include
+        has_alertmanager_data = state.metadata.get("alertmanager_data") is not None
+        collected_data = {"metrics": serialized_prometheus_data}
+        data_sources = ["Prometheus"]
+        
+        if has_alertmanager_data:
+            alert_data = state.metadata.get("alertmanager_data", {})
+            collected_data["alerts"] = alert_data
+            data_sources.append("Alertmanager")
+            logger.info(f"Including Alertmanager data with {len(alert_data.get('alerts', []))} alerts")
+        
         # Use appropriate prompt based on OpenAI decision
         if response_type == "comprehensive_analysis":
             prompt = get_action_prompt(
                 "analysis",
                 user_input=state.user_input,
-                collected_data=json.dumps(serialized_prometheus_data, indent=2),
+                collected_data=json.dumps(collected_data, indent=2),
                 analysis_scope=action_type
             )
         elif response_type == "reporting":
             prompt = get_action_prompt(
                 "reporting",
                 user_input=state.user_input,
-                data_sources="Prometheus",
+                data_sources=", ".join(data_sources),
                 time_range=action_context.get("data_requirements", {}).get("time_range", "recent")
             )
         else:  # simple_data
             prompt = get_action_prompt(
                 "output_formatting",
                 user_input=state.user_input,
-                collected_data=json.dumps(serialized_prometheus_data, indent=2),
+                collected_data=json.dumps(collected_data, indent=2),
                 action_type=action_type
             )
         
@@ -257,8 +268,9 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
         action_analysis = state.metadata.get("action_analysis", {})
         action_type = action_analysis.get("action_type", "data_analysis")
         
-        # Check if we have both prometheus and loki data
+        # Check if we have multiple data sources
         has_prometheus_data = state.metadata.get("prometheus_data") is not None
+        has_alertmanager_data = state.metadata.get("alertmanager_data") is not None
         
         # Prepare collected data
         collected_data = {}
@@ -273,8 +285,16 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
             data_sources.append("Prometheus")
         
         # Add loki data
+        logger.info(f"Loki data contains: {len(loki_data.get('logs', []))} logs")
         collected_data["logs"] = loki_data
         data_sources.append("Loki")
+        
+        # Add alertmanager data if available
+        if has_alertmanager_data:
+            alert_data = state.metadata.get("alertmanager_data", {})
+            collected_data["alerts"] = alert_data
+            data_sources.append("Alertmanager")
+            logger.info(f"Alertmanager data contains: {len(alert_data.get('alerts', []))} alerts")
         
         # Format the final response with all collected data
         from prompts.data_collection.action_prompts import get_action_prompt

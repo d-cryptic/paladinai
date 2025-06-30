@@ -13,6 +13,7 @@ from .action.action import action_node
 from .incident.incident import incident_node
 from .prometheus import prometheus_node
 from .loki import loki_node
+from .alertmanager import alertmanager_node
 from .result import result_node
 from .error_handler import error_handler_node
 
@@ -25,6 +26,7 @@ __all__ = [
     "incident_node",
     "prometheus_node",
     "loki_node",
+    "alertmanager_node",
     "result_node",
     "error_handler_node"
 ]
