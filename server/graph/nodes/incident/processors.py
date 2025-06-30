@@ -35,18 +35,31 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
         incident_type = incident_context.get("incident_type", "general")
         severity = incident_context.get("severity", "medium")
         
-        # Create timeline from prometheus data if available
-        timeline = extract_timeline_from_data(prometheus_data)
+        # Check if we have alertmanager data to include
+        has_alertmanager_data = state.metadata.get("alertmanager_data") is not None
+        collected_data = {}
+        data_sources = []
         
         # Serialize prometheus data to handle Pydantic objects
         serialized_prometheus_data = serialize_prometheus_data(prometheus_data)
+        collected_data["metrics"] = serialized_prometheus_data
+        data_sources.append("Prometheus")
+        
+        if has_alertmanager_data:
+            alert_data = state.metadata.get("alertmanager_data", {})
+            collected_data["alerts"] = alert_data
+            data_sources.append("Alertmanager")
+            logger.info(f"Including Alertmanager data with {len(alert_data.get('alerts', []))} alerts")
+        
+        # Create timeline from collected data if available
+        timeline = extract_combined_timeline(collected_data)
 
         # Limit the size of data passed to OpenAI to prevent token overflow
-        data_str = json.dumps(serialized_prometheus_data, indent=2)
+        data_str = json.dumps(collected_data, indent=2)
         if len(data_str) > 10000:  # Limit to ~10k characters
             # Truncate and add summary
             truncated_data = data_str[:10000] + "\n... [Data truncated for processing]"
-            logger.warning(f"Prometheus data truncated from {len(data_str)} to 10000 characters")
+            logger.warning(f"Collected data truncated from {len(data_str)} to 10000 characters")
             data_for_prompt = truncated_data
         else:
             data_for_prompt = data_str
@@ -113,7 +126,7 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
             "incident_metadata": {
                 "type": incident_type,
                 "severity": severity,
-                "data_sources": ["Prometheus"],
+                "data_sources": data_sources,
                 "investigation_timestamp": state.metadata.get("current_timestamp")
             }
         }
@@ -146,34 +159,6 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
     return state
 
 
-def extract_timeline_from_data(prometheus_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Extract timeline information from prometheus data.
-    
-    Args:
-        prometheus_data: Data from prometheus node
-        
-    Returns:
-        Timeline information extracted from the data
-    """
-    try:
-        # Extract basic timeline info from prometheus data structure
-        timeline = {
-            "data_collection_time": prometheus_data.get("timestamp"),
-            "data_sources": ["Prometheus"],
-            "metrics_collected": len(prometheus_data.get("metrics", [])),
-            "time_range": prometheus_data.get("time_range", "recent")
-        }
-        
-        # Add any specific timeline events if available in the data
-        if "events" in prometheus_data:
-            timeline["events"] = prometheus_data["events"]
-        
-        return timeline
-        
-    except Exception as e:
-        logger.error(f"Error extracting timeline: {str(e)}")
-        return {"error": f"Timeline extraction failed: {str(e)}"}
 
 
 @observe(name="process_loki_result_incident")
@@ -197,8 +182,9 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
         incident_type = incident_analysis.get("incident_type", "general")
         severity = incident_analysis.get("severity", "medium")
         
-        # Check if we have both prometheus and loki data
+        # Check if we have multiple data sources
         has_prometheus_data = state.metadata.get("prometheus_data") is not None
+        has_alertmanager_data = state.metadata.get("alertmanager_data") is not None
         
         # Prepare collected data
         collected_data = {}
@@ -213,8 +199,16 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
             data_sources.append("Prometheus")
         
         # Add loki data
+        logger.info(f"Loki data contains: {len(loki_data.get('logs', []))} logs")
         collected_data["logs"] = loki_data
         data_sources.append("Loki")
+        
+        # Add alertmanager data if available
+        if has_alertmanager_data:
+            alert_data = state.metadata.get("alertmanager_data", {})
+            collected_data["alerts"] = alert_data
+            data_sources.append("Alertmanager")
+            logger.info(f"Alertmanager data contains: {len(alert_data.get('alerts', []))} alerts")
         
         # Extract combined timeline from both sources
         combined_timeline = extract_combined_timeline(collected_data)
@@ -311,6 +305,18 @@ def extract_combined_timeline(collected_data: Dict[str, Any]) -> Dict[str, Any]:
                         "severity": "high"
                     })
             timeline["data_sources"].append("Prometheus")
+        
+        # Extract events from alerts
+        if "alerts" in collected_data:
+            alerts = collected_data["alerts"].get("alerts", [])
+            for alert in alerts[:30]:  # Limit to first 30 alerts for timeline
+                timeline["events"].append({
+                    "timestamp": alert.get("startsAt", alert.get("timestamp")),
+                    "source": "alerts",
+                    "message": f"Alert: {alert.get('labels', {}).get('alertname', 'Unknown')} - {alert.get('annotations', {}).get('summary', 'No summary')}",
+                    "severity": alert.get("labels", {}).get("severity", "medium")
+                })
+            timeline["data_sources"].append("Alertmanager")
         
         # Sort events by timestamp
         timeline["events"].sort(key=lambda x: x.get("timestamp", ""))
