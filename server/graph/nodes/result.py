@@ -6,11 +6,22 @@ the final workflow results to the user.
 """
 
 import logging
+import json
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from langfuse import observe
 
 from ..state import WorkflowState, update_state_node, finalize_state
+from llm.openai import openai
+from prompts.workflows.result_formatting import get_formatting_prompt, FORMATTING_SYSTEM_PROMPT
+from prompts.workflows.result_guidance import (
+    get_workflow_guidance, 
+    NO_CATEGORIZATION_ERROR,
+    QUERY_SUCCESS_MESSAGE,
+    ACTION_SUCCESS_MESSAGE,
+    INCIDENT_SUCCESS_MESSAGE,
+    CATEGORIZATION_FALLBACK_TEMPLATE
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +62,14 @@ class ResultNode:
             # Format final result
             result = self._format_result(state)
             
+            # Format the entire state data using OpenAI
+            formatted_content = await self._format_with_openai(state, result)
+            if formatted_content:
+                result["formatted_markdown"] = formatted_content
+                logger.info(f"Successfully formatted markdown content: {len(formatted_content)} chars")
+            else:
+                logger.warning("Failed to format markdown content, falling back to standard response")
+            
             # Finalize state
             state = finalize_state(state, result, execution_time_ms)
             
@@ -87,7 +106,7 @@ class ResultNode:
         if not state.categorization:
             return {
                 "success": False,
-                "error": "I am a very dumb intern. I don't know anything other than SRE, DevOps, and system reliability. Please ask questions related to SRE, incident, or related technical operations.",
+                "error": NO_CATEGORIZATION_ERROR,
                 "session_id": state.session_id,
                 "execution_path": state.execution_path
             }
@@ -127,62 +146,135 @@ class ResultNode:
         # Add workflow-specific results
         if query_result:
             result["query_result"] = query_result
-            result["content"] = f"✅ Query processed successfully"
+            result["content"] = QUERY_SUCCESS_MESSAGE
         elif action_result:
             result["action_result"] = action_result
-            result["content"] = f"✅ Action completed successfully"
+            result["content"] = ACTION_SUCCESS_MESSAGE
         elif incident_result:
             result["incident_result"] = incident_result
-            result["content"] = f"✅ Incident analysis completed"
+            result["content"] = INCIDENT_SUCCESS_MESSAGE
         else:
             # Fallback to categorization-only result
-            result["content"] = f"✅ Categorized as {workflow_type_value} workflow\n📊 Confidence: {state.categorization.confidence:.1%}\n💡 {state.categorization.reasoning}\n🎯 Suggested approach: {state.categorization.suggested_approach}"
+            result["content"] = CATEGORIZATION_FALLBACK_TEMPLATE.format(
+                workflow_type=workflow_type_value,
+                confidence=state.categorization.confidence,
+                reasoning=state.categorization.reasoning,
+                suggested_approach=state.categorization.suggested_approach
+            )
         
         # Add workflow-specific guidance
         workflow_type_for_guidance = state.categorization.workflow_type
         if hasattr(workflow_type_for_guidance, 'value'):
             workflow_type_for_guidance = workflow_type_for_guidance.value
-        result["next_steps"] = self._get_workflow_guidance(workflow_type_for_guidance)
+        result["next_steps"] = get_workflow_guidance(workflow_type_for_guidance)
         
         return result
     
-    def _get_workflow_guidance(self, workflow_type: str) -> Dict[str, Any]:
+    
+    async def _format_with_openai(self, state: WorkflowState, result: Dict[str, Any]) -> Optional[str]:
         """
-        Get guidance for the next steps based on workflow type.
+        Format the complete workflow data using OpenAI into a clean markdown response.
         
         Args:
-            workflow_type: The categorized workflow type
+            state: Current workflow state
+            result: Formatted result dictionary
             
         Returns:
-            Dictionary containing guidance and next steps
+            Markdown-formatted string of the results
         """
-        guidance = {
-            "QUERY": {
-                "description": "Quick status/boolean information request",
-                "typical_response_time": "< 30 seconds",
-                "data_sources": ["Prometheus metrics", "Alertmanager alerts"],
-                "response_format": "Concise, factual, boolean or status-based"
-            },
-            "INCIDENT": {
-                "description": "Problem investigation and root cause analysis",
-                "typical_response_time": "2-10 minutes",
-                "data_sources": ["Prometheus metrics", "Loki logs", "Alertmanager alerts"],
-                "response_format": "Comprehensive analysis with root cause investigation"
-            },
-            "ACTION": {
-                "description": "Data retrieval, analysis, and reporting",
-                "typical_response_time": "1-5 minutes",
-                "data_sources": ["Historical metrics", "Log aggregations", "Performance data"],
-                "response_format": "Structured data with detailed analysis and reports"
+        try:
+            # Get workflow type
+            if state.categorization:
+                workflow_type = state.categorization.workflow_type
+                if hasattr(workflow_type, 'value'):
+                    workflow_type = workflow_type.value
+            else:
+                workflow_type = "UNKNOWN"
+            
+            # Prepare data for formatting
+            format_data = {
+                "user_request": state.user_input,
+                "workflow_type": workflow_type,
+                "execution_time_ms": state.metadata.get("total_execution_time_ms", 0),
+                "execution_path": state.execution_path
             }
-        }
-        
-        return guidance.get(workflow_type, {
-            "description": "Unknown workflow type",
-            "typical_response_time": "Variable",
-            "data_sources": ["To be determined"],
-            "response_format": "To be determined"
-        })
+            
+            # Add workflow-specific data
+            if workflow_type == "QUERY":
+                format_data["query_result"] = state.metadata.get("query_result", {})
+            elif workflow_type == "ACTION":
+                format_data["action_result"] = state.metadata.get("action_result", {})
+                format_data["prometheus_data"] = state.metadata.get("prometheus_data", {})
+                format_data["loki_data"] = state.metadata.get("loki_data", {})
+            elif workflow_type == "INCIDENT":
+                format_data["incident_result"] = state.metadata.get("incident_result", {})
+                format_data["prometheus_data"] = state.metadata.get("prometheus_data", {})
+                format_data["loki_data"] = state.metadata.get("loki_data", {})
+                format_data["incident_analysis"] = state.metadata.get("incident_analysis", {})
+            
+            # Create the prompt based on workflow type
+            if workflow_type == "QUERY":
+                prompt = get_formatting_prompt(
+                    "QUERY",
+                    user_request=format_data['user_request'],
+                    query_result=json.dumps(format_data.get('query_result', {}), indent=2)
+                )
+            elif workflow_type == "ACTION":
+                # Extract log entries if available
+                loki_logs = format_data.get('loki_data', {}).get('logs', [])
+                log_entries = []
+                for log in loki_logs[:10]:  # Get up to 10 logs
+                    log_entries.append({
+                        'timestamp': log.get('timestamp', ''),
+                        'line': log.get('line', '').strip()
+                    })
+                
+                prompt = get_formatting_prompt(
+                    "ACTION",
+                    user_request=format_data['user_request'],
+                    action_result=json.dumps(format_data.get('action_result', {}), indent=2),
+                    metrics_data=json.dumps(format_data.get('prometheus_data', {}).get('processed_metrics', {}), indent=2),
+                    logs_data=json.dumps(log_entries, indent=2),
+                    total_logs=len(loki_logs)
+                )
+            elif workflow_type == "INCIDENT":
+                prompt = get_formatting_prompt(
+                    "INCIDENT",
+                    user_request=format_data['user_request'],
+                    incident_analysis=json.dumps(format_data.get('incident_result', {}), indent=2),
+                    metrics_data=json.dumps(format_data.get('prometheus_data', {}), indent=2),
+                    logs_data=json.dumps(format_data.get('loki_data', {}), indent=2)
+                )
+            else:
+                # Fallback formatting
+                prompt = get_formatting_prompt(
+                    "FALLBACK",
+                    format_data=json.dumps(format_data, indent=2)
+                )
+            
+            # Call OpenAI to format the response using markdown formatting
+            response = await openai.markdown_formatting(
+                user_message=prompt,
+                system_prompt=FORMATTING_SYSTEM_PROMPT,
+                temperature=0.3
+            )
+
+            
+            if response["success"] and response.get("content"):
+                content = response["content"]
+                # Strip the content and check if it's actually meaningful
+                if content and len(content.strip()) > 10:
+                    return content
+                else:
+                    logger.warning(f"OpenAI returned empty or invalid content: '{content[:100]}'")
+                    return None
+            else:
+                logger.warning(f"OpenAI formatting failed: {response.get('error', 'Unknown error')}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error formatting with OpenAI: {str(e)}")
+            return None
     
     def get_next_node(self, state: WorkflowState) -> str:
         """
