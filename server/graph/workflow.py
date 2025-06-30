@@ -17,7 +17,7 @@ from .state import WorkflowState, GraphConfig, create_initial_state
 from .nodes import (
     start_node, guardrail_node, categorization_node,
     query_node, action_node, incident_node, prometheus_node,
-    loki_node, result_node, error_handler_node
+    loki_node, alertmanager_node, result_node, error_handler_node
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,7 @@ class PaladinWorkflow:
         workflow.add_node("incident", self._incident_node_wrapper)
         workflow.add_node("prometheus", self._prometheus_node_wrapper)
         workflow.add_node("loki", self._loki_node_wrapper)
+        workflow.add_node("alertmanager", self._alertmanager_node_wrapper)
         workflow.add_node("result", self._result_node_wrapper)
         workflow.add_node("error_handler", self._error_handler_node_wrapper)
 
@@ -118,6 +119,7 @@ class PaladinWorkflow:
             {
                 "prometheus": "prometheus",
                 "loki": "loki",
+                "alertmanager": "alertmanager",
                 "query_output": "result",
                 "error_handler": "error_handler"
             }
@@ -129,6 +131,7 @@ class PaladinWorkflow:
             {
                 "prometheus": "prometheus",
                 "loki": "loki",
+                "alertmanager": "alertmanager",
                 "action_output": "result",
                 "error_handler": "error_handler"
             }
@@ -140,6 +143,7 @@ class PaladinWorkflow:
             {
                 "prometheus": "prometheus",
                 "loki": "loki",
+                "alertmanager": "alertmanager",
                 "incident_output": "result",
                 "error_handler": "error_handler"
             }
@@ -163,6 +167,18 @@ class PaladinWorkflow:
                 "query_loki_return": "query",
                 "action_loki_return": "action",
                 "incident_loki_return": "incident",
+                "error_handler": "error_handler"
+            }
+        )
+
+        workflow.add_conditional_edges(
+            "alertmanager",
+            self._route_from_alertmanager,
+            {
+                "query_alertmanager_return": "query",
+                "action_alertmanager_return": "action",
+                "incident_alertmanager_return": "incident",
+                "result": "result",
                 "error_handler": "error_handler"
             }
         )
@@ -207,6 +223,10 @@ class PaladinWorkflow:
         elif state.metadata.get("loki_collection_complete"):
             loki_data = state.metadata.get("loki_data", {})
             return await query_node.process_loki_result(state, loki_data)
+        # Check if returning from alertmanager
+        elif state.metadata.get("alertmanager_collection_complete"):
+            alert_data = state.metadata.get("alertmanager_data", {})
+            return await query_node.process_alertmanager_result(state, alert_data)
         else:
             return await query_node.execute(state)
 
@@ -220,6 +240,10 @@ class PaladinWorkflow:
         elif state.metadata.get("loki_collection_complete"):
             loki_data = state.metadata.get("loki_data", {})
             return await action_node.process_loki_result(state, loki_data)
+        # Check if returning from alertmanager
+        elif state.metadata.get("alertmanager_collection_complete"):
+            alert_data = state.metadata.get("alertmanager_data", {})
+            return await action_node.process_alertmanager_result(state, alert_data)
         else:
             return await action_node.execute(state)
 
@@ -233,6 +257,10 @@ class PaladinWorkflow:
         elif state.metadata.get("loki_collection_complete"):
             loki_data = state.metadata.get("loki_data", {})
             return await incident_node.process_loki_result(state, loki_data)
+        # Check if returning from alertmanager
+        elif state.metadata.get("alertmanager_collection_complete"):
+            alert_data = state.metadata.get("alertmanager_data", {})
+            return await incident_node.process_alertmanager_result(state, alert_data)
         else:
             return await incident_node.execute(state)
 
@@ -243,6 +271,10 @@ class PaladinWorkflow:
     async def _loki_node_wrapper(self, state: WorkflowState) -> WorkflowState:
         """Wrapper for loki node execution."""
         return await loki_node.execute(state)
+    
+    async def _alertmanager_node_wrapper(self, state: WorkflowState) -> WorkflowState:
+        """Wrapper for alertmanager node execution."""
+        return await alertmanager_node.execute(state)
     
     def _route_from_start(self, state: WorkflowState) -> str:
         """Route from start node based on state."""
@@ -275,6 +307,10 @@ class PaladinWorkflow:
     def _route_from_loki(self, state: WorkflowState) -> str:
         """Route from loki node based on state."""
         return loki_node.get_next_node(state)
+    
+    def _route_from_alertmanager(self, state: WorkflowState) -> str:
+        """Route from alertmanager node based on state."""
+        return alertmanager_node.get_next_node(state)
     
     @observe(name="workflow_execution")
     async def execute(
