@@ -4,6 +4,7 @@ AI-Powered Monitoring & Incident Response Platform
 """
 
 import os
+import warnings
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -11,6 +12,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routes import health_router, chat_router
 from middleware import ErrorHandlerMiddleware, RequestTimeoutMiddleware
+from memory.api import memory_router
+
+# Suppress Pydantic deprecation warning from LangGraph
+# This is a third-party library issue that should be fixed in their code
+warnings.filterwarnings(
+    "ignore",
+    category=DeprecationWarning,
+    message=".*Accessing the 'model_fields' attribute on the instance is deprecated.*",
+    module="langgraph.*"
+)
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +51,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(memory_router)
 
 
 if __name__ == "__main__":
@@ -54,6 +66,8 @@ if __name__ == "__main__":
         port=port,
         reload=reload,
         log_level=log_level,
+        # Use modern websockets implementation
+        ws="wsproto",  # Alternative: "websockets-sansio" for Sans-I/O implementation
         # Better production settings
         access_log=True,
         server_header=False,
