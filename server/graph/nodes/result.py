@@ -14,6 +14,7 @@ from langfuse import observe
 from ..state import WorkflowState, update_state_node, finalize_state
 from llm.openai import openai
 from prompts.workflows.result_formatting import get_formatting_prompt, FORMATTING_SYSTEM_PROMPT
+from memory import memory_extractor
 from prompts.workflows.result_guidance import (
     get_workflow_guidance, 
     NO_CATEGORIZATION_ERROR,
@@ -69,6 +70,36 @@ class ResultNode:
                 logger.info(f"Successfully formatted markdown content: {len(formatted_content)} chars")
             else:
                 logger.warning("Failed to format markdown content, falling back to standard response")
+            
+            # Extract and store memories from the workflow (async operation)
+            try:
+                if state.categorization:
+                    workflow_type = state.categorization.workflow_type
+                    if hasattr(workflow_type, 'value'):
+                        workflow_type = workflow_type.value
+                    
+                    # Convert state to dict for memory extraction
+                    state_dict = {
+                        "final_result": result,
+                        "metadata": state.metadata
+                    }
+                    
+                    memory_result = await memory_extractor.extract_from_workflow_state(
+                        state=state_dict,
+                        user_input=state.user_input,
+                        workflow_type=workflow_type,
+                        user_id=state.metadata.get("user_id"),
+                        session_id=state.session_id
+                    )
+                    
+                    if memory_result.get("success"):
+                        logger.info(f"Extracted {memory_result.get('memories_stored', 0)} memories from workflow")
+                    else:
+                        logger.warning(f"Memory extraction failed: {memory_result.get('error')}")
+                        
+            except Exception as e:
+                # Don't fail the workflow if memory extraction fails
+                logger.warning(f"Memory extraction failed but continuing workflow: {str(e)}")
             
             # Finalize state
             state = finalize_state(state, result, execution_time_ms)
