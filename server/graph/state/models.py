@@ -6,7 +6,7 @@ system for state management, results, and configuration.
 """
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 from datetime import datetime
 
 from .enums import WorkflowType, ComplexityLevel, NodeStatus, ExecutionPhase
@@ -30,9 +30,7 @@ class CategorizationResult(BaseModel):
     alternative_types: List[Dict[str, float]] = Field(default_factory=list, description="Alternative workflow types with confidence scores")
     processing_hints: Dict[str, Any] = Field(default_factory=dict, description="Hints for downstream processing")
     
-    class Config:
-        """Pydantic configuration."""
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class NodeResult(BaseModel):
@@ -53,9 +51,7 @@ class NodeResult(BaseModel):
     retry_count: int = Field(default=0, description="Number of retries attempted")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional node metadata")
     
-    class Config:
-        """Pydantic configuration."""
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class WorkflowState(BaseModel):
@@ -98,13 +94,14 @@ class WorkflowState(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata and context")
     user_context: Dict[str, Any] = Field(default_factory=dict, description="User-specific context information")
     
-    class Config:
-        """Pydantic configuration."""
-        arbitrary_types_allowed = True
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        use_enum_values=True
+    )
+    
+    @field_serializer('timestamp')
+    def serialize_timestamp(self, dt: datetime) -> str:
+        return dt.isoformat()
     
     def add_node_result(self, node_name: str, result: NodeResult) -> None:
         """
@@ -210,6 +207,4 @@ class GraphConfig(BaseModel):
     enable_streaming: bool = Field(default=True, description="Enable workflow streaming")
     save_intermediate_results: bool = Field(default=True, description="Save results from intermediate nodes")
     
-    class Config:
-        """Pydantic configuration."""
-        validate_assignment = True
+    model_config = ConfigDict(validate_assignment=True)
