@@ -38,6 +38,36 @@ def create_parser() -> argparse.ArgumentParser:
         "--context", type=str, help="Additional context as JSON string"
     )
     
+    # Memory functionality arguments
+    parser.add_argument(
+        "--memory-store", type=str, help="Store an instruction in memory"
+    )
+    parser.add_argument(
+        "--memory-search", type=str, help="Search memories using semantic similarity"
+    )
+    parser.add_argument(
+        "--memory-context", type=str, help="Get contextual memories for given situation"
+    )
+    parser.add_argument(
+        "--memory-types", action="store_true", help="Show available memory types"
+    )
+    parser.add_argument(
+        "--memory-health", action="store_true", help="Check memory service health"
+    )
+    parser.add_argument(
+        "--memory-help", action="store_true", help="Show memory features help"
+    )
+    parser.add_argument(
+        "--workflow-type", type=str, choices=["QUERY", "ACTION", "INCIDENT"], 
+        default="QUERY", help="Workflow type for contextual memories"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=10, help="Maximum number of results for memory operations"
+    )
+    parser.add_argument(
+        "--confidence", type=float, default=0.5, help="Minimum confidence threshold for memory search"
+    )
+    
     return parser
 
 
@@ -72,8 +102,18 @@ def show_help_message() -> None:
     print("  python main.py --chat 'What is the status of our system?'")
     print("  python main.py --interactive  # Start continuous chat mode")
     print("  python main.py --chat 'Check system health' --context '{\"environment\": \"production\"}'")
+    print("\nMemory Examples:")
+    print("  python main.py --memory-store 'Always check systemd logs for app errors'")
+    print("  python main.py --memory-search 'CPU alerts' --limit 5")
+    print("  python main.py --memory-context 'high memory usage' --workflow-type ACTION")
+    print("  python main.py --memory-help  # Show detailed memory features")
+    print("  python main.py --memory-health  # Check memory service status")
 
 
 def has_any_command(args: argparse.Namespace) -> bool:
     """Check if any command arguments were provided."""
-    return any([args.test, args.hello, args.status, args.all, args.chat, args.interactive])
+    return any([
+        args.test, args.hello, args.status, args.all, args.chat, args.interactive,
+        args.memory_store, args.memory_search, args.memory_context, args.memory_types,
+        args.memory_health, args.memory_help
+    ])

@@ -6,9 +6,10 @@ Main client class combining all functionality modules.
 from .base import BaseHTTPClient
 from .health import HealthMixin
 from .openai import OpenAIMixin
+from .memory import MemoryMixin
 
 
-class PaladinCLI(BaseHTTPClient, HealthMixin, OpenAIMixin):
+class PaladinCLI(BaseHTTPClient, HealthMixin, OpenAIMixin, MemoryMixin):
     """
     Main CLI client class for Paladin AI server communication.
 
