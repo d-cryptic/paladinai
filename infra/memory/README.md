@@ -112,27 +112,41 @@ paladinai-mongodb-replica-init "bash -c 'echo 'Wait…"   mongodb-replica-init E
 
 ### Collections
 
-1. **langgraph_checkpoints** - Main checkpoint storage
+LangGraph AsyncMongoDBSaver automatically creates and manages these collections:
+
+1. **checkpoints_aio** - Main checkpoint storage
    - Stores LangGraph workflow state snapshots
+   - Contains checkpoint metadata and state
    - Indexed for optimal query performance
-   - TTL index for automatic cleanup (30 days)
 
-### Indexes
+2. **checkpoint_writes_aio** - Checkpoint write operations
+   - Stores individual channel writes for each checkpoint
+   - Tracks task execution and channel updates
+   - Used for checkpoint reconstruction
 
-1. **thread_checkpoint_idx** - `{thread_id: 1, checkpoint_id: 1}`
+### Indexes for checkpoints_aio
+
+1. **thread_ns_checkpoint_idx** - `{thread_id: 1, checkpoint_ns: 1, checkpoint_id: 1}`
    - Primary query pattern for checkpoint retrieval
 
-2. **timestamp_idx** - `{ts: 1}`
-   - Timestamp-based queries and cleanup operations
-
-3. **thread_timestamp_idx** - `{thread_id: 1, ts: -1}`
-   - Listing checkpoints for a thread in chronological order
-
-4. **parent_checkpoint_idx** - `{parent_checkpoint_id: 1}` (sparse)
+2. **parent_checkpoint_idx** - `{parent_checkpoint_id: 1}` (sparse)
    - Checkpoint hierarchy navigation
 
-5. **checkpoint_ttl_idx** - `{ts: 1}` with TTL (30 days)
-   - Automatic cleanup of old checkpoints
+3. **type_idx** - `{type: 1}`
+   - Filtering by checkpoint type
+
+### Indexes for checkpoint_writes_aio
+
+1. **thread_ns_checkpoint_writes_idx** - `{thread_id: 1, checkpoint_ns: 1, checkpoint_id: 1}`
+   - Retrieving writes for specific checkpoints
+
+2. **task_id_idx** - `{task_id: 1}`
+   - Task-based write queries
+
+3. **channel_idx** - `{channel: 1}`
+   - Channel-specific write queries
+
+Note: LangGraph manages its own cleanup and TTL policies internally
 
 ## Operations
 
