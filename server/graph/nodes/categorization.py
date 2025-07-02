@@ -47,7 +47,9 @@ class CategorizationNode:
         
         try:
             # Perform categorization using OpenAI
-            result = await self._categorize_input(state.user_input)
+            # Use enhanced input if available, otherwise use original
+            input_to_categorize = state.enhanced_input or state.user_input
+            result = await self._categorize_input(input_to_categorize)
             
             if result.success:
                 # Parse categorization result
