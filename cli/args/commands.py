@@ -73,6 +73,25 @@ async def execute_commands(cli, args: argparse.Namespace, context: Optional[Dict
     if args.memory_health:
         await cli.check_memory_health()
 
+    # Checkpoint functionality commands
+    if args.checkpoint_help:
+        await cli.show_checkpoint_help()
+    
+    if args.checkpoint_get:
+        await cli.get_checkpoint(args.checkpoint_get)
+    
+    if args.checkpoint_exists:
+        await cli.check_checkpoint_exists(args.checkpoint_exists)
+    
+    if args.checkpoint_list:
+        await cli.list_checkpoints(
+            session_id=args.session,
+            limit=args.limit
+        )
+    
+    if args.checkpoint_delete:
+        await cli.delete_checkpoint(args.checkpoint_delete)
+
     # Show help if no commands were provided
     if not has_any_command(args):
         show_help_message()
@@ -104,6 +123,11 @@ async def interactive_chat(cli, context: Optional[Dict[str, Any]] = None, analys
             # Check for memory commands in interactive mode
             if user_input.startswith("/memory"):
                 await handle_interactive_memory_command(cli, user_input)
+                continue
+            
+            # Check for checkpoint commands in interactive mode
+            if user_input.startswith("/checkpoint"):
+                await handle_interactive_checkpoint_command(cli, user_input)
                 continue
 
             # Show contextual memories before processing (if not analysis_only)
@@ -175,3 +199,42 @@ async def handle_interactive_memory_command(cli, command: str) -> None:
             
     except Exception as e:
         print(f"❌ Error executing memory command: {str(e)}")
+
+
+async def handle_interactive_checkpoint_command(cli, command: str) -> None:
+    """
+    Handle checkpoint commands in interactive mode.
+    
+    Args:
+        cli: PaladinCLI instance
+        command: Checkpoint command string
+    """
+    try:
+        parts = command.split(maxsplit=2)
+        
+        if len(parts) < 2:
+            print("💾 Checkpoint commands:")
+            print("  /checkpoint help - Show checkpoint help")
+            print("  /checkpoint get <session_id> - Get checkpoint")
+            print("  /checkpoint exists <session_id> - Check if checkpoint exists")
+            print("  /checkpoint list - List all checkpoints")
+            print("  /checkpoint delete <session_id> - Delete checkpoint")
+            return
+        
+        cmd = parts[1].lower()
+        
+        if cmd == "help":
+            await cli.show_checkpoint_help()
+        elif cmd == "get" and len(parts) > 2:
+            await cli.get_checkpoint(parts[2])
+        elif cmd == "exists" and len(parts) > 2:
+            await cli.check_checkpoint_exists(parts[2])
+        elif cmd == "list":
+            await cli.list_checkpoints(limit=10)
+        elif cmd == "delete" and len(parts) > 2:
+            await cli.delete_checkpoint(parts[2])
+        else:
+            print("❌ Unknown checkpoint command. Use '/checkpoint help' for available commands.")
+            
+    except Exception as e:
+        print(f"❌ Error executing checkpoint command: {str(e)}")
