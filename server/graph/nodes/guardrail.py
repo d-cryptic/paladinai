@@ -8,12 +8,13 @@ with a static response.
 
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from langfuse import observe
 
 from ..state import WorkflowState, update_state_node, finalize_state, set_error
 from llm.openai import openai
 from prompts.system.guardrail import SYSTEM_PROMPT_GUARDRAIL
+from memory import get_memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ class GuardrailNode:
                 # Input is SRE-related, proceed to categorization
                 state.metadata["guardrail_validation"] = "passed"
                 state.metadata["guardrail_reasoning"] = validation_result.get("reasoning", "SRE-related query")
+                
+                # Fetch and apply memory instructions
+                state = await self._enhance_with_memory_instructions(state)
                 
                 logger.info(
                     f"Guardrail approved SRE query for session: {state.session_id}"
@@ -167,6 +171,105 @@ Response:"""
                 "blocked_reason": reason
             }
         }
+    
+    async def _enhance_with_memory_instructions(self, state: WorkflowState) -> WorkflowState:
+        """
+        Enhance user input with relevant instructions from memory.
+        
+        Args:
+            state: Current workflow state
+            
+        Returns:
+            Updated workflow state with enhanced input
+        """
+        try:
+            # Get memory service
+            memory_service = get_memory_service()
+            
+            # Search for relevant memories, especially instructions
+            from memory.models import MemorySearchQuery
+            search_query = MemorySearchQuery(
+                query=state.user_input,
+                memory_types=["instruction"],  # Focus on instruction type memories
+                limit=10,
+                confidence_threshold=0.6
+            )
+            
+            search_results = await memory_service.search_memories(search_query)
+            
+            if not search_results.get("success") or not search_results.get("memories"):
+                logger.debug("No memory instructions found for enhancement")
+                return state
+            
+            # Extract relevant instructions
+            instructions = []
+            for memory in search_results["memories"]:
+                if memory.get("memory_type") == "instruction":
+                    content = memory.get("memory", "")
+                    if content and self._is_instruction_relevant(content, state.user_input):
+                        instructions.append(content)
+                        logger.info(f"Found relevant instruction: {content}")
+            
+            # If we have instructions, enhance the input
+            if instructions:
+                # Store original input if not already stored
+                if not state.enhanced_input:
+                    state.enhanced_input = state.user_input
+                
+                # Add instructions to the input
+                instruction_text = " Additionally, follow these instructions: " + "; ".join(instructions)
+                state.enhanced_input = state.user_input + instruction_text
+                state.memory_instructions = instructions
+                
+                # Update metadata
+                state.metadata["memory_enhanced"] = True
+                state.metadata["instruction_count"] = len(instructions)
+                
+                logger.info(f"Enhanced input with {len(instructions)} memory instructions")
+            else:
+                # No relevant instructions, use original input
+                state.enhanced_input = state.user_input
+                state.metadata["memory_enhanced"] = False
+                
+        except Exception as e:
+            logger.error(f"Error enhancing input with memory: {str(e)}", exc_info=True)
+            # On error, use original input
+            state.enhanced_input = state.user_input
+            
+        return state
+    
+    def _is_instruction_relevant(self, instruction: str, user_input: str) -> bool:
+        """
+        Check if an instruction is relevant to the current user input.
+        
+        Args:
+            instruction: Memory instruction content
+            user_input: Current user input
+            
+        Returns:
+            True if instruction is relevant
+        """
+        # Simple keyword matching for now
+        instruction_lower = instruction.lower()
+        input_lower = user_input.lower()
+        
+        # Check for common monitoring keywords
+        relevant_keywords = ["cpu", "memory", "disk", "network", "metrics", "logs", "alerts", 
+                           "prometheus", "loki", "alertmanager", "performance", "usage"]
+        
+        # Check if instruction mentions any keyword that's also in user input
+        for keyword in relevant_keywords:
+            if keyword in instruction_lower and keyword in input_lower:
+                return True
+        
+        # Check for specific patterns
+        if "when asked for" in instruction_lower or "always fetch" in instruction_lower:
+            # Check if the condition matches current input
+            for keyword in relevant_keywords:
+                if keyword in instruction_lower and keyword in input_lower:
+                    return True
+        
+        return False
     
     def get_next_node(self, state: WorkflowState) -> str:
         """
