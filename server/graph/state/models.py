@@ -64,6 +64,8 @@ class WorkflowState(BaseModel):
     """
     # Input data
     user_input: str = Field(description="Original user input/query")
+    enhanced_input: Optional[str] = Field(default=None, description="User input enhanced with memory instructions")
+    memory_instructions: List[str] = Field(default_factory=list, description="Instructions from memory applied to input")
     session_id: Optional[str] = Field(default=None, description="Session identifier for tracking")
     timestamp: datetime = Field(default_factory=datetime.now, description="Workflow start timestamp")
     
