@@ -235,13 +235,50 @@ class PaladinCheckpointer:
             return None
         
         try:
-            config = self.get_config(thread_id, checkpoint_ns)
-            checkpoint = await self._checkpointer.aget(config)
+            # Query MongoDB directly since LangGraph's aget might have issues
+            db = self._client[self.database_name]
+            collection = db['checkpoints_aio']
             
-            if checkpoint:
+            # Find the latest checkpoint for this thread
+            doc = await collection.find_one(
+                {'thread_id': thread_id, 'checkpoint_ns': checkpoint_ns},
+                sort=[('_id', -1)]
+            )
+            
+            if doc:
                 logger.debug(f"Loaded checkpoint for thread {thread_id}")
+                
+                # Extract timestamp from ObjectId
+                timestamp = doc["_id"].generation_time.isoformat() if "_id" in doc else None
+                
+                # Extract metadata - handle if it's binary
+                metadata = doc.get("metadata", {})
+                if isinstance(metadata, dict):
+                    # Convert any bytes values to strings in metadata
+                    cleaned_metadata = {}
+                    for k, v in metadata.items():
+                        if isinstance(v, bytes):
+                            try:
+                                cleaned_metadata[k] = v.decode('utf-8')
+                            except:
+                                cleaned_metadata[k] = "<binary data>"
+                        else:
+                            cleaned_metadata[k] = v
+                    metadata = cleaned_metadata
+                
+                return {
+                    "thread_id": doc.get("thread_id", thread_id),
+                    "checkpoint_id": doc.get("checkpoint_id", ""),
+                    "checkpoint_ns": doc.get("checkpoint_ns", ""),
+                    "timestamp": timestamp,
+                    "metadata": metadata,
+                    "parent_checkpoint_id": doc.get("parent_checkpoint_id"),
+                    "type": doc.get("type", "unknown"),
+                    # Don't include raw binary checkpoint data
+                }
             
-            return checkpoint
+            logger.info(f"No checkpoint found for thread {thread_id} with ns '{checkpoint_ns}'")
+            return None
             
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {str(e)}")
@@ -268,15 +305,73 @@ class PaladinCheckpointer:
             return []
         
         try:
-            if thread_id:
-                config = self.get_config(thread_id, checkpoint_ns)
-            else:
-                config = {"configurable": {"checkpoint_ns": checkpoint_ns}}
+            # For listing all checkpoints, we'll query MongoDB directly
+            # because LangGraph's alist doesn't support listing all threads
+            if not thread_id:
+                # Access MongoDB directly to list all checkpoints
+                db = self._client[self.database_name]
+                collection = db['checkpoints_aio']  # LangGraph uses this collection
+                
+                # Build query - by default get all checkpoints with empty namespace
+                query = {'checkpoint_ns': ''}  # Most checkpoints use empty namespace
+                
+                logger.info(f"Querying MongoDB directly with query: {query}, limit: {limit}")
+                
+                checkpoints = []
+                cursor = collection.find(query).sort('_id', -1).limit(limit)
+                async for doc in cursor:
+                    try:
+                        # Extract fields from the document
+                        # The checkpoint field is binary msgpack data, we'll extract timestamp from metadata
+                        metadata = doc.get("metadata", {})
+                        
+                        # Try to get timestamp from metadata or document
+                        timestamp = None
+                        if "created_at" in metadata:
+                            timestamp = metadata["created_at"]
+                        elif "ts" in metadata:
+                            timestamp = metadata["ts"]
+                        elif "_id" in doc:
+                            # ObjectId contains timestamp
+                            timestamp = doc["_id"].generation_time.isoformat()
+                        
+                        checkpoint_dict = {
+                            "thread_id": doc.get("thread_id"),
+                            "checkpoint_ns": doc.get("checkpoint_ns", ""),
+                            "checkpoint_id": doc.get("checkpoint_id"),
+                            "timestamp": timestamp,
+                            "metadata": metadata,
+                            "parent_checkpoint_id": doc.get("parent_checkpoint_id"),
+                            "type": doc.get("type", "unknown")
+                        }
+                        checkpoints.append(checkpoint_dict)
+                    except Exception as e:
+                        logger.warning(f"Error processing checkpoint document: {str(e)}")
+                        continue
+                
+                logger.info(f"Found {len(checkpoints)} checkpoints from MongoDB")
+                return checkpoints
+            
+            # For specific thread_id, use LangGraph's alist
+            config = self.get_config(thread_id, checkpoint_ns)
+            logger.info(f"Listing checkpoints for thread {thread_id} with config: {config}, limit: {limit}")
             
             checkpoints = []
-            async for checkpoint in self._checkpointer.alist(config, limit=limit):
-                checkpoints.append(checkpoint)
+            async for checkpoint_tuple in self._checkpointer.alist(config, limit=limit):
+                # Convert CheckpointTuple to dictionary
+                checkpoint_dict = {
+                    "config": checkpoint_tuple.config,
+                    "checkpoint": checkpoint_tuple.checkpoint,
+                    "metadata": checkpoint_tuple.metadata,
+                    "parent_config": checkpoint_tuple.parent_config,
+                    "thread_id": checkpoint_tuple.config.get("configurable", {}).get("thread_id"),
+                    "checkpoint_ns": checkpoint_tuple.config.get("configurable", {}).get("checkpoint_ns", ""),
+                    "checkpoint_id": checkpoint_tuple.checkpoint.id if checkpoint_tuple.checkpoint else None,
+                    "timestamp": checkpoint_tuple.checkpoint.ts if checkpoint_tuple.checkpoint else None
+                }
+                checkpoints.append(checkpoint_dict)
             
+            logger.info(f"Found {len(checkpoints)} checkpoints")
             return checkpoints
             
         except Exception as e:
