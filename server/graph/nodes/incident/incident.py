@@ -40,14 +40,16 @@ class IncidentNode:
         Returns:
             Updated workflow state with incident processing results
         """
-        logger.info(f"Executing incident node for input: {state.user_input[:100]}...")
+        # Use enhanced input if available
+        incident_input = state.enhanced_input or state.user_input
+        logger.info(f"Executing incident node for input: {incident_input[:100]}...")
         
         # Update state to indicate incident node execution
         state = update_state_node(state, self.node_name)
         
         try:
             # Analyze the incident to determine investigation requirements
-            incident_analysis = await analyze_incident_requirements(state.user_input)
+            incident_analysis = await analyze_incident_requirements(incident_input)
             
             # Extract data requirements
             needs_metrics = incident_analysis.get("needs_metrics", True)
@@ -61,7 +63,7 @@ class IncidentNode:
             state.metadata["originating_node"] = "incident"
             state.metadata["incident_context"] = {
                 "workflow_type": "incident",
-                "user_input": state.user_input,
+                "user_input": incident_input,
                 "incident_type": incident_analysis.get("incident_type", "general"),
                 "severity": incident_analysis.get("severity", "medium"),
                 "investigation_focus": incident_analysis.get("investigation_focus", []),
@@ -91,7 +93,7 @@ class IncidentNode:
             else:
                 logger.info("Incident can be handled without external data (rare)")
                 # Process incident directly without metrics or logs
-                result = await process_non_metrics_incident(state.user_input)
+                result = await process_non_metrics_incident(incident_input)
                 
                 if result["success"]:
                     state.metadata["incident_result"] = result["data"]

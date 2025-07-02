@@ -40,14 +40,16 @@ class ActionNode:
         Returns:
             Updated workflow state with action processing results
         """
-        logger.info(f"Executing action node for input: {state.user_input[:100]}...")
+        # Use enhanced input if available
+        action_input = state.enhanced_input or state.user_input
+        logger.info(f"Executing action node for input: {action_input[:100]}...")
         
         # Update state to indicate action node execution
         state = update_state_node(state, self.node_name)
         
         try:
             # Analyze the action request to determine data requirements
-            action_analysis = await analyze_action_requirements(state.user_input)
+            action_analysis = await analyze_action_requirements(action_input)
             
             # Extract data requirements
             needs_metrics = action_analysis.get("needs_metrics", False)
@@ -61,7 +63,7 @@ class ActionNode:
             state.metadata["originating_node"] = "action"
             state.metadata["action_context"] = {
                 "workflow_type": "action",
-                "user_input": state.user_input,
+                "user_input": action_input,
                 "action_type": action_analysis.get("action_type", "data_analysis"),
                 "data_requirements": action_analysis.get("data_requirements", {}),
                 "processing_stage": "data_collection"
@@ -89,7 +91,7 @@ class ActionNode:
             else:
                 logger.info("Action can be handled without external data")
                 # Process action directly without metrics or logs
-                result = await process_non_metrics_action(state.user_input, action_analysis)
+                result = await process_non_metrics_action(action_input, action_analysis)
                 
                 if result["success"]:
                     state.metadata["action_result"] = result["data"]

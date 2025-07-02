@@ -40,14 +40,16 @@ class QueryNode:
         Returns:
             Updated workflow state with query processing results
         """
-        logger.info(f"Executing query node for input: {state.user_input[:100]}...")
+        # Use enhanced input if available
+        query_input = state.enhanced_input or state.user_input
+        logger.info(f"Executing query node for input: {query_input[:100]}...")
         
         # Update state to indicate query node execution
         state = update_state_node(state, self.node_name)
         
         try:
             # Analyze what data sources are needed
-            data_requirements = await analyze_data_requirements(state.user_input)
+            data_requirements = await analyze_data_requirements(query_input)
             needs_metrics = data_requirements.get("needs_metrics", False)
             needs_logs = data_requirements.get("needs_logs", False)
             needs_alerts = data_requirements.get("needs_alerts", False)
@@ -61,7 +63,7 @@ class QueryNode:
             # Store query context for data collection nodes
             state.metadata["query_context"] = {
                 "workflow_type": "query",
-                "user_input": state.user_input,
+                "user_input": query_input,
                 "processing_stage": "data_collection"
             }
             
@@ -87,7 +89,7 @@ class QueryNode:
             else:
                 logger.info("Query can be handled without external data")
                 # Process query directly without metrics, logs, or alerts
-                result = await process_non_metrics_query(state.user_input)
+                result = await process_non_metrics_query(query_input)
                 
                 if result["success"]:
                     state.metadata["query_result"] = result["data"]
