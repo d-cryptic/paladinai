@@ -5,77 +5,59 @@ print('Starting database initialization for PaladinAI checkpointing...');
 
 // Get database name from environment or use default
 var dbName = process.env.MONGODB_DATABASE || 'paladinai_checkpoints';
-var collectionName = process.env.MONGODB_COLLECTION || 'langgraph_checkpoints';
 
 print('Database name:', dbName);
-print('Collection name:', collectionName);
+print('Note: LangGraph uses its own collection names (checkpoints_aio and checkpoint_writes_aio)');
 
 // Switch to the target database
 db = db.getSiblingDB(dbName);
 
+// LangGraph AsyncMongoDBSaver uses these specific collection names
+var checkpointsCollection = 'checkpoints_aio';
+var writesCollection = 'checkpoint_writes_aio';
+
 // Create the checkpoints collection if it doesn't exist
-if (!db.getCollectionNames().includes(collectionName)) {
-    print('Creating collection:', collectionName);
-    db.createCollection(collectionName);
+if (!db.getCollectionNames().includes(checkpointsCollection)) {
+    print('Creating collection:', checkpointsCollection);
+    db.createCollection(checkpointsCollection);
 } else {
-    print('Collection already exists:', collectionName);
+    print('Collection already exists:', checkpointsCollection);
 }
 
-// Create indexes for optimal checkpoint performance
-print('Creating indexes for checkpointing performance...');
+// Create the checkpoint writes collection if it doesn't exist
+if (!db.getCollectionNames().includes(writesCollection)) {
+    print('Creating collection:', writesCollection);
+    db.createCollection(writesCollection);
+} else {
+    print('Collection already exists:', writesCollection);
+}
 
-var collection = db.getCollection(collectionName);
+// Create indexes for checkpoints_aio collection
+print('\nCreating indexes for checkpoints_aio collection...');
+var checkpointsCol = db.getCollection(checkpointsCollection);
 
-// Index for thread_id (most common query pattern)
+// Index for thread_id and checkpoint_ns (most common query pattern)
 try {
-    collection.createIndex(
-        { "thread_id": 1, "checkpoint_id": 1 },
+    checkpointsCol.createIndex(
+        { "thread_id": 1, "checkpoint_ns": 1, "checkpoint_id": 1 },
         { 
-            name: "thread_checkpoint_idx",
+            name: "thread_ns_checkpoint_idx",
             background: true 
         }
     );
-    print('Created index: thread_checkpoint_idx');
+    print('Created index: thread_ns_checkpoint_idx');
 } catch (e) {
-    print('Index thread_checkpoint_idx may already exist:', e.message);
+    print('Index thread_ns_checkpoint_idx may already exist:', e.message);
 }
 
-// Index for timestamp-based queries (cleanup operations)
+// Index for parent checkpoint lookups
 try {
-    collection.createIndex(
-        { "ts": 1 },
-        { 
-            name: "timestamp_idx",
-            background: true 
-        }
-    );
-    print('Created index: timestamp_idx');
-} catch (e) {
-    print('Index timestamp_idx may already exist:', e.message);
-}
-
-// Compound index for thread_id and timestamp (listing checkpoints)
-try {
-    collection.createIndex(
-        { "thread_id": 1, "ts": -1 },
-        { 
-            name: "thread_timestamp_idx",
-            background: true 
-        }
-    );
-    print('Created index: thread_timestamp_idx');
-} catch (e) {
-    print('Index thread_timestamp_idx may already exist:', e.message);
-}
-
-// Index for parent_checkpoint_id (checkpoint hierarchy)
-try {
-    collection.createIndex(
+    checkpointsCol.createIndex(
         { "parent_checkpoint_id": 1 },
         { 
             name: "parent_checkpoint_idx",
             background: true,
-            sparse: true  // Only index documents that have this field
+            sparse: true 
         }
     );
     print('Created index: parent_checkpoint_idx');
@@ -83,90 +65,103 @@ try {
     print('Index parent_checkpoint_idx may already exist:', e.message);
 }
 
-// Create a TTL index for automatic cleanup (30 days retention)
+// Index for type queries
 try {
-    collection.createIndex(
-        { "ts": 1 },
+    checkpointsCol.createIndex(
+        { "type": 1 },
         { 
-            name: "checkpoint_ttl_idx",
-            expireAfterSeconds: 30 * 24 * 60 * 60, // 30 days in seconds
+            name: "type_idx",
             background: true 
         }
     );
-    print('Created TTL index: checkpoint_ttl_idx (30 days retention)');
+    print('Created index: type_idx');
 } catch (e) {
-    print('TTL index checkpoint_ttl_idx may already exist:', e.message);
+    print('Index type_idx may already exist:', e.message);
 }
 
-// Create a test document to verify everything works
-print('Creating test checkpoint document...');
+// Create indexes for checkpoint_writes_aio collection
+print('\nCreating indexes for checkpoint_writes_aio collection...');
+var writesCol = db.getCollection(writesCollection);
+
+// Index for thread_id, checkpoint_ns and checkpoint_id
 try {
-    var testDoc = {
-        thread_id: "test-thread-" + new Date().getTime(),
-        checkpoint_id: "test-checkpoint-" + new Date().getTime(),
-        parent_checkpoint_id: null,
-        type: "checkpoint",
-        checkpoint: {
-            v: 1,
-            ts: new Date().toISOString(),
-            id: "test-checkpoint-" + new Date().getTime(),
-            channel_values: {
-                test: true,
-                initialized: new Date().toISOString()
-            },
-            channel_versions: {
-                test: 1
-            },
-            versions_seen: {},
-            pending_sends: []
-        },
-        metadata: {
-            source: "init-script",
-            step: 0,
-            writes: {},
-            parents: {}
-        },
-        ts: new Date()
-    };
-    
-    var result = collection.insertOne(testDoc);
-    print('Test document inserted with ID:', result.insertedId);
-    
-    // Verify we can query it
-    var found = collection.findOne({ thread_id: testDoc.thread_id });
-    if (found) {
-        print('Test document verification successful');
-        // Clean up test document
-        collection.deleteOne({ _id: result.insertedId });
-        print('Test document cleaned up');
-    } else {
-        print('Warning: Test document verification failed');
-    }
+    writesCol.createIndex(
+        { "thread_id": 1, "checkpoint_ns": 1, "checkpoint_id": 1 },
+        { 
+            name: "thread_ns_checkpoint_writes_idx",
+            background: true 
+        }
+    );
+    print('Created index: thread_ns_checkpoint_writes_idx');
 } catch (e) {
-    print('Error creating test document:', e.message);
+    print('Index thread_ns_checkpoint_writes_idx may already exist:', e.message);
 }
+
+// Index for task_id
+try {
+    writesCol.createIndex(
+        { "task_id": 1 },
+        { 
+            name: "task_id_idx",
+            background: true 
+        }
+    );
+    print('Created index: task_id_idx');
+} catch (e) {
+    print('Index task_id_idx may already exist:', e.message);
+}
+
+// Index for channel queries
+try {
+    writesCol.createIndex(
+        { "channel": 1 },
+        { 
+            name: "channel_idx",
+            background: true 
+        }
+    );
+    print('Created index: channel_idx');
+} catch (e) {
+    print('Index channel_idx may already exist:', e.message);
+}
+
+// Note: LangGraph manages its own TTL and cleanup, so we don't create TTL indexes
 
 // Display collection stats
-print('Collection statistics:');
+print('\nCollection statistics:');
+
+// Stats for checkpoints_aio
 try {
-    var stats = db.runCommand({ collStats: collectionName });
-    print('Document count:', stats.count);
-    print('Storage size:', stats.storageSize, 'bytes');
-    print('Index count:', stats.nindexes);
+    var stats = db.runCommand({ collStats: checkpointsCollection });
+    print('\n' + checkpointsCollection + ':');
+    print('  Document count:', stats.count);
+    print('  Storage size:', stats.storageSize, 'bytes');
+    print('  Index count:', stats.nindexes);
 } catch (e) {
-    print('Could not retrieve collection stats:', e.message);
+    print('Could not retrieve stats for', checkpointsCollection + ':', e.message);
 }
 
-// List all indexes
-print('Created indexes:');
+// Stats for checkpoint_writes_aio
 try {
-    var indexes = collection.getIndexes();
-    indexes.forEach(function(index) {
-        print('- Index:', index.name, 'on fields:', JSON.stringify(index.key));
+    var stats = db.runCommand({ collStats: writesCollection });
+    print('\n' + writesCollection + ':');
+    print('  Document count:', stats.count);
+    print('  Storage size:', stats.storageSize, 'bytes');
+    print('  Index count:', stats.nindexes);
+} catch (e) {
+    print('Could not retrieve stats for', writesCollection + ':', e.message);
+}
+
+// List all collections in the database
+print('\nAll collections in database:');
+try {
+    var collections = db.getCollectionNames();
+    collections.forEach(function(col) {
+        print('  -', col);
     });
 } catch (e) {
-    print('Could not list indexes:', e.message);
+    print('Could not list collections:', e.message);
 }
 
-print('Database initialization completed successfully');
-print('PaladinAI checkpointing database is ready for use');
+print('\nDatabase initialization completed successfully');
+print('PaladinAI checkpointing database is ready for use with LangGraph AsyncMongoDBSaver');
