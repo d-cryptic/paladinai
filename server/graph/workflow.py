@@ -14,6 +14,7 @@ from langgraph.graph import StateGraph, END
 from langfuse import observe
 
 from .state import WorkflowState, GraphConfig, create_initial_state
+from checkpointing import get_checkpointer
 from .nodes import (
     start_node, guardrail_node, categorization_node,
     query_node, action_node, incident_node, prometheus_node,
@@ -39,9 +40,30 @@ class PaladinWorkflow:
             config: Optional configuration for the workflow
         """
         self.config = config or self._load_default_config()
-        self.graph = self._build_graph()
-
+        self.checkpointer = None
+        self.graph = None
+        
         logger.info("PaladinWorkflow initialized successfully")
+    
+    async def initialize(self) -> None:
+        """
+        Initialize the workflow with async components.
+        
+        This includes setting up the MongoDB checkpointer and building the graph.
+        """
+        try:
+            # Initialize checkpointer
+            self.checkpointer = await get_checkpointer()
+            logger.info("MongoDB checkpointer initialized for workflow")
+            logger.info(f"Checkpointer enabled: {self.checkpointer.enabled if self.checkpointer else False}")
+            logger.info(f"Checkpointer instance: {self.checkpointer._checkpointer if self.checkpointer else None}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize checkpointer: {str(e)}")
+            # Continue without checkpointing
+            self.checkpointer = None
+        
+        # Build the graph
+        self.graph = self._build_graph()
     
     def _load_default_config(self) -> GraphConfig:
         """
@@ -187,10 +209,14 @@ class PaladinWorkflow:
         workflow.add_edge("result", END)
         workflow.add_edge("error_handler", END)
 
-        # Compile graph without checkpointing for now
-        compiled_graph = workflow.compile()
+        # Compile graph with checkpointing if available
+        if self.checkpointer and self.checkpointer.enabled:
+            compiled_graph = workflow.compile(checkpointer=self.checkpointer._checkpointer)
+            logger.info("LangGraph workflow compiled with MongoDB checkpointing")
+        else:
+            compiled_graph = workflow.compile()
+            logger.info("LangGraph workflow compiled without checkpointing")
 
-        logger.info("LangGraph workflow compiled successfully")
         return compiled_graph
     
     async def _start_node_wrapper(self, state: WorkflowState) -> WorkflowState:
@@ -335,8 +361,22 @@ class PaladinWorkflow:
             # Create initial state
             initial_state = create_initial_state(user_input, session_id)
             
-            # Execute workflow
-            final_state = await self.graph.ainvoke(initial_state)
+            # Prepare execution config with checkpointing if available
+            config = None
+            if self.checkpointer and self.checkpointer.enabled and session_id:
+                config = self.checkpointer.get_config(
+                    thread_id=session_id,
+                    checkpoint_ns="workflow_execution"
+                )
+                logger.info(f"Using checkpoint config for session: {session_id}")
+                logger.info(f"Checkpoint config: {config}")
+            
+            # Execute workflow with or without checkpointing
+            if config:
+                final_state = await self.graph.ainvoke(initial_state, config=config)
+            else:
+                final_state = await self.graph.ainvoke(initial_state)
+            
             # Extract and return the final result with formatted markdown
             if hasattr(final_state, 'final_result') and final_state.final_result:
                 return final_state.final_result
@@ -380,9 +420,22 @@ class PaladinWorkflow:
             # Create initial state
             initial_state = create_initial_state(user_input, session_id)
             
-            # Stream workflow execution
-            async for state in self.graph.astream(initial_state):
-                yield state
+            # Prepare execution config with checkpointing if available
+            config = None
+            if self.checkpointer and self.checkpointer.enabled and session_id:
+                config = self.checkpointer.get_config(
+                    thread_id=session_id,
+                    checkpoint_ns="workflow_stream"
+                )
+                logger.debug(f"Using checkpoint config for streaming session: {session_id}")
+            
+            # Stream workflow execution with or without checkpointing
+            if config:
+                async for state in self.graph.astream(initial_state, config=config):
+                    yield state
+            else:
+                async for state in self.graph.astream(initial_state):
+                    yield state
                     
         except Exception as e:
             error_msg = f"Workflow streaming failed: {str(e)}"
@@ -420,6 +473,62 @@ error_handler ←
         except Exception as e:
             logger.error(f"Failed to generate graph visualization: {str(e)}")
             return f"Visualization error: {str(e)}"
+    
+    async def get_checkpoint(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve the latest checkpoint for a session.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Checkpoint data if found, None otherwise
+        """
+        if not self.checkpointer or not self.checkpointer.enabled:
+            return None
+        
+        return await self.checkpointer.load_checkpoint(
+            thread_id=session_id,
+            checkpoint_ns="workflow_execution"
+        )
+    
+    async def list_checkpoints(self, session_id: Optional[str] = None, limit: int = 10) -> list:
+        """
+        List available checkpoints.
+        
+        Args:
+            session_id: Optional session ID to filter by
+            limit: Maximum number of checkpoints to return
+            
+        Returns:
+            List of checkpoint metadata
+        """
+        if not self.checkpointer or not self.checkpointer.enabled:
+            return []
+        
+        return await self.checkpointer.list_checkpoints(
+            thread_id=session_id,
+            checkpoint_ns="workflow_execution",
+            limit=limit
+        )
+    
+    async def delete_checkpoint(self, session_id: str) -> bool:
+        """
+        Delete checkpoints for a session.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        if not self.checkpointer or not self.checkpointer.enabled:
+            return False
+        
+        return await self.checkpointer.delete_checkpoint(
+            thread_id=session_id,
+            checkpoint_ns="workflow_execution"
+        )
 
 
 # Global workflow instance
