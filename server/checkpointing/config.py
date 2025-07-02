@@ -24,7 +24,7 @@ class CheckpointConfig(BaseModel):
     )
     collection_name: str = Field(
         default="langgraph_checkpoints",
-        description="MongoDB collection name for checkpoints"
+        description="MongoDB collection name for checkpoints (Note: LangGraph uses 'checkpoints_aio' and 'checkpoint_writes_aio')"
     )
     
     # Feature flags

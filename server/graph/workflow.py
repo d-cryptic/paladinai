@@ -366,7 +366,7 @@ class PaladinWorkflow:
             if self.checkpointer and self.checkpointer.enabled and session_id:
                 config = self.checkpointer.get_config(
                     thread_id=session_id,
-                    checkpoint_ns="workflow_execution"
+                    checkpoint_ns=""  # LangGraph uses empty namespace by default
                 )
                 logger.info(f"Using checkpoint config for session: {session_id}")
                 logger.info(f"Checkpoint config: {config}")
@@ -425,7 +425,7 @@ class PaladinWorkflow:
             if self.checkpointer and self.checkpointer.enabled and session_id:
                 config = self.checkpointer.get_config(
                     thread_id=session_id,
-                    checkpoint_ns="workflow_stream"
+                    checkpoint_ns=""  # LangGraph uses empty namespace by default
                 )
                 logger.debug(f"Using checkpoint config for streaming session: {session_id}")
             
@@ -489,7 +489,7 @@ error_handler ←
         
         return await self.checkpointer.load_checkpoint(
             thread_id=session_id,
-            checkpoint_ns="workflow_execution"
+            checkpoint_ns=""  # LangGraph uses empty namespace by default
         )
     
     async def list_checkpoints(self, session_id: Optional[str] = None, limit: int = 10) -> list:
@@ -508,7 +508,7 @@ error_handler ←
         
         return await self.checkpointer.list_checkpoints(
             thread_id=session_id,
-            checkpoint_ns="workflow_execution",
+            checkpoint_ns="",  # LangGraph uses empty namespace by default
             limit=limit
         )
     
@@ -527,7 +527,7 @@ error_handler ←
         
         return await self.checkpointer.delete_checkpoint(
             thread_id=session_id,
-            checkpoint_ns="workflow_execution"
+            checkpoint_ns=""  # LangGraph uses empty namespace by default
         )
 
 

@@ -75,6 +75,7 @@ def format_checkpoint_info(checkpoint: Dict[str, Any]) -> Dict[str, Any]:
     try:
         info = {
             "thread_id": checkpoint.get("thread_id", "unknown"),
+            "checkpoint_id": checkpoint.get("checkpoint_id", ""),
             "checkpoint_ns": checkpoint.get("checkpoint_ns", ""),
             "timestamp": checkpoint.get("timestamp", ""),
             "size_bytes": get_checkpoint_size(checkpoint),
