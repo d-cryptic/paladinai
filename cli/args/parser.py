@@ -68,6 +68,26 @@ def create_parser() -> argparse.ArgumentParser:
         "--confidence", type=float, default=0.5, help="Minimum confidence threshold for memory search"
     )
     
+    # Checkpoint functionality arguments
+    parser.add_argument(
+        "--checkpoint-get", type=str, help="Get checkpoint for a session ID"
+    )
+    parser.add_argument(
+        "--checkpoint-exists", type=str, help="Check if checkpoint exists for a session ID"
+    )
+    parser.add_argument(
+        "--checkpoint-list", action="store_true", help="List available checkpoints"
+    )
+    parser.add_argument(
+        "--checkpoint-delete", type=str, help="Delete all checkpoints for a session ID"
+    )
+    parser.add_argument(
+        "--checkpoint-help", action="store_true", help="Show checkpoint management help"
+    )
+    parser.add_argument(
+        "--session", type=str, help="Session ID filter for checkpoint list"
+    )
+    
     return parser
 
 
@@ -108,6 +128,13 @@ def show_help_message() -> None:
     print("  python main.py --memory-context 'high memory usage' --workflow-type ACTION")
     print("  python main.py --memory-help  # Show detailed memory features")
     print("  python main.py --memory-health  # Check memory service status")
+    print("\nCheckpoint Examples:")
+    print("  python main.py --checkpoint-get user_john_1234567890")
+    print("  python main.py --checkpoint-list --limit 20")
+    print("  python main.py --checkpoint-list --session user_john_1234567890")
+    print("  python main.py --checkpoint-exists user_john_1234567890")
+    print("  python main.py --checkpoint-delete user_john_1234567890")
+    print("  python main.py --checkpoint-help  # Show checkpoint management help")
 
 
 def has_any_command(args: argparse.Namespace) -> bool:
@@ -115,5 +142,7 @@ def has_any_command(args: argparse.Namespace) -> bool:
     return any([
         args.test, args.hello, args.status, args.all, args.chat, args.interactive,
         args.memory_store, args.memory_search, args.memory_context, args.memory_types,
-        args.memory_health, args.memory_help
+        args.memory_health, args.memory_help,
+        args.checkpoint_get, args.checkpoint_exists, args.checkpoint_list,
+        args.checkpoint_delete, args.checkpoint_help
     ])
