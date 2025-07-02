@@ -7,9 +7,10 @@ from .base import BaseHTTPClient
 from .health import HealthMixin
 from .openai import OpenAIMixin
 from .memory import MemoryMixin
+from .checkpoint import CheckpointMixin
 
 
-class PaladinCLI(BaseHTTPClient, HealthMixin, OpenAIMixin, MemoryMixin):
+class PaladinCLI(BaseHTTPClient, HealthMixin, OpenAIMixin, MemoryMixin, CheckpointMixin):
     """
     Main CLI client class for Paladin AI server communication.
 
