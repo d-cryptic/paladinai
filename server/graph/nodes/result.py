@@ -14,7 +14,6 @@ from langfuse import observe
 from ..state import WorkflowState, update_state_node, finalize_state
 from llm.openai import openai
 from prompts.workflows.result_formatting import get_formatting_prompt, FORMATTING_SYSTEM_PROMPT
-from memory import memory_extractor
 from prompts.workflows.result_guidance import (
     get_workflow_guidance, 
     NO_CATEGORIZATION_ERROR,
@@ -63,6 +62,13 @@ class ResultNode:
             # Format final result
             result = self._format_result(state)
             
+            # Validate if memory instructions were followed
+            if state.memory_instructions:
+                validation_result = await self._validate_instruction_compliance(state, result)
+                if validation_result:
+                    result["instruction_compliance"] = validation_result
+                    logger.info(f"Memory instruction compliance: {validation_result}")
+            
             # Format the entire state data using OpenAI
             formatted_content = await self._format_with_openai(state, result)
             if formatted_content:
@@ -71,35 +77,8 @@ class ResultNode:
             else:
                 logger.warning("Failed to format markdown content, falling back to standard response")
             
-            # Extract and store memories from the workflow (async operation)
-            try:
-                if state.categorization:
-                    workflow_type = state.categorization.workflow_type
-                    if hasattr(workflow_type, 'value'):
-                        workflow_type = workflow_type.value
-                    
-                    # Convert state to dict for memory extraction
-                    state_dict = {
-                        "final_result": result,
-                        "metadata": state.metadata
-                    }
-                    
-                    memory_result = await memory_extractor.extract_from_workflow_state(
-                        state=state_dict,
-                        user_input=state.user_input,
-                        workflow_type=workflow_type,
-                        user_id=state.metadata.get("user_id"),
-                        session_id=state.session_id
-                    )
-                    
-                    if memory_result.get("success"):
-                        logger.info(f"Extracted {memory_result.get('memories_stored', 0)} memories from workflow")
-                    else:
-                        logger.warning(f"Memory extraction failed: {memory_result.get('error')}")
-                        
-            except Exception as e:
-                # Don't fail the workflow if memory extraction fails
-                logger.warning(f"Memory extraction failed but continuing workflow: {str(e)}")
+            # Memory extraction removed - memories are only saved explicitly by user
+            # This ensures no automatic memory storage during workflow execution
             
             # Finalize state
             state = finalize_state(state, result, execution_time_ms)
@@ -323,6 +302,70 @@ class ResultNode:
         except Exception as e:
             logger.error(f"Error formatting with OpenAI: {str(e)}")
             return None
+    
+    async def _validate_instruction_compliance(self, state: WorkflowState, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate if memory instructions were followed in the result.
+        
+        Args:
+            state: Current workflow state with memory instructions
+            result: The final result to validate
+            
+        Returns:
+            Compliance validation results
+        """
+        try:
+            if not state.memory_instructions:
+                return {}
+            
+            compliance_results = {
+                "instructions_provided": len(state.memory_instructions),
+                "instructions_followed": [],
+                "instructions_missed": [],
+                "compliance_score": 0.0
+            }
+            
+            # Check each instruction
+            for instruction in state.memory_instructions:
+                instruction_lower = instruction.lower()
+                
+                # Check if the instruction was about fetching additional data
+                if "fetch" in instruction_lower or "also" in instruction_lower:
+                    # Look for evidence in the result
+                    result_str = json.dumps(result).lower()
+                    
+                    # Check for common instruction patterns
+                    followed = False
+                    if "memory" in instruction_lower and "memory" in result_str:
+                        followed = True
+                    elif "disk" in instruction_lower and "disk" in result_str:
+                        followed = True
+                    elif "network" in instruction_lower and "network" in result_str:
+                        followed = True
+                    elif "logs" in instruction_lower and ("logs" in result_str or "loki" in result_str):
+                        followed = True
+                    
+                    if followed:
+                        compliance_results["instructions_followed"].append(instruction)
+                    else:
+                        compliance_results["instructions_missed"].append(instruction)
+                else:
+                    # For other types of instructions, assume followed if result exists
+                    if result.get("data") or result.get("analysis"):
+                        compliance_results["instructions_followed"].append(instruction)
+                    else:
+                        compliance_results["instructions_missed"].append(instruction)
+            
+            # Calculate compliance score
+            total = len(state.memory_instructions)
+            followed = len(compliance_results["instructions_followed"])
+            compliance_results["compliance_score"] = followed / total if total > 0 else 1.0
+            
+            return compliance_results
+            
+        except Exception as e:
+            logger.error(f"Error validating instruction compliance: {str(e)}")
+            return {}
     
     def get_next_node(self, state: WorkflowState) -> str:
         """
