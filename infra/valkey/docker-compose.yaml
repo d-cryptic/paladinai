@@ -9,39 +9,13 @@ services:
       - "6379:6379"
     volumes:
       - valkey_data:/data
-      - ./valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
-    command: valkey-server /usr/local/etc/valkey/valkey.conf
-    environment:
-      - VALKEY_PASSWORD=${VALKEY_PASSWORD:-paladinai_queue_pass}
+    command: valkey-server --appendonly yes
     networks:
-      - paladinai-queue
-    healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-  valkey-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: paladinai-valkey-commander
-    restart: unless-stopped
-    ports:
-      - "8081:8081"
-    environment:
-      - REDIS_HOSTS=valkey:valkey:6379:0:${VALKEY_PASSWORD:-paladinai_queue_pass}
-      - HTTP_USER=admin
-      - HTTP_PASSWORD=${VALKEY_COMMANDER_PASSWORD:-admin123}
-    networks:
-      - paladinai-queue
-    depends_on:
-      valkey:
-        condition: service_healthy
+      - paladinai-network
 
 networks:
-  paladinai-queue:
+  paladinai-network:
     driver: bridge
-    name: paladinai-queue
 
 volumes:
   valkey_data:
