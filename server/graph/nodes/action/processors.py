@@ -16,6 +16,7 @@ from prompts.workflows.processor_prompts import get_processor_system_prompt
 from .serializers import serialize_prometheus_data
 from ...state import WorkflowState
 from langfuse import observe
+from utils.data_reduction import data_reducer
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,28 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
             collected_data["alerts"] = alert_data
             data_sources.append("Alertmanager")
             logger.info(f"Including Alertmanager data with {len(alert_data.get('alerts', []))} alerts")
+        
+        # Apply data reduction to prevent token limit issues
+        logger.info("Applying data reduction to monitoring data...")
+        
+        # Reduce prometheus data
+        if "metrics" in collected_data and collected_data["metrics"]:
+            original_size = data_reducer.estimate_tokens(collected_data["metrics"])
+            reduced_prometheus = data_reducer.reduce_prometheus_data(
+                {"metrics": collected_data["metrics"]},
+                priority="recent"  # Focus on recent data
+            )
+            collected_data["metrics"] = reduced_prometheus
+            reduced_size = data_reducer.estimate_tokens(reduced_prometheus)
+            logger.info(f"Reduced Prometheus data from ~{original_size} to ~{reduced_size} tokens")
+        
+        # Reduce alertmanager data if present
+        if "alerts" in collected_data and collected_data["alerts"]:
+            original_size = data_reducer.estimate_tokens(collected_data["alerts"])
+            reduced_alerts = data_reducer.reduce_alertmanager_data(collected_data["alerts"])
+            collected_data["alerts"] = reduced_alerts
+            reduced_size = data_reducer.estimate_tokens(reduced_alerts)
+            logger.info(f"Reduced Alertmanager data from ~{original_size} to ~{reduced_size} tokens")
         
         # Use appropriate prompt based on OpenAI decision
         if response_type == "comprehensive_analysis":
