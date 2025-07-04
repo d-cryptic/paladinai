@@ -7,6 +7,7 @@ members = [
     "paladin-ai",
     "paladin-cli",
     "paladin-server",
+    "paladin-webhook",
 ]
 
 [[package]]
@@ -1215,6 +1216,23 @@ requires-dist = [
     { name = "wsproto", specifier = ">=1.2.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "paladin-webhook"
+version = "0.1.0"
+source = { editable = "webhook" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "uvicorn", specifier = ">=0.32.0" },
+]
 
 [[package]]
 name = "pathspec"

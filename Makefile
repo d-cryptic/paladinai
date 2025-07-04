@@ -140,3 +140,21 @@ mcp-all:
 mcp-status:
 	@echo "📊 Checking Discord MCP status..."
 	@cd mcp/discord-server && $(MAKE) status
+
+# Webhook server commands
+webhook-install:
+	@echo "📦 Installing webhook server dependencies..."
+	uv sync
+	@echo "✅ Webhook dependencies installed"
+
+webhook-run:
+	@echo "🚀 Starting webhook server..."
+	cd webhook && uv run python server.py
+
+webhook-test:
+	@echo "🧪 Testing webhook server..."
+	@curl -X POST http://localhost:5000/webhook \
+		-H "Content-Type: application/json" \
+		-d '{"event": "test", "message": "Hello from webhook test!"}'
+	@echo ""
+	@echo "✅ Webhook test sent"

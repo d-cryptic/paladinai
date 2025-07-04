@@ -21,3 +21,5 @@ prompts
 .mypy_cache
 docs
 tests
+infra/mock/logs
+.superdesign
