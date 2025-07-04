@@ -11,6 +11,7 @@ from prompts.data_collection.query_prompts import get_query_prompt
 from prompts.workflows.processor_prompts import get_processor_system_prompt
 from graph.state import WorkflowState
 from .serializers import serialize_prometheus_data, serialize_loki_data
+from utils.data_reduction import data_reducer
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +34,22 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
     try:
         # Serialize prometheus data to handle Pydantic objects
         serialized_prometheus_data = serialize_prometheus_data(prometheus_data)
+        
+        # Apply data reduction to prevent token limit issues
+        logger.info("Applying data reduction to Prometheus data...")
+        original_size = data_reducer.estimate_tokens(serialized_prometheus_data)
+        reduced_data = data_reducer.reduce_prometheus_data(
+            {"metrics": serialized_prometheus_data},
+            priority="recent"
+        )
+        reduced_size = data_reducer.estimate_tokens(reduced_data)
+        logger.info(f"Reduced Prometheus data from ~{original_size} to ~{reduced_size} tokens")
 
         # Use query output formatting prompt to format the final response
         prompt = get_query_prompt(
             "output_formatting",
             user_input=state.user_input,
-            collected_data=json.dumps(serialized_prometheus_data, indent=2),
+            collected_data=json.dumps(reduced_data, indent=2),
             data_sources="Prometheus"
         )
 
@@ -133,6 +144,36 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
             collected_data["alerts"] = alert_data
             data_sources.append("Alertmanager")
             logger.info(f"Alertmanager data contains: {len(alert_data.get('alerts', []))} alerts")
+        
+        # Apply data reduction to prevent token limit issues
+        logger.info("Applying data reduction to monitoring data...")
+        
+        # Reduce prometheus data
+        if "metrics" in collected_data and collected_data["metrics"]:
+            original_size = data_reducer.estimate_tokens(collected_data["metrics"])
+            reduced_prometheus = data_reducer.reduce_prometheus_data(
+                {"metrics": collected_data["metrics"]},
+                priority="recent"
+            )
+            collected_data["metrics"] = reduced_prometheus
+            reduced_size = data_reducer.estimate_tokens(reduced_prometheus)
+            logger.info(f"Reduced Prometheus data from ~{original_size} to ~{reduced_size} tokens")
+        
+        # Reduce loki logs if present
+        if "logs" in collected_data and collected_data["logs"]:
+            original_size = data_reducer.estimate_tokens(collected_data["logs"])
+            reduced_logs = data_reducer.reduce_loki_logs(collected_data["logs"])
+            collected_data["logs"] = reduced_logs
+            reduced_size = data_reducer.estimate_tokens(reduced_logs)
+            logger.info(f"Reduced Loki logs from ~{original_size} to ~{reduced_size} tokens")
+        
+        # Reduce alertmanager data if present
+        if "alerts" in collected_data and collected_data["alerts"]:
+            original_size = data_reducer.estimate_tokens(collected_data["alerts"])
+            reduced_alerts = data_reducer.reduce_alertmanager_data(collected_data["alerts"])
+            collected_data["alerts"] = reduced_alerts
+            reduced_size = data_reducer.estimate_tokens(reduced_alerts)
+            logger.info(f"Reduced Alertmanager data from ~{original_size} to ~{reduced_size} tokens")
         
         # Format the final response with all collected data
         prompt = get_query_prompt(

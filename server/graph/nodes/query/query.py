@@ -166,6 +166,10 @@ class QueryNode:
         state.metadata["alertmanager_data"] = alert_data
         state.metadata["alertmanager_collection_complete"] = True
         
+        # Clear the next_node set by alertmanager to prevent routing conflicts
+        if "next_node" in state.metadata:
+            del state.metadata["next_node"]
+        
         # Continue with the data collection sequence
         return state
     

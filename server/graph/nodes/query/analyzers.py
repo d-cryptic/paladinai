@@ -40,9 +40,23 @@ async def analyze_data_requirements(user_input: str) -> Dict[str, bool]:
             raise Exception(response.get("error", "OpenAI request failed"))
 
         result = json.loads(response["content"])
+        
+        # Double-check log requirement - only if explicitly mentioned
+        needs_logs = result.get("needs_logs", False)
+        if needs_logs:
+            # Verify user actually asked for logs
+            log_keywords = ["log", "logs", "error message", "stack trace", "exception", "debug", "console output"]
+            user_input_lower = user_input.lower()
+            has_log_keyword = any(keyword in user_input_lower for keyword in log_keywords)
+            
+            if not has_log_keyword:
+                logger.info(f"Overriding needs_logs=True to False - no explicit log keywords found in: {user_input[:100]}")
+                needs_logs = False
+        
         return {
             "needs_metrics": result.get("needs_metrics", False),
-            "needs_logs": result.get("needs_logs", False)
+            "needs_logs": needs_logs,
+            "reasoning": result.get("reasoning", "")
         }
         
     except Exception as e:
