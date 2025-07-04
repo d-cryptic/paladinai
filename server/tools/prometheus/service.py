@@ -38,12 +38,25 @@ class PrometheusService:
         
         # Remove trailing slash from base URL
         if self.base_url:
-            self.base_url = self.base_url.rstrip('/')
+            # Ensure base_url is a string before calling rstrip
+            self.base_url = str(self.base_url).rstrip('/')
         
         # Setup headers
         self.headers = {"Content-Type": "application/json"}
         if self.auth_token:
             self.headers["Authorization"] = f"Bearer {self.auth_token}"
+    
+    def _parse_duration(self, duration_value: Any) -> float:
+        """Parse duration value from Prometheus, handling both string and numeric types."""
+        if isinstance(duration_value, (int, float)):
+            return float(duration_value)
+        elif isinstance(duration_value, str):
+            # Remove 's' suffix if present
+            return float(duration_value.rstrip('s'))
+        else:
+            # Default to 0 if unknown type
+            logger.warning(f"Unknown duration type: {type(duration_value)} with value: {duration_value}")
+            return 0.0
     
     async def _make_request(
         self, 
@@ -180,7 +193,7 @@ class PrometheusService:
                         "global_url": target.get("globalUrl", ""),
                         "last_error": target.get("lastError", ""),
                         "last_scrape": target.get("lastScrape", ""),
-                        "last_scrape_duration": float(target.get("lastScrapeDuration", "0").rstrip("s")),
+                        "last_scrape_duration": self._parse_duration(target.get("lastScrapeDuration", "0")),
                         "health": target.get("health", "unknown")
                     }
                     active_targets.append(transformed_target)
@@ -200,7 +213,7 @@ class PrometheusService:
                         "global_url": target.get("globalUrl", ""),
                         "last_error": target.get("lastError", ""),
                         "last_scrape": target.get("lastScrape", ""),
-                        "last_scrape_duration": float(target.get("lastScrapeDuration", "0").rstrip("s")),
+                        "last_scrape_duration": self._parse_duration(target.get("lastScrapeDuration", "0")),
                         "health": target.get("health", "unknown")
                     }
                     dropped_targets.append(transformed_target)

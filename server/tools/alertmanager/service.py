@@ -291,7 +291,8 @@ class AlertmanagerService:
         active: Optional[bool] = None,
         silenced: Optional[bool] = None,
         inhibited: Optional[bool] = None,
-        filter: Optional[str] = None
+        filter: Optional[str] = None,
+        receiver: Optional[str] = None
     ) -> AlertmanagerGroupsResponse:
         """
         Get alert groups from Alertmanager.
@@ -301,6 +302,7 @@ class AlertmanagerService:
             silenced: Filter for silenced alerts
             inhibited: Filter for inhibited alerts
             filter: Additional filter expression
+            receiver: Filter by receiver name
             
         Returns:
             AlertmanagerGroupsResponse with alert groups
@@ -314,6 +316,8 @@ class AlertmanagerService:
             params["inhibited"] = str(inhibited).lower()
         if filter:
             params["filter"] = filter
+        if receiver:
+            params["receiver"] = receiver
             
         result = await self._make_request("GET", "/api/v1/alerts/groups", params=params)
         
