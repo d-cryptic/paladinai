@@ -1,7 +1,7 @@
 # Paladin AI Makefile
 # Uses uv workspace for Python package management
 
-.PHONY: help install install-dev sync-all test format lint clean run-server run-cli dev
+.PHONY: help install install-dev sync-all test format lint clean run-server run-cli dev mcp-server mcp-worker mcp-all mcp-status
 
 # Default target
 help:
@@ -16,6 +16,12 @@ help:
 	@echo "  run-server      - Start FastAPI server"
 	@echo "  run-cli         - Run CLI client (use CLI_ARGS for arguments)"
 	@echo "  dev             - Start server in background and test connection"
+	@echo ""
+	@echo "Discord MCP:"
+	@echo "  mcp-server      - Start Discord MCP server"
+	@echo "  mcp-worker      - Start Discord message processing worker"
+	@echo "  mcp-all         - Start both MCP server and worker"
+	@echo "  mcp-status      - Check MCP services status"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  test            - Run tests for all components"
@@ -117,3 +123,20 @@ clean-all: clean
 	@echo "🧹 Cleaning uv cache..."
 	uv cache clean
 	@echo "✅ Everything cleaned"
+
+# Discord MCP commands
+mcp-server:
+	@echo "🚀 Starting Discord MCP Server..."
+	@cd mcp/discord-server && $(MAKE) server
+
+mcp-worker:
+	@echo "🔧 Starting Discord Message Worker..."
+	@cd mcp/discord-server && $(MAKE) worker
+
+mcp-all:
+	@echo "🚀 Starting Discord MCP Server and Worker..."
+	@cd mcp/discord-server && $(MAKE) all
+
+mcp-status:
+	@echo "📊 Checking Discord MCP status..."
+	@cd mcp/discord-server && $(MAKE) status
