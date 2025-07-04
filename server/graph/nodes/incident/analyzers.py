@@ -39,22 +39,43 @@ async def analyze_incident_requirements(user_input: str) -> Dict[str, Any]:
             raise Exception(response.get("error", "OpenAI request failed"))
 
         result = json.loads(response["content"])
+        
+        # Double-check log requirement for incidents - be more selective
+        needs_logs = result.get("needs_logs", False)
+        if needs_logs:
+            # For incidents, check if it's really about errors/failures or just performance
+            error_keywords = ["error", "exception", "fail", "crash", "bug", "log", "stack trace", "debug", "500", "404"]
+            user_input_lower = user_input.lower()
+            has_error_keyword = any(keyword in user_input_lower for keyword in error_keywords)
+            
+            # Also check incident type
+            incident_type = result.get("incident_type", "").lower()
+            error_related_types = ["error", "failure", "crash", "bug", "application"]
+            is_error_incident = any(etype in incident_type for etype in error_related_types)
+            
+            if not has_error_keyword and not is_error_incident:
+                logger.info(f"Overriding needs_logs=True to False for incident - appears to be performance/availability focused: {user_input[:100]}")
+                needs_logs = False
+                result["needs_logs"] = False
+        
         return result
         
     except Exception as e:
         logger.error(f"Error analyzing incident requirements: {str(e)}")
-        # Default to requiring both for incidents (typical for investigations)
+        # Default to metrics and alerts only when analysis fails
         return {
             "needs_metrics": True,
-            "needs_logs": True,
+            "needs_logs": False,  # Conservative default - no logs unless explicitly needed
+            "needs_alerts": True,
             "incident_type": "general",
             "severity": "medium",
-            "investigation_focus": ["performance", "availability", "errors"],
+            "investigation_focus": ["performance", "availability"],
             "urgency": "normal",
-            "reasoning": f"Analysis failed: {str(e)}",
+            "reasoning": f"Analysis failed: {str(e)}. Defaulting to metrics and alerts only.",
             "data_requirements": {
                 "metrics": ["cpu", "memory", "error_rate"],
-                "logs": ["error_logs", "application_logs"]
+                "logs": [],
+                "alerts": ["active_alerts"]
             }
         }
 

@@ -11,6 +11,7 @@ from prompts.data_collection.incident_prompts import get_incident_prompt
 from prompts.workflows.processor_prompts import get_processor_system_prompt
 from graph.state import WorkflowState
 from .serializers import serialize_prometheus_data
+from utils.data_reduction import data_reducer
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +55,29 @@ async def process_prometheus_result(state: WorkflowState, prometheus_data: Dict[
         # Create timeline from collected data if available
         timeline = extract_combined_timeline(collected_data)
 
-        # Limit the size of data passed to OpenAI to prevent token overflow
-        data_str = json.dumps(collected_data, indent=2)
-        if len(data_str) > 10000:  # Limit to ~10k characters
-            # Truncate and add summary
-            truncated_data = data_str[:10000] + "\n... [Data truncated for processing]"
-            logger.warning(f"Collected data truncated from {len(data_str)} to 10000 characters")
-            data_for_prompt = truncated_data
-        else:
-            data_for_prompt = data_str
+        # Apply data reduction to prevent token limit issues
+        logger.info("Applying data reduction to monitoring data...")
+        
+        # Reduce prometheus data
+        if "metrics" in collected_data and collected_data["metrics"]:
+            original_size = data_reducer.estimate_tokens(collected_data["metrics"])
+            reduced_prometheus = data_reducer.reduce_prometheus_data(
+                {"metrics": collected_data["metrics"]},
+                priority="anomalies"  # For incidents, focus on anomalies
+            )
+            collected_data["metrics"] = reduced_prometheus
+            reduced_size = data_reducer.estimate_tokens(reduced_prometheus)
+            logger.info(f"Reduced Prometheus data from ~{original_size} to ~{reduced_size} tokens")
+        
+        # Reduce alertmanager data if present
+        if "alerts" in collected_data and collected_data["alerts"]:
+            original_size = data_reducer.estimate_tokens(collected_data["alerts"])
+            reduced_alerts = data_reducer.reduce_alertmanager_data(collected_data["alerts"])
+            collected_data["alerts"] = reduced_alerts
+            reduced_size = data_reducer.estimate_tokens(reduced_alerts)
+            logger.info(f"Reduced Alertmanager data from ~{original_size} to ~{reduced_size} tokens")
+        
+        data_for_prompt = json.dumps(collected_data, indent=2)
 
         # Use incident investigation prompt for detailed analysis
         investigation_prompt = get_incident_prompt(
@@ -213,6 +228,36 @@ async def process_loki_result(state: WorkflowState, loki_data: Dict[str, Any], n
         # Extract combined timeline from both sources
         combined_timeline = extract_combined_timeline(collected_data)
         
+        # Apply data reduction to prevent token limit issues
+        logger.info("Applying data reduction to combined monitoring data...")
+        
+        # Reduce prometheus data
+        if "metrics" in collected_data and collected_data["metrics"]:
+            original_size = data_reducer.estimate_tokens(collected_data["metrics"])
+            reduced_prometheus = data_reducer.reduce_prometheus_data(
+                {"metrics": collected_data["metrics"]},
+                priority="anomalies"
+            )
+            collected_data["metrics"] = reduced_prometheus
+            reduced_size = data_reducer.estimate_tokens(reduced_prometheus)
+            logger.info(f"Reduced Prometheus data from ~{original_size} to ~{reduced_size} tokens")
+        
+        # Reduce loki logs
+        if "logs" in collected_data and collected_data["logs"]:
+            original_size = data_reducer.estimate_tokens(collected_data["logs"])
+            reduced_logs = data_reducer.reduce_loki_logs(collected_data["logs"])
+            collected_data["logs"] = reduced_logs
+            reduced_size = data_reducer.estimate_tokens(reduced_logs)
+            logger.info(f"Reduced Loki logs from ~{original_size} to ~{reduced_size} tokens")
+        
+        # Reduce alertmanager data
+        if "alerts" in collected_data and collected_data["alerts"]:
+            original_size = data_reducer.estimate_tokens(collected_data["alerts"])
+            reduced_alerts = data_reducer.reduce_alertmanager_data(collected_data["alerts"])
+            collected_data["alerts"] = reduced_alerts
+            reduced_size = data_reducer.estimate_tokens(reduced_alerts)
+            logger.info(f"Reduced Alertmanager data from ~{original_size} to ~{reduced_size} tokens")
+        
         # Format the final incident investigation report
         from prompts.data_collection.incident_prompts import get_incident_prompt
         prompt = get_incident_prompt(
@@ -282,40 +327,129 @@ def extract_combined_timeline(collected_data: Dict[str, Any]) -> Dict[str, Any]:
         
         # Extract events from logs
         if "logs" in collected_data:
-            logs = collected_data["logs"].get("logs", [])
-            for log in logs[:50]:  # Limit to first 50 for timeline
-                timeline["events"].append({
-                    "timestamp": log.get("timestamp"),
-                    "source": "logs",
-                    "message": log.get("message", "")[:200],
-                    "severity": determine_log_severity(log.get("message", ""))
-                })
+            log_data = collected_data["logs"]
+            
+            # Handle reduced data format
+            if isinstance(log_data, dict) and "logs" in log_data:
+                # Reduced format
+                logs = log_data.get("logs", [])
+                if isinstance(logs, list):
+                    for log_entry in logs[:50]:  # Limit to first 50 for timeline
+                        if isinstance(log_entry, dict):
+                            # Handle grouped logs
+                            if log_entry.get("type") == "grouped":
+                                # Add representative example from grouped logs
+                                for example in log_entry.get("examples", [])[:1]:
+                                    if isinstance(example, dict):
+                                        timeline["events"].append({
+                                            "timestamp": example.get("timestamp", ""),
+                                            "source": "logs",
+                                            "message": f"[{log_entry.get('count', 1)}x] {example.get('message', '')[:200]}",
+                                            "severity": determine_log_severity(example.get("message", ""))
+                                        })
+                            else:
+                                # Regular log entry
+                                timeline["events"].append({
+                                    "timestamp": log_entry.get("timestamp", ""),
+                                    "source": "logs",
+                                    "message": log_entry.get("message", "")[:200] if isinstance(log_entry.get("message"), str) else str(log_entry.get("message", ""))[:200],
+                                    "severity": determine_log_severity(str(log_entry.get("message", "")))
+                                })
+                        elif isinstance(log_entry, str):
+                            # Handle string logs
+                            timeline["events"].append({
+                                "timestamp": "",
+                                "source": "logs",
+                                "message": log_entry[:200],
+                                "severity": determine_log_severity(log_entry)
+                            })
+            elif isinstance(log_data, list):
+                # Original format - list of logs
+                for log in log_data[:50]:
+                    if isinstance(log, dict):
+                        timeline["events"].append({
+                            "timestamp": log.get("timestamp", ""),
+                            "source": "logs",
+                            "message": log.get("message", "")[:200],
+                            "severity": determine_log_severity(log.get("message", ""))
+                        })
+            
             timeline["data_sources"].append("Loki")
         
         # Extract events from metrics anomalies
         if "metrics" in collected_data:
             metrics = collected_data["metrics"]
-            # Add any metric anomalies to timeline
-            if "anomalies" in metrics:
-                for anomaly in metrics["anomalies"]:
-                    timeline["events"].append({
-                        "timestamp": anomaly.get("timestamp"),
-                        "source": "metrics",
-                        "message": f"Anomaly detected: {anomaly.get('description', 'Metric anomaly')}",
-                        "severity": "high"
-                    })
+            
+            # Handle reduced data format
+            if isinstance(metrics, dict):
+                # Check for summary info in reduced format
+                if "summary" in metrics and isinstance(metrics["summary"], dict):
+                    if metrics["summary"].get("has_anomalies"):
+                        timeline["events"].append({
+                            "timestamp": "",
+                            "source": "metrics",
+                            "message": "Anomalies detected in metrics data",
+                            "severity": "high"
+                        })
+                
+                # Check for specific metrics data
+                if "metrics" in metrics:
+                    # Extract sample events from aggregated metrics
+                    for metric_name, metric_data in list(metrics.get("metrics", {}).items())[:10]:
+                        if isinstance(metric_data, dict) and "max" in metric_data and "avg" in metric_data:
+                            if metric_data["max"] > metric_data["avg"] * 2:  # Simple anomaly detection
+                                timeline["events"].append({
+                                    "timestamp": "",
+                                    "source": "metrics",
+                                    "message": f"High value detected in {metric_name}: max={metric_data['max']:.2f}, avg={metric_data['avg']:.2f}",
+                                    "severity": "medium"
+                                })
+            
             timeline["data_sources"].append("Prometheus")
         
         # Extract events from alerts
         if "alerts" in collected_data:
-            alerts = collected_data["alerts"].get("alerts", [])
-            for alert in alerts[:30]:  # Limit to first 30 alerts for timeline
-                timeline["events"].append({
-                    "timestamp": alert.get("startsAt", alert.get("timestamp")),
-                    "source": "alerts",
-                    "message": f"Alert: {alert.get('labels', {}).get('alertname', 'Unknown')} - {alert.get('annotations', {}).get('summary', 'No summary')}",
-                    "severity": alert.get("labels", {}).get("severity", "medium")
-                })
+            alert_data = collected_data["alerts"]
+            
+            # Handle reduced data format
+            if isinstance(alert_data, dict) and "alerts" in alert_data:
+                alerts = alert_data.get("alerts", [])
+                for alert in alerts[:30]:  # Limit to first 30 alerts for timeline
+                    if isinstance(alert, dict):
+                        # Handle reduced alert format
+                        timestamp = alert.get("startsAt", alert.get("timestamp", ""))
+                        severity = alert.get("severity", alert.get("labels", {}).get("severity", "medium")) if isinstance(alert.get("labels"), dict) else "medium"
+                        alertname = alert.get("name", alert.get("labels", {}).get("alertname", "Unknown")) if isinstance(alert.get("labels"), dict) else "Unknown"
+                        summary = alert.get("summary", alert.get("annotations", {}).get("summary", "No summary")) if isinstance(alert.get("annotations"), dict) else "No summary"
+                        
+                        timeline["events"].append({
+                            "timestamp": timestamp,
+                            "source": "alerts",
+                            "message": f"Alert: {alertname} - {summary}",
+                            "severity": severity
+                        })
+                
+                # Add summary info if available
+                if "summary" in alert_data and isinstance(alert_data["summary"], dict):
+                    summary = alert_data["summary"]
+                    if summary.get("active_alerts", 0) > 0:
+                        timeline["events"].insert(0, {
+                            "timestamp": "",
+                            "source": "alerts",
+                            "message": f"Alert Summary: {summary.get('active_alerts', 0)} active alerts, {summary.get('total_alerts', 0)} total",
+                            "severity": "critical" if summary.get("by_severity", {}).get("critical", 0) > 0 else "high"
+                        })
+            elif isinstance(alert_data, list):
+                # Original format
+                for alert in alert_data[:30]:
+                    if isinstance(alert, dict):
+                        timeline["events"].append({
+                            "timestamp": alert.get("startsAt", alert.get("timestamp", "")),
+                            "source": "alerts",
+                            "message": f"Alert: {alert.get('labels', {}).get('alertname', 'Unknown')} - {alert.get('annotations', {}).get('summary', 'No summary')}",
+                            "severity": alert.get("labels", {}).get("severity", "medium")
+                        })
+            
             timeline["data_sources"].append("Alertmanager")
         
         # Sort events by timestamp
@@ -330,6 +464,8 @@ def extract_combined_timeline(collected_data: Dict[str, Any]) -> Dict[str, Any]:
 
 def determine_log_severity(message: str) -> str:
     """Determine severity of a log message."""
+    if not isinstance(message, str):
+        message = str(message)
     message_lower = message.lower()
     if any(term in message_lower for term in ["fatal", "panic", "critical"]):
         return "critical"
