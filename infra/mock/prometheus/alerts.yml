@@ -1,0 +1,397 @@
+groups:
+  - name: service_alerts
+    interval: 30s
+    rules:
+      # TESTING ALERTS - Very low thresholds for demo
+      - alert: FrontendMinorErrors
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5..", service="frontend"}[1m])) 
+            /
+            sum(rate(http_requests_total{service="frontend"}[1m]))
+          ) > 0.02
+        for: 30s
+        labels:
+          severity: info
+          tier: frontend
+          test_alert: "true"
+        annotations:
+          summary: "Frontend has minor errors (>2%)"
+          description: "Frontend error rate is {{ $value | humanizePercentage }} (very low threshold for testing)"
+
+      - alert: BackendMinorLatency
+        expr: |
+          histogram_quantile(0.50, 
+            sum(rate(http_request_duration_seconds_bucket{service=~"backend.*"}[1m])) by (service, le)
+          ) > 0.1
+        for: 30s
+        labels:
+          severity: info
+          tier: backend
+          test_alert: "true"
+        annotations:
+          summary: "Backend median latency above 100ms"
+          description: "{{ $labels.service }} median response time is {{ $value | humanize }}s (low threshold for testing)"
+
+      - alert: MinimalMemoryUsage
+        expr: |
+          (
+            node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes
+          ) / node_memory_MemTotal_bytes > 0.3
+        for: 1m
+        labels:
+          severity: info
+          tier: infrastructure
+          test_alert: "true"
+        annotations:
+          summary: "Memory usage above 30%"
+          description: "Memory usage is {{ $value | humanizePercentage }} (very low threshold for testing)"
+
+      - alert: MinimalCPUUsage
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 20
+        for: 1m
+        labels:
+          severity: info
+          tier: infrastructure
+          test_alert: "true"
+        annotations:
+          summary: "CPU usage above 20%"
+          description: "CPU usage is {{ $value | humanize }}% (very low threshold for testing)"
+
+      - alert: AnyDatabaseQuery
+        expr: |
+          rate(db_query_duration_seconds_count[1m]) > 0.1
+        for: 30s
+        labels:
+          severity: info
+          tier: database
+          test_alert: "true"
+        annotations:
+          summary: "Database queries detected"
+          description: "Database is processing {{ $value | humanize }} queries/sec"
+
+      - alert: MinorCacheMisses
+        expr: |
+          (
+            sum(rate(cache_misses_total[1m])) by (service)
+            /
+            (sum(rate(cache_hits_total[1m])) by (service) + sum(rate(cache_misses_total[1m])) by (service))
+          ) > 0.1
+        for: 30s
+        labels:
+          severity: info
+          tier: cache
+          test_alert: "true"
+        annotations:
+          summary: "Cache miss rate above 10%"
+          description: "{{ $labels.service }} cache miss rate is {{ $value | humanizePercentage }}"
+
+      - alert: AnyQueueActivity
+        expr: queue_size > 5
+        for: 30s
+        labels:
+          severity: info
+          tier: queue
+          test_alert: "true"
+        annotations:
+          summary: "Queue has items"
+          description: "Queue {{ $labels.queue_name }} has {{ $value }} items"
+
+      - alert: FrontendAnyTraffic
+        expr: |
+          sum(rate(http_requests_total{service="frontend"}[1m])) > 0.01
+        labels:
+          severity: info
+          tier: frontend
+          test_alert: "true"
+        annotations:
+          summary: "Frontend receiving traffic"
+          description: "Frontend is receiving {{ $value | humanize }} requests/sec"
+
+      - alert: BackendSlowQueries
+        expr: |
+          histogram_quantile(0.90, 
+            sum(rate(db_query_duration_seconds_bucket[1m])) by (query_type, le)
+          ) > 0.05
+        for: 30s
+        labels:
+          severity: warning
+          tier: database
+          test_alert: "true"
+        annotations:
+          summary: "Database queries taking >50ms at P90"
+          description: "{{ $labels.query_type }} queries P90 latency is {{ $value | humanize }}s"
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_requests_total[5m])) by (service)
+          ) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          tier: application
+        annotations:
+          summary: "High error rate detected for {{ $labels.service }}"
+          description: "{{ $labels.service }} has error rate of {{ $value | humanizePercentage }} (threshold: 10%)"
+
+      # Service down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          tier: infrastructure
+        annotations:
+          summary: "Service {{ $labels.instance }} is down"
+          description: "{{ $labels.job }} at {{ $labels.instance }} has been down for more than 1 minute"
+
+      # High response time
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (service, le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          tier: application
+        annotations:
+          summary: "High response time for {{ $labels.service }}"
+          description: "95th percentile response time is {{ $value | humanize }}s (threshold: 2s)"
+
+      # Database connection issues
+      - alert: DatabaseConnectionFailure
+        expr: |
+          sum(rate(db_query_duration_seconds_count[5m])) by (service) == 0
+          and
+          up{service="backend"} == 1
+        for: 2m
+        labels:
+          severity: critical
+          tier: database
+        annotations:
+          summary: "Database connection failure for {{ $labels.service }}"
+          description: "{{ $labels.service }} is unable to query the database"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes
+          ) / node_memory_MemTotal_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 85%)"
+
+      # Cache miss rate
+      - alert: HighCacheMissRate
+        expr: |
+          (
+            sum(rate(cache_misses_total[5m])) by (service)
+            /
+            (sum(rate(cache_hits_total[5m])) by (service) + sum(rate(cache_misses_total[5m])) by (service))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          tier: cache
+        annotations:
+          summary: "High cache miss rate for {{ $labels.service }}"
+          description: "Cache miss rate is {{ $value | humanizePercentage }} (threshold: 50%)"
+
+      # Queue size growing
+      - alert: QueueSizeGrowing
+        expr: |
+          queue_size > 100
+          and
+          delta(queue_size[5m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+          tier: application
+        annotations:
+          summary: "Queue size growing for {{ $labels.queue_name }}"
+          description: "Queue {{ $labels.queue_name }} has {{ $value }} items and is growing"
+
+      # SSL certificate expiry (mock)
+      - alert: SSLCertificateExpiringSoon
+        expr: |
+          (time() + 86400 * 7) > bool 1735689600  # Mock: cert expires in 7 days
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate will expire in less than 7 days"
+
+  - name: infrastructure_alerts
+    interval: 30s
+    rules:
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | humanize }}% (threshold: 80%)"
+
+      # Disk space low
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/"}
+            / node_filesystem_size_bytes{mountpoint="/"}
+          ) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk space available: {{ $value | humanizePercentage }} (threshold: 15%)"
+
+      # Container restart
+      - alert: ContainerRestarting
+        expr: |
+          increase(container_restart_count[1h]) > 3
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "Container {{ $labels.container }} is restarting frequently"
+          description: "Container has restarted {{ $value }} times in the last hour"
+
+  - name: low_threshold_alerts
+    interval: 15s
+    rules:
+      # Network traffic alerts
+      - alert: MinimalNetworkTraffic
+        expr: |
+          rate(node_network_receive_bytes_total[1m]) > 1000
+        labels:
+          severity: info
+          tier: network
+          test_alert: "true"
+        annotations:
+          summary: "Network receiving data"
+          description: "Network interface receiving {{ $value | humanize }}B/s"
+
+      # Disk I/O alerts
+      - alert: AnyDiskActivity
+        expr: |
+          rate(node_disk_io_time_seconds_total[1m]) > 0.01
+        labels:
+          severity: info
+          tier: infrastructure
+          test_alert: "true"
+        annotations:
+          summary: "Disk I/O activity detected"
+          description: "Disk {{ $labels.device }} has I/O activity"
+
+      # Connection count alerts
+      - alert: DatabaseConnectionsExist
+        expr: |
+          pg_stat_database_numbackends{datname="mockdb"} > 1
+        labels:
+          severity: info
+          tier: database
+          test_alert: "true"
+        annotations:
+          summary: "Active database connections"
+          description: "{{ $value }} connections to mockdb"
+
+      # HTTP status code distribution
+      - alert: Frontend4xxResponses
+        expr: |
+          sum(rate(http_requests_total{status_code=~"4..", service="frontend"}[1m])) > 0.001
+        labels:
+          severity: info
+          tier: frontend
+          test_alert: "true"
+        annotations:
+          summary: "Frontend returning 4xx responses"
+          description: "Frontend has {{ $value | humanize }} 4xx responses/sec"
+
+      - alert: NginxActiveConnections
+        expr: |
+          nginx_connections_active > 1
+        labels:
+          severity: info
+          tier: proxy
+          test_alert: "true"
+        annotations:
+          summary: "Nginx has active connections"
+          description: "{{ $value }} active connections in Nginx"
+
+      # Really low error thresholds
+      - alert: AnyBackendErrors
+        expr: |
+          sum(increase(http_requests_total{status_code=~"5..", service=~"backend.*"}[1m])) > 0
+        labels:
+          severity: warning
+          tier: backend
+          test_alert: "true"
+        annotations:
+          summary: "Backend errors detected"
+          description: "{{ $labels.service }} had {{ $value }} errors in the last minute"
+
+      - alert: FrontendResponseTime
+        expr: |
+          histogram_quantile(0.75, 
+            sum(rate(http_request_duration_seconds_bucket{service="frontend"}[1m])) by (le)
+          ) > 0.5
+        for: 30s
+        labels:
+          severity: info
+          tier: frontend
+          test_alert: "true"
+        annotations:
+          summary: "Frontend P75 latency above 500ms"
+          description: "Frontend 75th percentile response time is {{ $value | humanize }}s"
+
+      # Process alerts
+      - alert: ProcessCount
+        expr: |
+          node_procs_running > 5
+        labels:
+          severity: info
+          tier: infrastructure
+          test_alert: "true"
+        annotations:
+          summary: "Multiple processes running"
+          description: "{{ $value }} processes currently running"
+
+      # Redis/Valkey alerts
+      - alert: RedisConnectedClients
+        expr: |
+          redis_connected_clients > 0
+        labels:
+          severity: info
+          tier: cache
+          test_alert: "true"
+        annotations:
+          summary: "Redis has connected clients"
+          description: "{{ $value }} clients connected to Redis/Valkey"
+
+      - alert: RedisCommandsProcessed
+        expr: |
+          rate(redis_commands_processed_total[1m]) > 1
+        labels:
+          severity: info
+          tier: cache
+          test_alert: "true"
+        annotations:
+          summary: "Redis processing commands"
+          description: "Redis processing {{ $value | humanize }} commands/sec"

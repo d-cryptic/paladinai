@@ -1,0 +1,251 @@
+version: '3.8'
+
+services:
+  # Frontend service (React-like app)
+  frontend:
+    build: ./frontend
+    container_name: mock-frontend
+    ports:
+      - "3001:3000"
+    environment:
+      - SERVICE_NAME=frontend
+      - BACKEND_URL=http://nginx:80
+      - ERROR_RATE=0.1  # 10% error rate
+      - LOG_LEVEL=debug
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - backend-1
+      - backend-2
+      - nginx
+    networks:
+      - mock-network
+
+  # Backend API service (Node.js)
+  backend-1:
+    build: ./backend
+    container_name: mock-backend-1
+    environment:
+      - SERVICE_NAME=backend-1
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_HOST=valkey
+      - REDIS_PORT=6379
+      - ERROR_RATE=0.15  # 15% error rate
+      - LOG_LEVEL=debug
+      - PORT=4000
+    ports:
+      - 4001:4000
+    volumes:
+      - ./logs:/ap/logs
+    depends_on:
+      - postgres
+      - valkey
+    networks:
+      - mock-network
+
+  backend-2:
+    build: ./backend
+    container_name: mock-backend-2
+    environment:
+      - SERVICE_NAME=backend-2
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_HOST=valkey
+      - REDIS_PORT=6379
+      - ERROR_RATE=0.2  # 20% error rate - this instance is flakier
+      - LOG_LEVEL=debug
+      - PORT=4000
+    ports:
+      - 4002:4000
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - valkey
+    networks:
+      - mock-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: mock-postgres
+    environment:
+      - POSTGRES_USER=mockuser
+      - POSTGRES_PASSWORD=mockpass
+      - POSTGRES_DB=mockdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - mock-network
+
+  # Nginx as reverse proxy and load balancer
+  nginx:
+    image: nginx:alpine
+    container_name: mock-nginx
+    ports:
+      - "8080:80"
+      - "9113:9113"  # Nginx exporter
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./logs:/var/log/nginx
+    depends_on:
+      - backend-1
+      - backend-2
+    networks:
+      - mock-network
+
+  # Valkey (Redis fork) for queue/cache
+  valkey:
+    image: valkey/valkey:7-alpine
+    container_name: mock-valkey
+    ports:
+      - "6380:6379"
+    volumes:
+      - valkey-data:/data
+      - ./logs:/logs:rw
+    user: "999:999"
+    command: sh -c "touch /logs/valkey.log && chmod 777 /logs/valkey.log && valkey-server --appendonly yes --logfile /logs/valkey.log"
+    networks:
+      - mock-network
+ 
+
+  # Postgres exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: mock-postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://mockuser:mockpass@postgres:5432/mockdb?sslmode=disable
+    depends_on:
+      - postgres
+    networks:
+      - mock-network
+
+  # Redis/Valkey exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: mock-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=valkey:6379
+    depends_on:
+      - valkey
+    networks:
+      - mock-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    networks:
+      - mock-network
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    networks:
+      - mock-network
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.ignored-mount-points=^/(rootfs|var/lib/docker)($|/)'
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    networks:
+      - mock-network
+    ports:
+      - "9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+      - '--cluster.listen-address=0.0.0.0:9094'
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    networks:
+      - mock-network
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./loki/promtail-config.yaml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - mock-network
+    restart: unless-stopped
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: grafana-loki
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./loki/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./loki/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml
+      - ./loki/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - mock-network
+    restart: unless-stopped
+    depends_on:
+      - loki
+
+volumes:
+  postgres-data:
+  valkey-data:
+  alertmanager-data:
+  prometheus_data:
+  loki-data:
+  grafana-data:
+
+
+networks:
+  mock-network:
+    driver: bridge

@@ -1,0 +1,15 @@
+{
+  "name": "mock-frontend",
+  "version": "1.0.0",
+  "description": "Mock frontend service for testing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "prom-client": "^14.2.0",
+    "winston": "^3.8.2",
+    "axios": "^1.4.0"
+  }
+}
