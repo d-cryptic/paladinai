@@ -6,8 +6,19 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Set
 from pathlib import Path
 import json
+import re
 import redis
 from rq import Queue
+import openai
+import tempfile
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Preformatted
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
+import markdown2
 
 import discord
 from discord.ext import commands
@@ -23,8 +34,19 @@ from mcp.types import (
 )
 from mcp.server.stdio import stdio_server
 
+# Import prompts
+from .prompts.discord_bot_prompts import (
+    ACKNOWLEDGMENT_SYSTEM_PROMPT,
+    DISCORD_FORMATTING_SYSTEM_PROMPT,
+    get_acknowledgment_user_prompt,
+    get_formatting_user_prompt
+)
+
 # Load environment variables
 load_dotenv(Path(__file__).parent.parent.parent.parent / '.env')
+
+# Initialize OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 class ConversationContext:
     """Tracks conversation context for threads and message chains"""
@@ -91,7 +113,7 @@ class EnhancedDiscordMCPServer:
         )
         self.message_history: List[Dict[str, Any]] = []
         self.monitored_channels: Dict[int, str] = {}
-        self.paladin_url = os.getenv("SERVER_HOST", "127.0.0.1") + ":" + os.getenv("SERVER_PORT", "8000")
+        self.paladin_url = f"{os.getenv('SERVER_HOST', '127.0.0.1')}:{os.getenv('SERVER_PORT', '8000')}"
         self.conversation_context = ConversationContext()
         
         # Valkey/Redis configuration
@@ -334,7 +356,7 @@ class EnhancedDiscordMCPServer:
         if hasattr(message.channel, 'parent') and message.channel.parent:
             try:
                 thread_starter = await message.channel.parent.fetch_message(message.channel.id)
-            except:
+            except Exception:
                 pass
         
         # Fetch replied message if replying
@@ -342,7 +364,7 @@ class EnhancedDiscordMCPServer:
         if message.reference and message.reference.message_id:
             try:
                 replied_message = await message.channel.fetch_message(message.reference.message_id)
-            except:
+            except Exception:
                 pass
         
         message_data = {
@@ -449,47 +471,505 @@ class EnhancedDiscordMCPServer:
         # Remove the bot mention from the message
         content = message.content.replace(f'<@{self.bot.user.id}>', '').strip()
         
-        # Prepare request with context
-        request_data = {
-            "user_input": content,
-            "context": {
-                "source": "discord",
-                "channel": message.channel.name,
-                "user": message.author.name,
-                "timestamp": message.created_at.isoformat(),
-                "thread_messages": context["thread_messages"][-10:],  # Last 10 thread messages
-                "user_history": context["user_history"][-5:],  # Last 5 user messages
-                "reply_chain": context["reply_chain"][-5:]  # Last 5 in reply chain
+        try:
+            # Step 1: Create thread for the conversation
+            thread = None
+            if hasattr(message.channel, 'create_thread'):  # Text channel
+                thread_name = f"{message.author.name} - {content[:50]}..." if len(content) > 50 else f"{message.author.name} - {content}"
+                thread = await message.create_thread(
+                    name=thread_name,
+                    auto_archive_duration=60  # Auto-archive after 1 hour of inactivity
+                )
+                print(f"[THREAD] Created thread: {thread.name}", file=sys.stderr)
+                reply_channel = thread
+            else:
+                # Already in a thread or DM channel
+                reply_channel = message.channel
+                print(f"[THREAD] Using existing channel: {reply_channel.name}", file=sys.stderr)
+            
+            # Step 2: Ask user for response format preference
+            format_question = await reply_channel.send(
+                f"<@{message.author.id}> Would you like the response as:\n"
+                f"💬 **Text** (in Discord)\n"
+                f"📊 **PDF Report** (downloadable file)\n\n"
+                f"React with 💬 for text or 📊 for PDF report."
+            )
+            await format_question.add_reaction('💬')
+            await format_question.add_reaction('📊')
+            
+            # Wait for user reaction
+            def check(reaction, user):
+                return user == message.author and str(reaction.emoji) in ['💬', '📊'] and reaction.message.id == format_question.id
+            
+            format_choice = 'text'  # Default
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=60.0, check=check)
+                format_choice = 'pdf' if str(reaction.emoji) == '📊' else 'text'
+                print(f"[FORMAT] User selected: {format_choice}", file=sys.stderr)
+            except (asyncio.TimeoutError, TimeoutError):
+                # Timeout - use default
+                format_choice = 'text'
+                await reply_channel.send("No response received, defaulting to text format.")
+            except Exception as e:
+                # Other exceptions - log and use default
+                print(f"[ERROR] Failed to get format choice: {e}", file=sys.stderr)
+                format_choice = 'text'
+            
+            # Step 3: Generate acknowledgment
+            print(f"[ACKNOWLEDGMENT] Generating acknowledgment for: {content[:100]}...", file=sys.stderr)
+            ack_message = await self.generate_acknowledgment(content, message.author.name)
+            
+            # Send acknowledgment to thread/channel
+            ack_reply = await reply_channel.send(f"<@{message.author.id}> {ack_message}")
+            print(f"[ACKNOWLEDGMENT] Sent: {ack_message}", file=sys.stderr)
+            
+            # Step 4: Process with PaladinAI
+            # Prepare request with context
+            request_data = {
+                "user_input": content,
+                "context": {
+                    "source": "discord",
+                    "channel": message.channel.name,
+                    "user": message.author.name,
+                    "timestamp": message.created_at.isoformat(),
+                    "thread_messages": context["thread_messages"][-10:],  # Last 10 thread messages
+                    "user_history": context["user_history"][-5:],  # Last 5 user messages
+                    "reply_chain": context["reply_chain"][-5:]  # Last 5 in reply chain
+                }
             }
-        }
-        
-        # Send typing indicator
-        async with message.channel.typing():
-            # Process with PaladinAI
-            response = await self.send_to_paladin(request_data)
-        
-        # Send response
-        await message.reply(response, mention_author=True)
+            
+            # Send typing indicator while processing
+            async with reply_channel.typing():
+                print(f"[PALADIN] Processing message with PaladinAI server...", file=sys.stderr)
+                response = await self.send_to_paladin(request_data)
+            
+            # Step 5: Handle response based on format choice
+            if format_choice == 'pdf':
+                try:
+                    # Generate PDF report
+                    print(f"[PDF] Starting PDF generation...", file=sys.stderr)
+                    pdf_buffer = await self.generate_pdf_report(
+                        user_query=content,
+                        response=response,
+                        user_name=message.author.name,
+                        timestamp=datetime.now()
+                    )
+                    print(f"[PDF] PDF generated successfully, size: {pdf_buffer.getbuffer().nbytes} bytes", file=sys.stderr)
+                    
+                    # Send PDF file
+                    pdf_file = discord.File(
+                        pdf_buffer,
+                        filename=f"paladin_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                    )
+                    await reply_channel.send(
+                        f"<@{message.author.id}> Here's your PaladinAI report:",
+                        file=pdf_file
+                    )
+                    print(f"[PDF] PDF sent successfully", file=sys.stderr)
+                except Exception as pdf_error:
+                    print(f"[PDF ERROR] Failed to generate/send PDF: {pdf_error}", file=sys.stderr)
+                    import traceback
+                    print(f"[PDF ERROR] Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+                    # Fall back to text format
+                    await reply_channel.send(f"<@{message.author.id}> Sorry, I couldn't generate the PDF. Here's the text response instead:")
+                    formatted_response = await self.format_discord_response(response, message.author.name)
+                    await self.send_chunked_response(reply_channel, formatted_response, message.author.id)
+            else:
+                # Text format (existing flow)
+                formatted_response = await self.format_discord_response(response, message.author.name)
+                await self.send_chunked_response(reply_channel, formatted_response, message.author.id)
+            
+        except Exception as e:
+            # Error handling - notify user in Discord
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] Exception in handle_mention: {e}", file=sys.stderr)
+            print(f"[ERROR] Full traceback:\n{error_details}", file=sys.stderr)
+            error_msg = f"Sorry <@{message.author.id}>, I encountered an error while processing your request: {str(e)}"
+            
+            try:
+                # Try to send error to appropriate channel
+                if 'thread' in locals() and thread:
+                    await thread.send(error_msg)
+                elif 'reply_channel' in locals() and reply_channel:
+                    await reply_channel.send(error_msg)
+                else:
+                    await message.reply(error_msg, mention_author=True)
+            except Exception as fallback_error:
+                # Fallback to channel if all else fails
+                print(f"[ERROR] Failed to send error message: {fallback_error}", file=sys.stderr)
+                try:
+                    await message.channel.send(error_msg)
+                except Exception:
+                    pass  # Give up
+
+    async def generate_acknowledgment(self, message_content: str, user_name: str) -> str:
+        """Generate a quick acknowledgment message using OpenAI"""
+        try:
+            response = openai.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": ACKNOWLEDGMENT_SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": get_acknowledgment_user_prompt(user_name, message_content)
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=50
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            print(f"[ACKNOWLEDGMENT ERROR] Failed to generate acknowledgment: {e}", file=sys.stderr)
+            # Fallback acknowledgments
+            fallbacks = [
+                "Got it! Let me process that for you...",
+                "On it! Give me a moment...",
+                "I'll help with that! Processing now...",
+                "Sure thing! Looking into this..."
+            ]
+            import random
+            return random.choice(fallbacks)
 
     async def send_to_paladin(self, request_data: Dict[str, Any]) -> str:
         """Send message to PaladinAI for processing"""
-        url = f"http://{self.paladin_url}/chat"
+        url = f"http://{self.paladin_url}/api/v1/chat"
+        
+        # Convert request format to match PaladinAI server expectations
+        paladin_request = {
+            "message": request_data["user_input"],
+            "additional_context": {
+                "session_id": f"discord_{request_data['context']['user']}_{request_data['context']['timestamp']}",
+                "discord_context": request_data["context"]
+            }
+        }
         
         async with aiohttp.ClientSession() as session:
             try:
+                print(f"[PALADIN] Full URL: {url}", file=sys.stderr)
+                print(f"[PALADIN] Sending request to {url}", file=sys.stderr)
+                print(f"[PALADIN] Request: {paladin_request['message'][:100]}...", file=sys.stderr)
+                
                 async with session.post(
                     url,
-                    json=request_data,
-                    timeout=aiohttp.ClientTimeout(total=60)
+                    json=paladin_request,
+                    timeout=aiohttp.ClientTimeout(total=600)  # 10 minutes
                 ) as response:
                     if response.status == 200:
                         result = await response.json()
-                        return result.get("response", "Sorry, I couldn't process that request.")
+                        print(f"[PALADIN] Response received, success: {result.get('success', False)}", file=sys.stderr)
+                        
+                        # Extract the formatted response
+                        if "content" in result:
+                            # The server returns markdown in the 'content' field
+                            return result["content"]
+                        elif "raw_result" in result and "formatted_markdown" in result["raw_result"]:
+                            # Fallback to raw_result if needed
+                            return result["raw_result"]["formatted_markdown"]
+                        else:
+                            # Final fallback
+                            return "I've processed your request but couldn't format the response properly."
                     else:
-                        return f"Error: PaladinAI returned status {response.status}"
+                        error_text = await response.text()
+                        print(f"[PALADIN ERROR] Status {response.status}: {error_text}", file=sys.stderr)
+                        return f"Sorry, I encountered an error while processing your request (Status: {response.status})."
+            except (asyncio.TimeoutError, TimeoutError) as e:
+                print(f"[PALADIN ERROR] Request timeout: {e}", file=sys.stderr)
+                return "Sorry, the request took too long to process (timeout: 10 minutes). Please try again."
+            except aiohttp.ClientError as e:
+                print(f"[PALADIN ERROR] Client error: {e}", file=sys.stderr)
+                return "Sorry, I'm having trouble connecting to the processing server."
             except Exception as e:
-                print(f"[PALADIN ERROR] {e}", file=sys.stderr)
-                return "Sorry, I'm having trouble connecting to PaladinAI right now."
+                print(f"[PALADIN ERROR] {type(e).__name__}: {e}", file=sys.stderr)
+                return "Sorry, I encountered an unexpected error while processing your request."
+
+    async def format_discord_response(self, response: str, user_name: str) -> str:
+        """Format response for Discord using OpenAI"""
+        try:
+            # If response is already short enough and well-formatted, return as-is
+            if len(response) <= 2000 and not response.count('```') > 6:
+                return response
+            
+            format_response = openai.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": DISCORD_FORMATTING_SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": get_formatting_user_prompt(user_name, response)
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=4000
+            )
+            
+            return format_response.choices[0].message.content
+            
+        except Exception as e:
+            print(f"[FORMAT ERROR] Failed to format response: {e}", file=sys.stderr)
+            # Return original response if formatting fails
+            return response
+
+    async def send_chunked_response(self, channel: discord.TextChannel, response: str, user_id: int):
+        """Send response in chunks if it exceeds Discord's limit"""
+        MAX_LENGTH = 2000
+        
+        if len(response) <= MAX_LENGTH:
+            # Single message
+            await channel.send(response)
+            return
+        
+        # Split into chunks while preserving code blocks
+        chunks = []
+        current_chunk = ""
+        in_code_block = False
+        code_block_lang = ""
+        
+        lines = response.split('\n')
+        
+        for line in lines:
+            # Track code blocks
+            if line.startswith('```'):
+                if not in_code_block:
+                    in_code_block = True
+                    # Extract language identifier if present
+                    code_block_lang = line[3:].strip()
+                else:
+                    in_code_block = False
+            
+            # Check if adding this line would exceed limit
+            potential_length = len(current_chunk) + len(line) + 1
+            
+            # If we're in a code block and close to limit, close it properly
+            if in_code_block and potential_length > MAX_LENGTH - 100:
+                current_chunk += "```\n"
+                chunks.append(current_chunk.strip())
+                # Start new chunk with code block
+                current_chunk = f"```{code_block_lang}\n{line}\n"
+            elif potential_length > MAX_LENGTH - 50:
+                # Normal chunk boundary
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = line + '\n'
+            else:
+                current_chunk += line + '\n'
+        
+        # Add remaining content
+        if current_chunk:
+            # Close any open code blocks
+            if in_code_block:
+                current_chunk += "```\n"
+            chunks.append(current_chunk.strip())
+        
+        # Send chunks with indicators
+        total_chunks = len(chunks)
+        for i, chunk in enumerate(chunks):
+            chunk_indicator = f"**[Part {i+1}/{total_chunks}]**\n\n" if total_chunks > 1 else ""
+            
+            # Add mention in first chunk
+            if i == 0:
+                chunk_text = f"<@{user_id}> {chunk_indicator}{chunk}"
+            else:
+                chunk_text = f"{chunk_indicator}{chunk}"
+            
+            try:
+                await channel.send(chunk_text)
+                # Small delay between chunks to avoid rate limiting
+                if i < total_chunks - 1:
+                    await asyncio.sleep(0.5)
+            except discord.HTTPException as e:
+                print(f"[CHUNK ERROR] Failed to send chunk {i+1}: {e}", file=sys.stderr)
+                # Try to send error notification
+                try:
+                    await channel.send(f"<@{user_id}> Sorry, part {i+1} of the response was too long to send.")
+                except Exception as chunk_error:
+                    print(f"[CHUNK ERROR] Failed to send error notification: {chunk_error}", file=sys.stderr)
+                    pass
+            except Exception as e:
+                # Log unexpected errors but continue
+                print(f"[CHUNK ERROR] Unexpected error sending chunk {i+1}: {e}", file=sys.stderr)
+                pass
+
+    async def generate_pdf_report(self, user_query: str, response: str, user_name: str, timestamp: datetime) -> BytesIO:
+        """Generate a PDF report from the response"""
+        buffer = BytesIO()
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
+        
+        # Get styles
+        styles = getSampleStyleSheet()
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Title'],
+            fontSize=24,
+            textColor=colors.HexColor('#1a73e8'),
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading1'],
+            fontSize=16,
+            textColor=colors.HexColor('#1a73e8'),
+            spaceAfter=12,
+            spaceBefore=12
+        )
+        
+        subheading_style = ParagraphStyle(
+            'CustomSubHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#5f6368'),
+            spaceAfter=10,
+            spaceBefore=10
+        )
+        
+        body_style = ParagraphStyle(
+            'CustomBody',
+            parent=styles['BodyText'],
+            fontSize=11,
+            leading=14,
+            alignment=TA_JUSTIFY
+        )
+        
+        code_style = ParagraphStyle(
+            'Code',
+            parent=styles['Code'],
+            fontSize=9,
+            leftIndent=20,
+            rightIndent=20,
+            backColor=colors.HexColor('#f5f5f5'),
+            borderColor=colors.HexColor('#e0e0e0'),
+            borderWidth=1,
+            borderPadding=10
+        )
+        
+        # Build content
+        story = []
+        
+        # Title
+        story.append(Paragraph("PaladinAI Analysis Report", title_style))
+        story.append(Spacer(1, 20))
+        
+        # Metadata
+        metadata = f"""
+        <para><b>Generated for:</b> {user_name}<br/>
+        <b>Date:</b> {timestamp.strftime('%B %d, %Y at %I:%M %p')}<br/>
+        <b>Request Type:</b> Discord Query</para>
+        """
+        story.append(Paragraph(metadata, body_style))
+        story.append(Spacer(1, 20))
+        
+        # User Query Section
+        story.append(Paragraph("User Query", heading_style))
+        story.append(Paragraph(user_query, body_style))
+        story.append(Spacer(1, 20))
+        
+        # Response Section
+        story.append(Paragraph("Analysis Results", heading_style))
+        
+        # Convert markdown response to PDF elements
+        # Split response into sections for better formatting
+        lines = response.split('\n')
+        current_code_block = []
+        in_code_block = False
+        
+        for line in lines:
+            if line.startswith('```'):
+                if not in_code_block:
+                    in_code_block = True
+                else:
+                    # End of code block
+                    if current_code_block:
+                        code_text = '\n'.join(current_code_block)
+                        story.append(Preformatted(code_text, code_style))
+                        current_code_block = []
+                    in_code_block = False
+                continue
+            
+            if in_code_block:
+                current_code_block.append(line)
+            else:
+                # Process markdown formatting
+                if line.startswith('###'):
+                    story.append(Paragraph(line[3:].strip(), subheading_style))
+                elif line.startswith('##'):
+                    story.append(Paragraph(line[2:].strip(), heading_style))
+                elif line.startswith('#'):
+                    story.append(Paragraph(line[1:].strip(), heading_style))
+                elif line.strip():
+                    # Convert markdown to HTML for reportlab
+                    line_html = self._markdown_to_html(line)
+                    try:
+                        story.append(Paragraph(line_html, body_style))
+                    except Exception as e:
+                        # Fallback for problematic content
+                        print(f"[PDF] Failed to parse line as HTML: {e}", file=sys.stderr)
+                        story.append(Paragraph(line, body_style))
+                else:
+                    story.append(Spacer(1, 6))
+        
+        # Footer
+        story.append(Spacer(1, 30))
+        footer_text = """
+        <para align="center"><font size="9" color="#666666">
+        This report was generated by PaladinAI via Discord integration.<br/>
+        For questions or support, please contact your system administrator.
+        </font></para>
+        """
+        story.append(Paragraph(footer_text, body_style))
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        
+        return buffer
+    
+    def _markdown_to_html(self, text: str) -> str:
+        """Convert markdown formatting to HTML for reportlab"""
+        # First escape special XML characters
+        text = text.replace('&', '&amp;')
+        text = text.replace('<', '&lt;')
+        text = text.replace('>', '&gt;')
+        
+        # Handle bold (must be done before italic to handle ***text***)
+        text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+        
+        # Handle italic
+        text = re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
+        
+        # Handle inline code
+        text = re.sub(r'`(.+?)`', r'<font name="Courier">\1</font>', text)
+        
+        # Handle bullet points
+        if text.strip().startswith('- '):
+            text = f"• {text[2:]}"
+        elif text.strip().startswith('* '):
+            text = f"• {text[2:]}"
+        elif re.match(r'^\d+\.\s', text.strip()):
+            # Numbered lists
+            text = re.sub(r'^(\d+)\.\s', r'\1. ', text.strip())
+        
+        return text
 
     async def get_channel_messages(self, channel_id: str, limit: int, include_thread_context: bool) -> List[TextContent]:
         """Get recent messages from a channel with context"""
@@ -534,7 +1014,8 @@ class EnhancedDiscordMCPServer:
                 try:
                     reply_msg = await channel.fetch_message(int(reply_to_id))
                     reference = reply_msg
-                except:
+                except Exception as ref_error:
+                    print(f"[REFERENCE ERROR] Failed to fetch reply message: {ref_error}", file=sys.stderr)
                     pass
             
             message = await channel.send(content, reference=reference)
