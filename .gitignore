@@ -24,3 +24,4 @@ docs
 tests
 infra/mock/logs
 .superdesign
+.env.discord
