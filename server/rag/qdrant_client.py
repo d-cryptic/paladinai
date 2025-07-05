@@ -83,16 +83,19 @@ class QdrantService:
     ) -> List[Dict[str, Any]]:
         try:
             search_filter = None
-            if filter_metadata:
+            if filter_metadata and any(filter_metadata.values()):
                 conditions = []
                 for key, value in filter_metadata.items():
-                    conditions.append(
-                        FieldCondition(
-                            key=f"metadata.{key}",
-                            match=MatchValue(value=value),
+                    # Skip None or empty values
+                    if value is not None and value != "":
+                        conditions.append(
+                            FieldCondition(
+                                key=f"metadata.{key}",
+                                match=MatchValue(value=str(value)),  # Ensure string type
+                            )
                         )
-                    )
-                search_filter = Filter(must=conditions)
+                if conditions:  # Only create filter if we have valid conditions
+                    search_filter = Filter(must=conditions)
             
             results = self.client.search(
                 collection_name=self.documentation_collection,

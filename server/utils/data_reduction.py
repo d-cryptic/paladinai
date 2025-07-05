@@ -460,3 +460,101 @@ class DataReducer:
 
 # Singleton instance
 data_reducer = DataReducer(max_tokens=100000)
+
+
+def reduce_data_for_context(data: Any, max_chars: int = 10000) -> Any:
+    """
+    Reduce data size to fit within character limits.
+    
+    Args:
+        data: The data to reduce (dict, list, or string)
+        max_chars: Maximum character limit
+        
+    Returns:
+        Reduced data that fits within the character limit
+    """
+    from pydantic import BaseModel
+    
+    # Handle Pydantic models
+    if isinstance(data, BaseModel):
+        data = data.model_dump()
+    
+    # If it's already a string, truncate it
+    if isinstance(data, str):
+        if len(data) <= max_chars:
+            return data
+        return data[:max_chars] + "... (truncated)"
+    
+    # Convert to string to check size
+    try:
+        data_str = json.dumps(data, indent=2, default=str)
+    except Exception:
+        # If JSON serialization fails, convert to string
+        data_str = str(data)
+        
+    if len(data_str) <= max_chars:
+        return data
+    
+    # Use DataReducer for more intelligent reduction
+    # Estimate tokens from characters (rough approximation)
+    max_tokens = max_chars // 4
+    reducer = DataReducer(max_tokens=max_tokens)
+    
+    # Try to intelligently reduce based on data type
+    if isinstance(data, dict):
+        # Check if it's monitoring data
+        if "metrics" in data or "alerts" in data:
+            return reducer.reduce_prometheus_data(data)
+        elif "logs" in data:
+            return reducer.reduce_loki_logs(data)
+        elif any(key in data for key in ["alert_groups", "alerts"]):
+            return reducer.reduce_alertmanager_data(data)
+        else:
+            # Generic reduction - truncate values
+            reduced = {}
+            for key, value in data.items():
+                if isinstance(value, (dict, list)):
+                    reduced[key] = reduce_data_for_context(value, max_chars // len(data))
+                else:
+                    reduced[key] = value
+            return reduced
+    
+    elif isinstance(data, list):
+        # Sample list items
+        if not data:
+            return data
+        
+        # Handle list of Pydantic models
+        from pydantic import BaseModel
+        processed_data = []
+        for item in data:
+            if isinstance(item, BaseModel):
+                processed_data.append(item.model_dump())
+            else:
+                processed_data.append(item)
+        data = processed_data
+        
+        # Calculate how many items we can keep
+        try:
+            sample_item_str = json.dumps(data[0], indent=2, default=str)
+        except:
+            sample_item_str = str(data[0])
+        item_size = len(sample_item_str)
+        max_items = max(1, max_chars // item_size)
+        
+        if len(data) <= max_items:
+            return data
+        
+        # Return sampled items with metadata
+        step = len(data) // max_items
+        sampled = data[::step][:max_items]
+        
+        return {
+            "sampled": True,
+            "original_count": len(data),
+            "sampled_count": len(sampled),
+            "data": sampled
+        }
+    
+    # Fallback - convert to string and truncate
+    return str(data)[:max_chars] + "... (truncated)"
