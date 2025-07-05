@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from routes import health_router, chat_router
+from routes.documents import router as documents_router
 from middleware import ErrorHandlerMiddleware, RequestTimeoutMiddleware
 from memory.api import memory_router
 from graph.workflow import workflow
@@ -86,6 +87,7 @@ app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(memory_router)
 app.include_router(checkpoint_router)
+app.include_router(documents_router)
 
 
 if __name__ == "__main__":
