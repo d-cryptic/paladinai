@@ -327,6 +327,23 @@ class EnhancedDiscordMCPServer:
             
             self.conversation_context.add_user_message(message.author.id, message_data)
             
+            # Check if this is the docs channel and has document attachments
+            if message.channel.name == "docs" and message.attachments:
+                # Auto-add docs channel to monitored channels if not already monitored
+                if message.channel.id not in self.monitored_channels:
+                    self.monitored_channels[message.channel.id] = message.channel.name
+                    print(f"[DOCS] Auto-monitoring #docs channel (ID: {message.channel.id})", file=sys.stderr)
+                # Filter for PDF and Markdown files
+                doc_attachments = [
+                    att for att in message.attachments 
+                    if att.filename.lower().endswith(('.pdf', '.md'))
+                ]
+                
+                if doc_attachments:
+                    print(f"[DOCS] Document detected in #docs channel: {[att.filename for att in doc_attachments]}", file=sys.stderr)
+                    await self.handle_document_upload(message, doc_attachments)
+                    return  # Skip normal processing for document uploads
+            
             # Store message if channel is monitored
             if message.channel.id in self.monitored_channels:
                 self.store_message(message_data)
@@ -717,6 +734,138 @@ class EnhancedDiscordMCPServer:
             print(f"[FORMAT ERROR] Failed to format response: {e}", file=sys.stderr)
             # Return original response if formatting fails
             return response
+
+    async def handle_document_upload(self, message: discord.Message, doc_attachments: List[discord.Attachment]):
+        """Handle document uploads in the docs channel"""
+        try:
+            # Add reaction to acknowledge receipt
+            await message.add_reaction('📥')
+            
+            # Step 1: Create a thread for the document processing
+            thread_name = f"Document: {doc_attachments[0].filename[:50]}"
+            thread = await message.create_thread(
+                name=thread_name,
+                auto_archive_duration=60  # Auto-archive after 1 hour
+            )
+            print(f"[DOCS] Created thread: {thread.name}", file=sys.stderr)
+            
+            # Step 2: Send initial acknowledgment
+            doc_names = ", ".join([att.filename for att in doc_attachments])
+            
+            # Generate AI acknowledgment
+            ack_prompt = f"User uploaded document(s): {doc_names}. Acknowledge that you received the document(s) and will process them."
+            ack_message = await self.generate_acknowledgment(ack_prompt, message.author.name)
+            
+            await thread.send(f"<@{message.author.id}> {ack_message}")
+            
+            # Step 3: Process each document
+            for attachment in doc_attachments:
+                try:
+                    # Download the document
+                    print(f"[DOCS] Downloading {attachment.filename}...", file=sys.stderr)
+                    doc_bytes = await attachment.read()
+                    
+                    # Send to Paladin RAG endpoint
+                    await thread.send(f"📄 Processing `{attachment.filename}`...")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        # Prepare form data for file upload
+                        form_data = aiohttp.FormData()
+                        form_data.add_field(
+                            'file',
+                            doc_bytes,
+                            filename=attachment.filename,
+                            content_type='application/octet-stream'
+                        )
+                        
+                        # Send to Paladin RAG endpoint
+                        url = f"http://{self.paladin_url}/api/v1/documents/upload"
+                        print(f"[DOCS] Uploading to Paladin: {url}", file=sys.stderr)
+                        
+                        async with session.post(url, data=form_data, timeout=aiohttp.ClientTimeout(total=300)) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                print(f"[DOCS] Upload successful: {result}", file=sys.stderr)
+                                
+                                # Step 4: Generate analysis of the response using OpenAI
+                                analysis_prompt = f"""The document '{attachment.filename}' was processed with the following result:
+                                
+Status: {result.get('status')}
+Message: {result.get('message')}
+Chunks created: {result.get('chunks_created', 'N/A')}
+Document ID: {result.get('document_id')}
+Collection: {result.get('collection_name')}
+
+Please provide a user-friendly summary of this processing result, explaining what happened and what this means for the user."""
+                                
+                                try:
+                                    analysis_response = openai.chat.completions.create(
+                                        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                                        messages=[
+                                            {
+                                                "role": "system",
+                                                "content": "You are a helpful assistant explaining document processing results to users. Be clear, concise, and friendly."
+                                            },
+                                            {
+                                                "role": "user",
+                                                "content": analysis_prompt
+                                            }
+                                        ],
+                                        temperature=0.7,
+                                        max_tokens=500
+                                    )
+                                    
+                                    analysis = analysis_response.choices[0].message.content
+                                    
+                                    # Send formatted response
+                                    await thread.send(f"""✅ **Document Processed Successfully**
+
+{analysis}
+
+📊 **Technical Details:**
+• Document ID: `{result.get('document_id')}`
+• Chunks created: {result.get('chunks_created', 'N/A')}
+• Collection: `{result.get('collection_name')}`""")
+                                    
+                                except Exception as e:
+                                    print(f"[DOCS ERROR] Failed to analyze response: {e}", file=sys.stderr)
+                                    # Fallback to simple response
+                                    await thread.send(f"""✅ **Document Processed Successfully**
+
+Your document `{attachment.filename}` has been successfully stored in the knowledge base.
+
+📊 **Details:**
+• Document ID: `{result.get('document_id')}`
+• Chunks created: {result.get('chunks_created', 'N/A')}
+• Status: {result.get('status')}""")
+                                
+                            else:
+                                error_text = await response.text()
+                                print(f"[DOCS ERROR] Upload failed: {response.status} - {error_text}", file=sys.stderr)
+                                await thread.send(f"❌ Failed to process `{attachment.filename}`: {error_text}")
+                                
+                except Exception as e:
+                    print(f"[DOCS ERROR] Error processing {attachment.filename}: {e}", file=sys.stderr)
+                    await thread.send(f"❌ Error processing `{attachment.filename}`: {str(e)}")
+                    
+            # Step 5: Final summary if multiple documents
+            if len(doc_attachments) > 1:
+                await thread.send(f"""
+📚 **Summary**
+Processed {len(doc_attachments)} document(s). They are now available in the knowledge base for future queries.
+
+You can ask questions about these documents by mentioning me in any channel!""")
+            
+            # Add success reaction
+            await message.add_reaction('✅')
+                
+        except Exception as e:
+            print(f"[DOCS ERROR] Failed to handle document upload: {e}", file=sys.stderr)
+            try:
+                await message.add_reaction('❌')
+                await message.channel.send(f"<@{message.author.id}> Sorry, I encountered an error processing your document(s): {str(e)}")
+            except:
+                pass
 
     async def send_chunked_response(self, channel: discord.TextChannel, response: str, user_id: int):
         """Send response in chunks if it exceeds Discord's limit"""
