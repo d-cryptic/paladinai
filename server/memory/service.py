@@ -381,6 +381,91 @@ class MemoryService:
                 "error": str(e)
             }
     
+    async def search_all_memories(self, query: str, limit: int = 10, memory_types: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Search all memory sources (Mem0, Qdrant, Neo4j) for relevant memories.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of results per source
+            memory_types: Filter by memory types
+            
+        Returns:
+            Combined search results from all sources
+        """
+        try:
+            # Create search query object
+            search_query = MemorySearchQuery(
+                query=query,
+                limit=limit,
+                memory_types=memory_types or ["instruction", "extracted", "incident", "resolution"],
+                confidence_threshold=0.6
+            )
+            
+            # Search main memories
+            main_results = await self.search_memories(search_query)
+            
+            # Also search Neo4j for graph relationships
+            neo4j_results = []
+            if self.neo4j_driver:
+                # Search for entities that match the query
+                with self.neo4j_driver.session() as session:
+                    result = session.run(
+                        """
+                        MATCH (n)
+                        WHERE toLower(n.name) CONTAINS toLower($query) OR 
+                              toLower(n.type) CONTAINS toLower($query) OR
+                              toLower(n.description) CONTAINS toLower($query)
+                        OPTIONAL MATCH (n)-[r]-(related)
+                        RETURN n, collect({
+                            relationship: type(r),
+                            related_entity: related.name,
+                            related_type: related.type
+                        }) as relationships
+                        LIMIT $limit
+                        """,
+                        query=query,
+                        limit=limit
+                    )
+                    
+                    for record in result:
+                        node = record["n"]
+                        relationships = record["relationships"]
+                        neo4j_results.append({
+                            "entity": node.get("name"),
+                            "type": node.get("type"),
+                            "description": node.get("description"),
+                            "relationships": relationships,
+                            "source": "neo4j"
+                        })
+            
+            # Combine results
+            all_memories = main_results.get("memories", [])
+            
+            # Add Neo4j results as a special memory type
+            for neo4j_result in neo4j_results:
+                all_memories.append({
+                    "memory": f"Entity: {neo4j_result['entity']} ({neo4j_result['type']})",
+                    "metadata": neo4j_result,
+                    "score": 0.8,  # Fixed score for graph results
+                    "memory_type": "graph_entity",
+                    "source": "neo4j"
+                })
+            
+            return {
+                "success": True,
+                "memories": all_memories,
+                "total_results": len(all_memories)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error in search_all_memories: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "memories": []
+            }
+    
     async def get_contextual_memories(self, context: str, workflow_type: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
         Get contextually relevant memories for a given situation.
