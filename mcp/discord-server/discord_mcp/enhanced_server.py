@@ -1260,6 +1260,88 @@ You can ask questions about these documents by mentioning me in any channel!""")
         except Exception as e:
             return [TextContent(type="text", text=f"Error monitoring channel: {str(e)}")]
 
+    async def handle_alert_report(self, alert_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle alert report from Paladin server and send to alerts channel."""
+        try:
+            # Find the alerts channel
+            alerts_channel = None
+            for guild in self.bot.guilds:
+                for channel in guild.text_channels:
+                    if channel.name == "alerts":
+                        alerts_channel = channel
+                        break
+                if alerts_channel:
+                    break
+            
+            if not alerts_channel:
+                print("[ALERT REPORT] No 'alerts' channel found", file=sys.stderr)
+                return {
+                    "success": False,
+                    "error": "No 'alerts' channel found in any guild"
+                }
+            
+            # Generate PDF from markdown content
+            markdown_content = alert_data.get("markdown_content", "")
+            alert_id = alert_data.get("alert_id", "unknown")
+            severity = alert_data.get("severity", "unknown")
+            confidence_score = alert_data.get("confidence_score", 0)
+            
+            # Create PDF report
+            pdf_buffer = await self.generate_pdf_report(
+                user_query=f"Alert Analysis: {alert_id}",
+                response=markdown_content,
+                user_name="PaladinAI Alert System",
+                timestamp=datetime.now()
+            )
+            
+            # Create Discord file
+            pdf_file = discord.File(
+                pdf_buffer,
+                filename=f"alert_analysis_{alert_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            )
+            
+            # Create embed for the message
+            embed = discord.Embed(
+                title=f"🚨 Alert Analysis Report",
+                description=f"Alert ID: `{alert_id}`\nSeverity: **{severity.upper()}**\nConfidence: {confidence_score}%",
+                color=discord.Color.red() if severity.lower() == "critical" else 
+                      discord.Color.orange() if severity.lower() == "high" else
+                      discord.Color.yellow() if severity.lower() == "medium" else
+                      discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            embed.add_field(
+                name="Summary",
+                value=markdown_content.split('\n')[2:5][0] if len(markdown_content.split('\n')) > 2 else "Analysis complete",
+                inline=False
+            )
+            
+            embed.set_footer(text="PaladinAI Alert Analysis System")
+            
+            # Send to alerts channel
+            message = await alerts_channel.send(
+                content="@here New alert analysis report available:",
+                embed=embed,
+                file=pdf_file
+            )
+            
+            print(f"[ALERT REPORT] Sent to #{alerts_channel.name}: {message.jump_url}", file=sys.stderr)
+            
+            return {
+                "success": True,
+                "message_url": message.jump_url,
+                "channel": alerts_channel.name,
+                "alert_id": alert_id
+            }
+            
+        except Exception as e:
+            print(f"[ALERT REPORT ERROR] Failed to send alert report: {e}", file=sys.stderr)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
     async def get_queue_status(self) -> List[TextContent]:
         """Get status of the message processing queue"""
         if not self.message_queue:
@@ -1297,6 +1379,17 @@ You can ask questions about these documents by mentioning me in any channel!""")
             await asyncio.sleep(0.1)
         print(f"Discord bot connected as {self.bot.user}", file=sys.stderr)
         
+        # Start alert HTTP server
+        from .alert_server import run_alert_server
+        alert_server_task = asyncio.create_task(
+            run_alert_server(
+                self,
+                host=os.getenv("DISCORD_MCP_HOST", "0.0.0.0"),
+                port=int(os.getenv("DISCORD_MCP_PORT", "9000"))
+            )
+        )
+        print(f"[ALERT SERVER] Starting HTTP server for alert reports...", file=sys.stderr)
+        
         # Run MCP server
         async with stdio_server() as (read_stream, write_stream):
             await self.server.run(
@@ -1306,6 +1399,7 @@ You can ask questions about these documents by mentioning me in any channel!""")
             )
         
         # Clean up
+        alert_server_task.cancel()
         await self.bot.close()
         await bot_task
 
