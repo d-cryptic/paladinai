@@ -20,6 +20,7 @@ old-docs
 prompts
 .mypy_cache
 docs
+!infra/mock/docs
 tests
 infra/mock/logs
 .superdesign
