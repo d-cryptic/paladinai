@@ -1,6 +1,7 @@
 import { useChatStore, ChatSession } from '@/lib/store'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Plus, MessageSquare, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -80,6 +81,14 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           ))}
         </div>
       </ScrollArea>
+
+      {/* Theme toggle at bottom */}
+      <div className="border-t p-4 hidden lg:block">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Theme</span>
+          <ThemeToggle />
+        </div>
+      </div>
     </div>
   )
 }

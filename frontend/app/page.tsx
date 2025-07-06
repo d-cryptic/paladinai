@@ -5,6 +5,7 @@ import { useChatStore } from '@/lib/store'
 import { Sidebar } from '@/components/sidebar'
 import { ChatView } from '@/components/chat-view'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Menu } from 'lucide-react'
 
 export default function Home() {
@@ -40,7 +41,8 @@ export default function Home() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <h1 className="font-semibold">Paladin AI</h1>
+          <h1 className="font-semibold flex-1">Paladin AI</h1>
+          <ThemeToggle />
         </div>
         
         <main className="flex-1 overflow-hidden">

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
-import { Send, Terminal } from 'lucide-react'
+import { Send, Terminal, Paperclip } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CommandHistory, getCommandSuggestions, COMMANDS } from '@/lib/commands'
@@ -20,9 +20,10 @@ interface CommandInputProps {
   placeholder?: string
   value?: string
   onChange?: (value: string) => void
+  onFileUpload?: (file: File) => void
 }
 
-export function CommandInput({ onCommand, isLoading = false, placeholder, value, onChange }: CommandInputProps) {
+export function CommandInput({ onCommand, isLoading = false, placeholder, value, onChange, onFileUpload }: CommandInputProps) {
   const [localInput, setLocalInput] = useState('')
   const input = value !== undefined ? value : localInput
   const setInput = (newValue: string) => {
@@ -39,6 +40,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
   const historyRef = useRef(new CommandHistory())
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const selectedItemRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Sync external value changes to local state
   useEffect(() => {
@@ -169,6 +171,19 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
     }
   }
 
+  const handleFileUpload = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file && onFileUpload) {
+      onFileUpload(file)
+      // Reset the input so the same file can be uploaded again
+      event.target.value = ''
+    }
+  }
+
   const getPlaceholder = () => {
     if (placeholder) return placeholder
     return "Type a message or '/' for commands..."
@@ -223,6 +238,15 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
         </div>
       )}
 
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileChange}
+        accept=".pdf,.doc,.docx,.txt,.md,.json,.xml,.csv,.log"
+      />
+
       {/* Input field */}
       <div className="flex gap-1 sm:gap-2">
         <div className="relative flex-1">
@@ -239,6 +263,21 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
             <Terminal className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
           )}
         </div>
+        
+        {/* File upload button */}
+        {onFileUpload && (
+          <Button
+            onClick={handleFileUpload}
+            disabled={isLoading}
+            size="icon"
+            variant="outline"
+            className="h-8 w-8 sm:h-10 sm:w-10"
+            title="Upload document"
+          >
+            <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
+          </Button>
+        )}
+        
         <Button
           onClick={handleSubmit}
           disabled={!input.trim() || isLoading}

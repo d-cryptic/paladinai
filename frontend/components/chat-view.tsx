@@ -376,6 +376,7 @@ export function ChatView() {
             }))
           }
         }}
+        onFileUpload={handleUploadDocument}
       />
     </div>
   )
