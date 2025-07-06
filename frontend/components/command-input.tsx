@@ -98,7 +98,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
   }
 
   return (
-    <div className="relative p-2 sm:p-4 border-t bg-background">
+    <div className="relative p-2 sm:p-4 border-t bg-background shrink-0">
       {/* Suggestions dropdown */}
       {showSuggestions && (
         <div className="absolute bottom-full left-0 right-0 mb-1 bg-background border rounded-md shadow-lg max-h-48 overflow-auto z-10">

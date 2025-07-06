@@ -5,7 +5,6 @@ import { useChatStore } from '@/lib/store'
 import { ChatMessage } from './chat-message'
 import { CommandInput } from './command-input'
 import { CommandMessage } from './command-message'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card } from '@/components/ui/card'
 import { FileText, Loader2, MessageSquare } from 'lucide-react'
 import { parseCommand, COMMANDS, CommandResult } from '@/lib/commands'
@@ -282,12 +281,12 @@ export function ChatView() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="hidden lg:block border-b p-4">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="hidden lg:block border-b p-4 shrink-0">
         <h2 className="font-semibold">{session.title}</h2>
       </div>
 
-      <ScrollArea className="flex-1" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto" ref={scrollRef}>
         <div className="pb-4" {...getRootProps()}>
           <input {...getInputProps()} />
           {session.messages.length === 0 && commandResults.length === 0 ? (
@@ -338,7 +337,7 @@ export function ChatView() {
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       <CommandInput
         onCommand={handleCommand}

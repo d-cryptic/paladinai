@@ -88,8 +88,8 @@ export function formatMemories(memories: Memory[]): string {
     const memoryType = memory.metadata?.memory_type || 'memory'
     const confidence = Math.round((memory.score || 0) * 100)
     
-    formatted += `${index + 1}. **${memoryType}** (confidence: ${confidence}%)\n`
-    formatted += `   ${memory.memory || 'No content'}\n`
+    formatted += `${index + 1}. **${memoryType}** (confidence: ${confidence}%) ${memory.memory || 'No content'}`
+    
     if (index < memories.length - 1) {
       formatted += '\n'
     }

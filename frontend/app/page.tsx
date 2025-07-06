@@ -19,7 +19,7 @@ export default function Home() {
   }, [])
 
   return (
-    <div className="flex h-screen h-screen-safe bg-background">
+    <div className="flex h-screen h-screen-safe bg-background overflow-hidden">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div 
@@ -43,7 +43,7 @@ export default function Home() {
           <h1 className="font-semibold">Paladin AI</h1>
         </div>
         
-        <main className="flex-1">
+        <main className="flex-1 overflow-hidden">
           <ChatView />
         </main>
       </div>
