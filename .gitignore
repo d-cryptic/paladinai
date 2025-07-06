@@ -19,7 +19,6 @@ old-docs
 .augment-guidelines
 prompts
 .mypy_cache
-docs
 !infra/mock/docs
 tests
 infra/mock/logs
