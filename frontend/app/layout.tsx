@@ -1,3 +1,6 @@
+// Licensed under Apache 2.0 with Commons Clause
+// See LICENSE file for details
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";

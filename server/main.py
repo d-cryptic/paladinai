@@ -1,3 +1,6 @@
+# Licensed under Apache 2.0 with Commons Clause
+# See LICENSE file for details
+
 """
 FastAPI Server for Paladin AI
 AI-Powered Monitoring & Incident Response Platform
