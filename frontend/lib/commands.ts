@@ -52,6 +52,93 @@ export function formatResponse(response: any): string {
     return response
   }
   
+  // Handle memory search results
+  if (response.success && response.memories && Array.isArray(response.memories)) {
+    let output = `# Memory Search Results\n\n`
+    output += `**Query:** ${response.query}\n`
+    output += `**Total Results:** ${response.total_results}\n\n`
+    
+    response.memories.forEach((memory: any, index: number) => {
+      output += `## ${index + 1}. ${memory.memory_type.charAt(0).toUpperCase() + memory.memory_type.slice(1)} Memory\n`
+      output += `**Score:** ${(memory.score * 100).toFixed(1)}%\n`
+      output += `**Content:** ${memory.memory}\n`
+      output += `**Created:** ${new Date(memory.created_at).toLocaleString()}\n`
+      if (memory.related_entities && memory.related_entities.length > 0) {
+        output += `**Related Entities:** ${memory.related_entities.map((e: any) => e.entity).join(', ')}\n`
+      }
+      output += `\n`
+    })
+    
+    return output
+  }
+  
+  // Handle memory types response
+  if (response.memory_types && response.examples) {
+    let output = `# Memory Types\n\n`
+    output += `**System:** ${response.memory_types}\n\n`
+    
+    if (response.descriptions) {
+      output += `## Available Types\n\n`
+      Object.entries(response.descriptions).forEach(([type, desc]: [string, any]) => {
+        output += `- **${type}**: ${desc}\n`
+      })
+      output += `\n`
+    }
+    
+    if (response.examples) {
+      output += `## Examples\n`
+      response.examples.forEach((example: string) => {
+        output += `- ${example}\n`
+      })
+    }
+    
+    return output
+  }
+  
+  // Handle checkpoint list response
+  if (Array.isArray(response) && response.length > 0 && response[0].session_id) {
+    let output = `# Checkpoint List\n\n`
+    response.forEach((checkpoint: any, index: number) => {
+      output += `## ${index + 1}. Session: ${checkpoint.session_id}\n`
+      output += `**Created:** ${new Date(checkpoint.created_at).toLocaleString()}\n`
+      if (checkpoint.updated_at) {
+        output += `**Updated:** ${new Date(checkpoint.updated_at).toLocaleString()}\n`
+      }
+      if (checkpoint.status) {
+        output += `**Status:** ${checkpoint.status}\n`
+      }
+      output += `\n`
+    })
+    return output
+  }
+  
+  // Handle document search results
+  if (response.results && Array.isArray(response.results)) {
+    let output = `# Document Search Results\n\n`
+    if (response.query) {
+      output += `**Query:** ${response.query}\n`
+    }
+    if (response.total_results) {
+      output += `**Total Results:** ${response.total_results}\n\n`
+    }
+    
+    response.results.forEach((doc: any, index: number) => {
+      output += `## ${index + 1}. ${doc.title || 'Document'}\n`
+      if (doc.score) {
+        output += `**Relevance:** ${(doc.score * 100).toFixed(1)}%\n`
+      }
+      if (doc.content) {
+        output += `**Content:** ${doc.content.substring(0, 200)}${doc.content.length > 200 ? '...' : ''}\n`
+      }
+      if (doc.source) {
+        output += `**Source:** ${doc.source}\n`
+      }
+      output += `\n`
+    })
+    
+    return output
+  }
+  
   // Handle structured responses
   if (response.result) {
     return response.result
@@ -65,8 +152,8 @@ export function formatResponse(response: any): string {
     return `Status: ${response.status}`
   }
   
-  // Format JSON responses nicely
-  return JSON.stringify(response, null, 2)
+  // Format JSON responses nicely as fallback
+  return '```json\n' + JSON.stringify(response, null, 2) + '\n```'
 }
 
 // Execute API call to Paladin server
@@ -505,15 +592,20 @@ export function getCommandSuggestions(input: string): string[] {
   const parts = input.slice(1).split(' ')
   const mainCommand = parts[0].toLowerCase()
   
-  // If there's a space, show sub-options
-  if (parts.length > 1 && COMMAND_SUB_OPTIONS[mainCommand]) {
+  // If there's a space and we have sub-options, show sub-options
+  if (parts.length === 2 && COMMAND_SUB_OPTIONS[mainCommand]) {
     const subPartial = parts[1].toLowerCase()
     return COMMAND_SUB_OPTIONS[mainCommand]
       .filter(sub => sub.startsWith(subPartial))
       .map(sub => `/${mainCommand} ${sub}`)
   }
   
-  // Otherwise show main commands
+  // If there are more than 2 parts, don't show suggestions (user is typing arguments)
+  if (parts.length > 2) {
+    return []
+  }
+  
+  // Otherwise show main commands that match
   const suggestions: string[] = []
   for (const [name, cmd] of Object.entries(COMMANDS)) {
     if (name.toLowerCase().startsWith(mainCommand)) {

@@ -42,7 +42,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
 
   // Sync external value changes to local state
   useEffect(() => {
-    if (value !== undefined && value !== localInput) {
+    if (value !== undefined) {
       setLocalInput(value)
     }
   }, [value])
@@ -56,6 +56,9 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
       setShowSuggestions(true)
       setSelectedSuggestion(0)
     } else if (input.startsWith('/')) {
+      const parts = input.slice(1).split(' ')
+      const mainCommand = parts[0].toLowerCase()
+      
       const newSuggestions = getCommandSuggestions(input)
       setSuggestions(newSuggestions)
       setShowSuggestions(newSuggestions.length > 0)
@@ -90,6 +93,10 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
       onCommand(input)
       setInput('')
       setShowSuggestions(false)
+      // Clear the external value if controlled
+      if (onChange) {
+        onChange('')
+      }
     }
   }
 
@@ -122,13 +129,14 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
     else if (e.key === 'Tab' && showSuggestions && suggestions.length > 0) {
       e.preventDefault()
       const selected = suggestions[selectedSuggestion]
-      setInput(selected)
       
       // If it's a command that has sub-options and doesn't already have a space, add one
       const cmdName = selected.slice(1).split(' ')[0]
       if (COMMAND_SUB_OPTIONS[cmdName] && !selected.includes(' ')) {
         setInput(selected + ' ')
+        // Don't hide suggestions yet, let user see sub-options
       } else {
+        setInput(selected)
         setShowSuggestions(false)
       }
     }
@@ -137,8 +145,17 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
     else if (e.key === 'Enter') {
       if (showSuggestions && suggestions.length > 0) {
         e.preventDefault()
-        setInput(suggestions[selectedSuggestion])
-        setShowSuggestions(false)
+        const selected = suggestions[selectedSuggestion]
+        
+        // If it's a command that has sub-options and doesn't already have a space, add one
+        const cmdName = selected.slice(1).split(' ')[0]
+        if (COMMAND_SUB_OPTIONS[cmdName] && !selected.includes(' ')) {
+          setInput(selected + ' ')
+          // Don't hide suggestions yet, let user see sub-options
+        } else {
+          setInput(selected)
+          setShowSuggestions(false)
+        }
       } else {
         e.preventDefault()
         handleSubmit()
@@ -178,8 +195,14 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
                 }`}
                 onMouseEnter={() => setSelectedSuggestion(index)}
                 onClick={() => {
-                  setInput(suggestion)
-                  setShowSuggestions(false)
+                  const cmdName = suggestion.slice(1).split(' ')[0]
+                  if (COMMAND_SUB_OPTIONS[cmdName] && !suggestion.includes(' ')) {
+                    setInput(suggestion + ' ')
+                    // Don't hide suggestions yet, let user see sub-options
+                  } else {
+                    setInput(suggestion)
+                    setShowSuggestions(false)
+                  }
                   inputRef.current?.focus()
                 }}
               >
