@@ -18,6 +18,7 @@ export interface ChatSession {
   messages: Message[]
   createdAt: Date
   updatedAt: Date
+  isTemporary?: boolean  // True for command-only sessions
 }
 
 interface ChatStore {
@@ -25,9 +26,10 @@ interface ChatStore {
   currentSessionId: string | null
   
   // Actions
-  createSession: (title?: string) => string
+  createSession: (title?: string, isTemporary?: boolean) => string
+  makeSessionPermanent: (sessionId: string, title: string) => void
   deleteSession: (id: string) => void
-  setCurrentSession: (id: string) => void
+  setCurrentSession: (id: string | null) => void
   addMessage: (sessionId: string, message: Omit<Message, 'id' | 'timestamp'>) => void
   updateSessionTitle: (sessionId: string, title: string) => void
   getCurrentSession: () => ChatSession | undefined
@@ -41,7 +43,7 @@ export const useChatStore = create<ChatStore>()(
       sessions: [],
       currentSessionId: null,
 
-      createSession: (title = 'New Chat') => {
+      createSession: (title = 'New Chat', isTemporary = false) => {
         const sessionId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         const newSession: ChatSession = {
           id: sessionId,
@@ -49,6 +51,7 @@ export const useChatStore = create<ChatStore>()(
           messages: [],
           createdAt: new Date(),
           updatedAt: new Date(),
+          isTemporary,
         }
         
         set((state) => ({
@@ -57,6 +60,16 @@ export const useChatStore = create<ChatStore>()(
         }))
         
         return sessionId
+      },
+
+      makeSessionPermanent: (sessionId, title) => {
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, title, isTemporary: false, updatedAt: new Date() }
+              : session
+          ),
+        }))
       },
 
       deleteSession: (id) => {

@@ -12,7 +12,7 @@ import { getContextualMemories, formatMemories, determineWorkflowType } from '@/
 import { useDropzone } from 'react-dropzone'
 
 export function ChatView() {
-  const { getCurrentSession, addMessage, currentSessionId, clearSession } = useChatStore()
+  const { getCurrentSession, addMessage, currentSessionId, clearSession, createSession, makeSessionPermanent } = useChatStore()
   const [isHydrated, setIsHydrated] = useState(false)
   const [sessionStates, setSessionStates] = useState<Record<string, { 
     isLoading: boolean; 
@@ -37,14 +37,18 @@ export function ChatView() {
   }, [session?.messages])
 
   const handleCommand = async (input: string) => {
-    if (!currentSessionId) return
-
     const { command, args } = parseCommand(input)
     
-    // Handle regular chat messages
+    // Handle regular chat messages (user queries)
     if (command === 'chat') {
       handleSendMessage(args[0])
       return
+    }
+    
+    // For commands: create temporary session if none exists
+    let sessionId = currentSessionId
+    if (!sessionId) {
+      sessionId = createSession('Command Session', true)  // true = temporary
     }
     
     // Handle CLI commands
@@ -55,7 +59,7 @@ export function ChatView() {
         content: `Unknown command: ${command}. Type /help for available commands.`
       }
       // Add command result as a message
-      addMessage(currentSessionId, {
+      addMessage(sessionId, {
         role: 'command',
         content: JSON.stringify({ command: input, result }),
         metadata: { type: 'command' }
@@ -65,21 +69,21 @@ export function ChatView() {
     
     setSessionStates(prev => ({
       ...prev,
-      [currentSessionId]: { ...prev[currentSessionId], isLoading: true }
+      [sessionId]: { ...prev[sessionId], isLoading: true }
     }))
     try {
       const result = await cmd.handler(args)
       
       // Handle special actions
       if (result.data?.action === 'clear') {
-        if (currentSessionId) {
-          clearSession(currentSessionId)
+        if (sessionId) {
+          clearSession(sessionId)
         }
         return
       }
       
       // Add command result as a message
-      addMessage(currentSessionId, {
+      addMessage(sessionId, {
         role: 'command',
         content: JSON.stringify({ command: input, result }),
         metadata: { type: 'command' }
@@ -90,7 +94,7 @@ export function ChatView() {
         content: `Command failed: ${error}`
       }
       // Add command result as a message
-      addMessage(currentSessionId, {
+      addMessage(sessionId, {
         role: 'command',
         content: JSON.stringify({ command: input, result }),
         metadata: { type: 'command' }
@@ -98,23 +102,35 @@ export function ChatView() {
     } finally {
       setSessionStates(prev => ({
         ...prev,
-        [currentSessionId]: { ...prev[currentSessionId], isLoading: false }
+        [sessionId]: { ...prev[sessionId], isLoading: false }
       }))
     }
   }
 
   const handleSendMessage = async (content: string) => {
-    if (!currentSessionId) return
+    // Create a new permanent session if none exists, or make existing temporary session permanent
+    let sessionId = currentSessionId
+    const currentSession = getCurrentSession()
+    
+    if (!sessionId) {
+      // Create new permanent session with user query as title
+      const title = content.replace(/\n/g, ' ').trim().substring(0, 50)
+      sessionId = createSession(title.length > 0 ? title : 'New Chat', false)  // false = permanent
+    } else if (currentSession?.isTemporary) {
+      // Convert temporary session to permanent with user query as title
+      const title = content.replace(/\n/g, ' ').trim().substring(0, 50)
+      makeSessionPermanent(sessionId, title.length > 0 ? title : 'New Chat')
+    }
 
     // Add user message
-    addMessage(currentSessionId, {
+    addMessage(sessionId, {
       role: 'user',
       content,
     })
 
     setSessionStates(prev => ({
       ...prev,
-      [currentSessionId]: { ...prev[currentSessionId], isLoading: true }
+      [sessionId]: { ...prev[sessionId], isLoading: true }
     }))
     try {
       // Fetch contextual memories first (like CLI does)
@@ -126,7 +142,7 @@ export function ChatView() {
         if (memoryResponse && memoryResponse.success && memoryResponse.memories && memoryResponse.memories.length > 0) {
           // Show memories to user
           const memoryContent = formatMemories(memoryResponse.memories)
-          addMessage(currentSessionId, {
+          addMessage(sessionId, {
             role: 'system',
             content: memoryContent,
           })
@@ -151,7 +167,7 @@ export function ChatView() {
           session_id: messageSessionId,  // Same unique ID here
           workflow_type: workflowType,
           ui_source: 'web',
-          ui_chat_session: currentSessionId  // Keep track of UI session for grouping
+          ui_chat_session: sessionId  // Keep track of UI session for grouping
         }
       }
       
@@ -208,26 +224,35 @@ export function ChatView() {
       }
       
       // Add assistant response
-      addMessage(currentSessionId, {
+      addMessage(sessionId, {
         role: 'assistant',
         content: formattedContent || 'No response received',
       })
     } catch (error) {
       console.error('Error sending message:', error)
-      addMessage(currentSessionId, {
+      addMessage(sessionId, {
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',
       })
     } finally {
       setSessionStates(prev => ({
         ...prev,
-        [currentSessionId]: { ...prev[currentSessionId], isLoading: false }
+        [sessionId]: { ...prev[sessionId], isLoading: false }
       }))
     }
   }
 
   const handleUploadDocument = async (file: File) => {
-    if (!currentSessionId) return
+    // Create a new permanent session if none exists (file upload is user action)
+    let sessionId = currentSessionId
+    const currentSession = getCurrentSession()
+    
+    if (!sessionId) {
+      sessionId = createSession(`Document: ${file.name}`, false)  // false = permanent
+    } else if (currentSession?.isTemporary) {
+      // Convert temporary session to permanent with file name as title
+      makeSessionPermanent(sessionId, `Document: ${file.name}`)
+    }
 
     const formData = new FormData()
     formData.append('file', file)
@@ -249,12 +274,11 @@ export function ChatView() {
         type: 'success',
         content: `Document "${file.name}" uploaded successfully! ${data.chunks_created || 0} chunks created.`
       }
-      setCommandResults(prev => [...prev, {
-        command: `Upload: ${file.name}`,
-        result,
-        timestamp: new Date(),
-        id: `upload_${Date.now()}`
-      }])
+      addMessage(sessionId, {
+        role: 'command',
+        content: JSON.stringify({ command: `Upload: ${file.name}`, result }),
+        metadata: { type: 'command' }
+      })
     } catch (error) {
       console.error('Error uploading document:', error)
       
@@ -262,12 +286,11 @@ export function ChatView() {
         type: 'error',
         content: `Failed to upload document "${file.name}". Please try again.`
       }
-      setCommandResults(prev => [...prev, {
-        command: `Upload: ${file.name}`,
-        result,
-        timestamp: new Date(),
-        id: `upload_${Date.now()}`
-      }])
+      addMessage(sessionId, {
+        role: 'command',
+        content: JSON.stringify({ command: `Upload: ${file.name}`, result }),
+        metadata: { type: 'command' }
+      })
     }
   }
   
@@ -289,11 +312,50 @@ export function ChatView() {
 
   if (!session) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <div className="text-center">
-          <MessageSquare className="mx-auto h-12 w-12 mb-4" />
-          <p>Select or create a chat to get started</p>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto bg-orange-50 dark:bg-gray-900">
+          <div className="flex h-full items-center justify-center p-4 sm:p-8 text-center">
+            <div className="max-w-2xl">
+              <div className="mb-8">
+                <div className="flex items-center justify-center mb-4">
+                  <span className="text-2xl">🤖</span>
+                </div>
+                <h1 className="text-xl sm:text-2xl font-semibold mb-2 text-gray-900 dark:text-gray-100">
+                  Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}!
+                </h1>
+                <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-6">
+                  How can I help you today?
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-8">
+                <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer transition-colors text-left">
+                  <div className="text-sm font-medium mb-1">💬 Ask questions</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Get answers and explanations</div>
+                </div>
+                <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer transition-colors text-left">
+                  <div className="text-sm font-medium mb-1">⚡ Use commands</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Type / to see available commands</div>
+                </div>
+                <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer transition-colors text-left">
+                  <div className="text-sm font-medium mb-1">📄 Upload documents</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Drag & drop or use the paperclip icon</div>
+                </div>
+                <div className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer transition-colors text-left">
+                  <div className="text-sm font-medium mb-1">🧠 Search memory</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Find stored information and memories</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <CommandInput
+          onCommand={handleCommand}
+          isLoading={isLoading}
+          placeholder="Type a message to start a new conversation..."
+          onFileUpload={handleUploadDocument}
+        />
       </div>
     )
   }

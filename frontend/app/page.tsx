@@ -12,12 +12,7 @@ export default function Home() {
   const { sessions, createSession } = useChatStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  useEffect(() => {
-    // Create initial session if none exist
-    if (sessions.length === 0) {
-      createSession('Welcome Chat')
-    }
-  }, [])
+  // Remove automatic session creation - let user initiate conversations
 
   return (
     <div className="flex h-screen h-screen-safe bg-orange-50 dark:bg-gray-900 overflow-hidden">

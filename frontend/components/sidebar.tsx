@@ -14,7 +14,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const { sessions, currentSessionId, createSession, deleteSession, setCurrentSession } = useChatStore()
 
   const handleNewChat = () => {
-    createSession()
+    // Clear current session to show welcome screen
+    setCurrentSession(null)
     onClose?.()
   }
   
@@ -52,17 +53,19 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     })
   }
 
-  // Group sessions by date
-  const groupedSessions = sessions.reduce((groups: Record<string, ChatSession[]>, session) => {
-    const date = session.updatedAt instanceof Date ? session.updatedAt : new Date(session.updatedAt)
-    const dateLabel = getDateLabel(date)
-    
-    if (!groups[dateLabel]) {
-      groups[dateLabel] = []
-    }
-    groups[dateLabel].push(session)
-    return groups
-  }, {})
+  // Group sessions by date (filter out temporary sessions)
+  const groupedSessions = sessions
+    .filter(session => !session.isTemporary)  // Hide temporary sessions
+    .reduce((groups: Record<string, ChatSession[]>, session) => {
+      const date = session.updatedAt instanceof Date ? session.updatedAt : new Date(session.updatedAt)
+      const dateLabel = getDateLabel(date)
+      
+      if (!groups[dateLabel]) {
+        groups[dateLabel] = []
+      }
+      groups[dateLabel].push(session)
+      return groups
+    }, {})
 
   // Sort sessions within each group and sort groups
   const sortedGroups = Object.entries(groupedSessions).map(([dateLabel, sessions]) => ({
@@ -165,7 +168,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       </ScrollArea>
 
       {/* Theme toggle at bottom */}
-      <div className="border-t p-4">
+      <div className="border-t p-3 sm:p-4 lg:p-6">
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Theme</span>
           <ThemeToggle />

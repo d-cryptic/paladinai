@@ -190,7 +190,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
   }
 
   return (
-    <div className="relative p-3 sm:p-4 lg:p-6 border-t bg-white dark:bg-gray-800 shrink-0">
+    <div className="relative p-3 sm:p-4 lg:p-6 border-t bg-white dark:bg-gray-800 shadow-lg dark:shadow-gray-900/50 shrink-0">
       <div className="xl:max-w-5xl xl:mx-auto xl:px-8 max-w-full overflow-hidden">
         {/* Suggestions dropdown */}
         {showSuggestions && (
@@ -258,7 +258,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
               onKeyDown={handleKeyDown}
               placeholder={getPlaceholder()}
               disabled={isLoading}
-              className={`pr-8 sm:pr-10 text-sm ${input.startsWith('/') ? 'font-mono' : ''}`}
+              className={`pr-8 sm:pr-10 text-sm border-2 border-gray-200 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 shadow-sm bg-white dark:bg-gray-700 ${input.startsWith('/') ? 'font-mono' : ''}`}
             />
             {input.startsWith('/') && (
               <Terminal className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
@@ -272,7 +272,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
               disabled={isLoading}
               size="icon"
               variant="outline"
-              className="h-8 w-8 sm:h-10 sm:w-10"
+              className="h-8 w-8 sm:h-10 sm:w-10 border-2 border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 bg-white dark:bg-gray-700"
               title="Upload document"
             >
               <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -283,7 +283,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
             onClick={handleSubmit}
             disabled={!input.trim() || isLoading}
             size="icon"
-            className="h-8 w-8 sm:h-10 sm:w-10"
+            className="h-8 w-8 sm:h-10 sm:w-10 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600"
           >
             <Send className="h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
