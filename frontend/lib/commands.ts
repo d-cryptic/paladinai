@@ -112,6 +112,163 @@ export function formatResponse(response: any): string {
     return output
   }
   
+  // Handle single checkpoint get response (data directly in response.data)
+  if (response.data && response.data.thread_id && response.data.checkpoint_id && !Array.isArray(response.data)) {
+    const checkpoint = response.data
+    const sizeFormatted = checkpoint.size_mb > 0 ? `${checkpoint.size_mb} MB` : `${(checkpoint.size_bytes / 1024).toFixed(1)} KB`
+    const stepIcon = checkpoint.metadata?.step >= 8 ? '✅' : '🔄'
+    
+    let output = `# 🔍 Checkpoint Details\n\n`
+    output += `### ${stepIcon} Checkpoint Information\n\n`
+    output += `| Field | Value |\n`
+    output += `|-------|-------|\n`
+    output += `| **Thread ID** | \`${checkpoint.thread_id}\` |\n`
+    output += `| **Checkpoint ID** | \`${checkpoint.checkpoint_id}\` |\n`
+    output += `| **Created** | ${new Date(checkpoint.timestamp).toLocaleString()} |\n`
+    output += `| **Size** | ${sizeFormatted} (${checkpoint.size_bytes.toLocaleString()} bytes) |\n`
+    
+    if (checkpoint.metadata) {
+      output += `| **Source** | ${checkpoint.metadata.source?.replace(/"/g, '') || 'N/A'} |\n`
+      if (checkpoint.metadata.step !== undefined) {
+        output += `| **Workflow Step** | ${checkpoint.metadata.step}/9 |\n`
+      }
+    }
+    
+    // Show workflow execution details if available
+    if (checkpoint.metadata && checkpoint.metadata.writes && checkpoint.metadata.writes.result) {
+      const result = checkpoint.metadata.writes.result
+      output += `\n### 🚀 Workflow Execution Details\n\n`
+      
+      if (result.user_input) {
+        output += `**Original Request:** ${result.user_input.replace(/"/g, '')}\n\n`
+      }
+      
+      if (result.current_node && result.current_phase) {
+        output += `**Status:** ${result.current_phase.replace(/"/g, '')} (Node: ${result.current_node.replace(/"/g, '')})\n\n`
+      }
+      
+      if (result.execution_path) {
+        try {
+          const path = JSON.parse(result.execution_path)
+          output += `**Execution Path:** ${path.join(' → ')}\n\n`
+        } catch (e) {
+          output += `**Execution Path:** ${result.execution_path}\n\n`
+        }
+      }
+      
+      if (result.execution_time_ms) {
+        const timeMs = parseInt(result.execution_time_ms)
+        const timeSec = (timeMs / 1000).toFixed(1)
+        output += `**Execution Time:** ${timeSec}s (${timeMs.toLocaleString()}ms)\n\n`
+      }
+      
+      // Show final result summary if available
+      if (result.final_result) {
+        output += `### 📊 Result Summary\n\n`
+        const finalResult = result.final_result
+        
+        if (finalResult.categorization) {
+          output += `**Workflow Type:** ${finalResult.categorization.workflow_type?.replace(/"/g, '') || 'N/A'}\n`
+          output += `**Confidence:** ${finalResult.categorization.confidence?.replace(/"/g, '') || 'N/A'}\n\n`
+        }
+        
+        if (finalResult.action_result) {
+          const actionResult = finalResult.action_result
+          
+          if (actionResult.data_characteristics) {
+            output += `**Data Collected:**\n`
+            output += `- Source: ${actionResult.data_characteristics.data_source?.replace(/"/g, '') || 'N/A'}\n`
+            output += `- Quality: ${actionResult.data_characteristics.data_quality?.replace(/"/g, '') || 'N/A'}\n`
+            output += `- Data Points: ${actionResult.data_characteristics.total_data_points || 'N/A'}\n\n`
+          }
+          
+          if (actionResult.performance_assessment) {
+            output += `**Performance Summary:**\n`
+            const perf = actionResult.performance_assessment
+            if (perf.cpu_performance) {
+              output += `- CPU: ${perf.cpu_performance.average_usage?.replace(/"/g, '') || 'N/A'} (${perf.cpu_performance.status?.replace(/"/g, '') || 'N/A'})\n`
+            }
+            if (perf.memory_performance) {
+              output += `- Memory: ${perf.memory_performance.average_usage?.replace(/"/g, '') || 'N/A'} (${perf.memory_performance.status?.replace(/"/g, '') || 'N/A'})\n`
+            }
+            output += `\n`
+          }
+          
+          if (actionResult.key_insights) {
+            try {
+              const insights = JSON.parse(actionResult.key_insights)
+              output += `**Key Insights:**\n`
+              insights.forEach((insight: string, index: number) => {
+                output += `${index + 1}. ${insight}\n`
+              })
+              output += `\n`
+            } catch (e) {
+              output += `**Key Insights:** ${actionResult.key_insights}\n\n`
+            }
+          }
+        }
+        
+        if (finalResult.instruction_compliance) {
+          const compliance = finalResult.instruction_compliance
+          const score = parseFloat(compliance.compliance_score || '0')
+          const percentage = (score * 100).toFixed(1)
+          output += `**Instruction Compliance:** ${percentage}% (${compliance.instructions_provided || 0} provided)\n\n`
+        }
+      }
+    }
+    
+    return output
+  }
+  
+  // Handle checkpoint response with details
+  if (response.data && response.data.checkpoints && Array.isArray(response.data.checkpoints)) {
+    let output = `# 📋 Checkpoint List\n\n`
+    output += `**Total Found:** ${response.data.count || response.data.checkpoints.length} checkpoints\n\n`
+    
+    response.data.checkpoints.forEach((checkpoint: any, index: number) => {
+      const stepIcon = checkpoint.metadata?.step >= 8 ? '✅' : '🔄'
+      const sizeFormatted = checkpoint.size_mb > 0 ? `${checkpoint.size_mb} MB` : `${(checkpoint.size_bytes / 1024).toFixed(1)} KB`
+      
+      output += `---\n\n`
+      output += `### ${stepIcon} Checkpoint #${index + 1}\n\n`
+      output += `| Field | Value |\n`
+      output += `|-------|-------|\n`
+      output += `| **Thread ID** | \`${checkpoint.thread_id}\` |\n`
+      output += `| **Checkpoint ID** | \`${checkpoint.checkpoint_id}\` |\n`
+      output += `| **Created** | ${new Date(checkpoint.timestamp).toLocaleString()} |\n`
+      output += `| **Size** | ${sizeFormatted} (${checkpoint.size_bytes.toLocaleString()} bytes) |\n`
+      if (checkpoint.metadata?.source) {
+        output += `| **Source** | ${checkpoint.metadata.source.replace(/"/g, '')} |\n`
+      }
+      if (checkpoint.metadata?.step !== undefined) {
+        output += `| **Workflow Step** | ${checkpoint.metadata.step}/9 |\n`
+      }
+      output += `\n`
+    })
+    return output
+  }
+  
+  // Handle checkpoint response with details (fallback for direct checkpoints array)
+  if (response.checkpoints && Array.isArray(response.checkpoints)) {
+    let output = `# Checkpoint List\n\n`
+    output += `**Total:** ${response.checkpoints.length}\n\n`
+    response.checkpoints.forEach((checkpoint: any, index: number) => {
+      output += `## ${index + 1}. Session: ${checkpoint.session_id || checkpoint.id}\n`
+      output += `**Created:** ${new Date(checkpoint.created_at).toLocaleString()}\n`
+      if (checkpoint.updated_at) {
+        output += `**Updated:** ${new Date(checkpoint.updated_at).toLocaleString()}\n`
+      }
+      if (checkpoint.status) {
+        output += `**Status:** ${checkpoint.status}\n`
+      }
+      if (checkpoint.workflow_state) {
+        output += `**Workflow State:** ${checkpoint.workflow_state}\n`
+      }
+      output += `\n`
+    })
+    return output
+  }
+  
   // Handle document search results
   if (response.results && Array.isArray(response.results)) {
     let output = `# Document Search Results\n\n`
@@ -138,6 +295,7 @@ export function formatResponse(response: any): string {
     
     return output
   }
+  
   
   // Handle structured responses
   if (response.result) {
@@ -369,11 +527,7 @@ export const COMMANDS: Record<string, Command> = {
       if (args.length === 0) {
         return {
           type: 'info',
-          content: `Checkpoint commands:
-- /checkpoint get <session_id> - Get checkpoint
-- /checkpoint exists <session_id> - Check if checkpoint exists
-- /checkpoint list - List all checkpoints
-- /checkpoint delete <session_id> - Delete checkpoint`
+          content: `# 📋 Checkpoint Commands\n\n**Available Actions:**\n- \`/checkpoint list\` - List all checkpoints with details\n- \`/checkpoint get <thread_id>\` - Get detailed checkpoint information\n- \`/checkpoint exists <thread_id>\` - Check if checkpoint exists\n- \`/checkpoint delete <thread_id|checkpoint_id>\` - Delete specific checkpoint\n\n**Usage Notes:**\n- Use \`/checkpoint list\` first to see available checkpoints\n- Most commands work with either thread_id or checkpoint_id\n- Thread IDs look like: \`chat_1751781767673_jmtxv2lke\`\n- Checkpoint IDs look like: \`1f05a2ef-49d7-6d8e-8009-b2bc74329de3\``
         }
       }
       
@@ -422,13 +576,21 @@ export const COMMANDS: Record<string, Command> = {
           
         case 'delete':
           if (!sessionId) {
-            return { type: 'error', content: 'Please provide a session ID' }
+            return { type: 'error', content: 'Please provide a session ID or checkpoint ID' }
           }
           try {
-            await executeAPICall(`/api/v1/checkpoints/${sessionId}`, 'DELETE')
+            const result = await executeAPICall(`/api/v1/checkpoints/${sessionId}`, 'DELETE')
+            
+            if (result.success === false) {
+              return {
+                type: 'warning',
+                content: `⚠️ ${result.message}\n\n*Note: The delete command expects either a thread_id or checkpoint_id. Use '/checkpoint list' to see available checkpoints.*`
+              }
+            }
+            
             return {
               type: 'success',
-              content: '✅ Checkpoint deleted successfully'
+              content: formatResponse(result) || '✅ Checkpoint deleted successfully'
             }
           } catch (error) {
             return { type: 'error', content: `Failed to delete checkpoint: ${error}` }
