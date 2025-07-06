@@ -22,18 +22,28 @@ export function ChatMessage({ message }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        'flex w-full gap-2 sm:gap-4 px-3 sm:px-4 py-3 sm:py-6 max-w-full overflow-hidden',
-        isUser ? 'bg-background' : isSystem ? 'bg-blue-500/10' : 'bg-muted/50'
+        'flex w-full gap-2 sm:gap-4 px-3 sm:px-4 py-4 sm:py-6 max-w-full overflow-hidden',
+        isUser 
+          ? 'bg-white dark:bg-gray-800' 
+          : isSystem 
+            ? 'bg-blue-50 dark:bg-blue-950/30 border-l-2 border-blue-200 dark:border-blue-800' 
+            : 'bg-orange-50 dark:bg-gray-900'
       )}
     >
-      <Avatar className="h-6 w-6 sm:h-8 sm:w-8 shrink-0">
-        <AvatarFallback>
+      <Avatar className="h-7 w-7 sm:h-9 sm:w-9 shrink-0">
+        <AvatarFallback className={cn(
+          isUser 
+            ? "bg-blue-500 dark:bg-blue-600 text-white" 
+            : isSystem 
+              ? "bg-purple-500 dark:bg-purple-600 text-white"
+              : "bg-orange-500 dark:bg-orange-600 text-white"
+        )}>
           {isUser ? (
-            <User className="h-4 w-4" />
+            <User className="h-4 w-4 sm:h-5 sm:w-5" />
           ) : isSystem ? (
-            <Brain className="h-4 w-4" />
+            <Brain className="h-4 w-4 sm:h-5 sm:w-5" />
           ) : (
-            <Bot className="h-4 w-4" />
+            <Bot className="h-4 w-4 sm:h-5 sm:w-5" />
           )}
         </AvatarFallback>
       </Avatar>

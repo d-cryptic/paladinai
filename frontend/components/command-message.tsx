@@ -106,23 +106,25 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
   }
 
   return (
-    <Card className={`p-3 sm:p-4 ${getBorderColor()} border-l-4`}>
-      {/* Command header */}
-      <div className="flex items-center gap-2 mb-2 text-xs sm:text-sm text-muted-foreground">
-        <Terminal className="h-3 w-3 shrink-0" />
-        <span className="font-mono truncate">{command}</span>
-        <span className="ml-auto text-xs shrink-0">
-          {timestamp.toLocaleTimeString()}
-        </span>
-      </div>
-
-      {/* Result */}
-      <div className="flex items-start gap-2">
-        <div className="mt-0.5">{getIcon()}</div>
-        <div className="flex-1 min-w-0">
-          {formatContent(result.content)}
+    <div className="w-full bg-orange-50 dark:bg-gray-900 px-3 sm:px-4 py-4 sm:py-6 max-w-full overflow-hidden">
+      <Card className={`p-3 sm:p-4 ${getBorderColor()} border-l-4 bg-background`}>
+        {/* Command header */}
+        <div className="flex items-center gap-2 mb-2 text-xs sm:text-sm text-muted-foreground">
+          <Terminal className="h-3 w-3 shrink-0" />
+          <span className="font-mono truncate">{command}</span>
+          <span className="ml-auto text-xs shrink-0">
+            {timestamp.toLocaleTimeString()}
+          </span>
         </div>
-      </div>
-    </Card>
+
+        {/* Result */}
+        <div className="flex items-start gap-2">
+          <div className="mt-0.5">{getIcon()}</div>
+          <div className="flex-1 min-w-0">
+            {formatContent(result.content)}
+          </div>
+        </div>
+      </Card>
+    </div>
   )
 }

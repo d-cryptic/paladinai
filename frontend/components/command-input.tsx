@@ -190,7 +190,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
   }
 
   return (
-    <div className="relative p-3 sm:p-4 lg:p-6 border-t bg-background shrink-0">
+    <div className="relative p-3 sm:p-4 lg:p-6 border-t bg-white dark:bg-gray-800 shrink-0">
       <div className="xl:max-w-5xl xl:mx-auto xl:px-8 max-w-full overflow-hidden">
         {/* Suggestions dropdown */}
         {showSuggestions && (

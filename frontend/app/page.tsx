@@ -20,7 +20,7 @@ export default function Home() {
   }, [])
 
   return (
-    <div className="flex h-screen h-screen-safe bg-background overflow-hidden">
+    <div className="flex h-screen h-screen-safe bg-orange-50 dark:bg-gray-900 overflow-hidden">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div 
@@ -33,7 +33,7 @@ export default function Home() {
       
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile header */}
-        <div className="lg:hidden border-b p-4 flex items-center gap-2">
+        <div className="lg:hidden border-b bg-white dark:bg-gray-800 p-4 flex items-center gap-2">
           <Button
             variant="ghost"
             size="icon"

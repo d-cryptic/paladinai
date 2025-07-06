@@ -300,11 +300,11 @@ export function ChatView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="hidden lg:block border-b p-4 shrink-0">
+      <div className="hidden lg:block border-b bg-white dark:bg-gray-800 p-4 shrink-0">
         <h2 className="font-semibold">{session.title}</h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto bg-orange-50 dark:bg-gray-900" ref={scrollRef}>
         <div className="pb-4" {...getRootProps()}>
           <input {...getInputProps()} />
           {session.messages.length === 0 ? (
@@ -324,7 +324,7 @@ export function ChatView() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4 px-3 py-4 sm:px-4 lg:px-6 xl:max-w-5xl xl:mx-auto xl:px-8 max-w-full overflow-hidden">
+            <div className="xl:max-w-5xl xl:mx-auto xl:px-8 max-w-full overflow-hidden">
               {/* All messages in chronological order */}
               {session.messages.map((message) => {
                 if (message.role === 'command' && message.metadata?.type === 'command') {

@@ -86,7 +86,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   return (
     <div className={cn(
-      "fixed inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r bg-background transition-transform lg:relative lg:translate-x-0",
+      "fixed inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r bg-white dark:bg-gray-800 transition-transform lg:relative lg:translate-x-0",
       isOpen ? "translate-x-0" : "-translate-x-full"
     )}>
       <div className="flex items-center justify-between p-4 lg:justify-center">
