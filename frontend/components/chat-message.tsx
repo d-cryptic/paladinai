@@ -1,7 +1,8 @@
 import { Message } from '@/lib/store'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
-import { User, Bot } from 'lucide-react'
+import { User, Bot, Brain } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 
 interface ChatMessageProps {
   message: Message
@@ -9,25 +10,66 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user'
+  const isSystem = message.role === 'system'
 
   return (
     <div
       className={cn(
         'flex w-full gap-4 px-4 py-6',
-        isUser ? 'bg-background' : 'bg-muted/50'
+        isUser ? 'bg-background' : isSystem ? 'bg-blue-500/10' : 'bg-muted/50'
       )}
     >
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarFallback>
-          {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+          {isUser ? (
+            <User className="h-4 w-4" />
+          ) : isSystem ? (
+            <Brain className="h-4 w-4" />
+          ) : (
+            <Bot className="h-4 w-4" />
+          )}
         </AvatarFallback>
       </Avatar>
       <div className="flex-1 space-y-2">
         <div className="font-semibold text-sm">
-          {isUser ? 'You' : 'Paladin AI'}
+          {isUser ? 'You' : isSystem ? 'Memory Context' : 'Paladin AI'}
         </div>
-        <div className="text-sm text-foreground/90 whitespace-pre-wrap">
-          {message.content}
+        <div className="text-sm text-foreground/90">
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{message.content}</div>
+          ) : (
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown
+                components={{
+                  pre: ({ children }) => (
+                    <pre className="bg-muted p-3 rounded-md overflow-auto my-2">
+                      {children}
+                    </pre>
+                  ),
+                  code: ({ children, className }) => {
+                    const isInline = !className
+                    return isInline ? (
+                      <code className="bg-muted px-1 py-0.5 rounded text-sm">{children}</code>
+                    ) : (
+                      <code className="text-sm">{children}</code>
+                    )
+                  },
+                  h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-lg font-semibold mt-3 mb-2">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-base font-semibold mt-2 mb-1">{children}</h3>,
+                  p: ({ children }) => <p className="my-2">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc list-inside ml-4 my-2">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal list-inside ml-4 my-2">{children}</ol>,
+                  li: ({ children }) => <li className="my-1">{children}</li>,
+                  hr: () => <hr className="my-4 border-t border-muted-foreground/20" />,
+                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                  em: ({ children }) => <em className="italic">{children}</em>,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
       </div>
     </div>
