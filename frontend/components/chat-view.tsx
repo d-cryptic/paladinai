@@ -13,11 +13,18 @@ import { useDropzone } from 'react-dropzone'
 
 export function ChatView() {
   const { getCurrentSession, addMessage, currentSessionId, clearSession } = useChatStore()
-  const [isLoading, setIsLoading] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
-  const [commandResults, setCommandResults] = useState<Array<{ command: string; result: CommandResult; timestamp: Date; id: string }>>([])
+  const [sessionStates, setSessionStates] = useState<Record<string, { 
+    isLoading: boolean; 
+    inputValue: string;
+  }>>({})
   const scrollRef = useRef<HTMLDivElement>(null)
   const session = getCurrentSession()
+  
+  // Get current session state
+  const currentSessionState = currentSessionId ? sessionStates[currentSessionId] : null
+  const isLoading = currentSessionState?.isLoading || false
+  const inputValue = currentSessionState?.inputValue || ''
 
   useEffect(() => {
     setIsHydrated(true)
@@ -27,7 +34,7 @@ export function ChatView() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [session?.messages, commandResults])
+  }, [session?.messages])
 
   const handleCommand = async (input: string) => {
     if (!currentSessionId) return
@@ -47,16 +54,19 @@ export function ChatView() {
         type: 'error',
         content: `Unknown command: ${command}. Type /help for available commands.`
       }
-      setCommandResults(prev => [...prev, {
-        command: input,
-        result,
-        timestamp: new Date(),
-        id: `cmd_${Date.now()}`
-      }])
+      // Add command result as a message
+      addMessage(currentSessionId, {
+        role: 'command',
+        content: JSON.stringify({ command: input, result }),
+        metadata: { type: 'command' }
+      })
       return
     }
     
-    setIsLoading(true)
+    setSessionStates(prev => ({
+      ...prev,
+      [currentSessionId]: { ...prev[currentSessionId], isLoading: true }
+    }))
     try {
       const result = await cmd.handler(args)
       
@@ -64,30 +74,32 @@ export function ChatView() {
       if (result.data?.action === 'clear') {
         if (currentSessionId) {
           clearSession(currentSessionId)
-          setCommandResults([])
         }
         return
       }
       
-      setCommandResults(prev => [...prev, {
-        command: input,
-        result,
-        timestamp: new Date(),
-        id: `cmd_${Date.now()}`
-      }])
+      // Add command result as a message
+      addMessage(currentSessionId, {
+        role: 'command',
+        content: JSON.stringify({ command: input, result }),
+        metadata: { type: 'command' }
+      })
     } catch (error) {
       const result: CommandResult = {
         type: 'error',
         content: `Command failed: ${error}`
       }
-      setCommandResults(prev => [...prev, {
-        command: input,
-        result,
-        timestamp: new Date(),
-        id: `cmd_${Date.now()}`
-      }])
+      // Add command result as a message
+      addMessage(currentSessionId, {
+        role: 'command',
+        content: JSON.stringify({ command: input, result }),
+        metadata: { type: 'command' }
+      })
     } finally {
-      setIsLoading(false)
+      setSessionStates(prev => ({
+        ...prev,
+        [currentSessionId]: { ...prev[currentSessionId], isLoading: false }
+      }))
     }
   }
 
@@ -100,7 +112,10 @@ export function ChatView() {
       content,
     })
 
-    setIsLoading(true)
+    setSessionStates(prev => ({
+      ...prev,
+      [currentSessionId]: { ...prev[currentSessionId], isLoading: true }
+    }))
     try {
       // Fetch contextual memories first (like CLI does)
       const workflowType = determineWorkflowType(content)
@@ -204,7 +219,10 @@ export function ChatView() {
         content: 'Sorry, I encountered an error. Please try again.',
       })
     } finally {
-      setIsLoading(false)
+      setSessionStates(prev => ({
+        ...prev,
+        [currentSessionId]: { ...prev[currentSessionId], isLoading: false }
+      }))
     }
   }
 
@@ -289,7 +307,7 @@ export function ChatView() {
       <div className="flex-1 overflow-y-auto" ref={scrollRef}>
         <div className="pb-4" {...getRootProps()}>
           <input {...getInputProps()} />
-          {session.messages.length === 0 && commandResults.length === 0 ? (
+          {session.messages.length === 0 ? (
             <div className="flex h-full items-center justify-center p-4 sm:p-8 text-center text-muted-foreground">
               <div className="max-w-md">
                 <h3 className="mb-2 text-base sm:text-lg font-semibold">Welcome to Paladin AI</h3>
@@ -307,20 +325,26 @@ export function ChatView() {
             </div>
           ) : (
             <div className="space-y-4 px-2 py-4 sm:p-4">
-              {/* Command results */}
-              {commandResults.map((result) => (
-                <CommandMessage
-                  key={result.id}
-                  command={result.command}
-                  result={result.result}
-                  timestamp={result.timestamp}
-                />
-              ))}
-              
-              {/* Chat messages */}
-              {session.messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
-              ))}
+              {/* All messages in chronological order */}
+              {session.messages.map((message) => {
+                if (message.role === 'command' && message.metadata?.type === 'command') {
+                  try {
+                    const { command, result } = JSON.parse(message.content)
+                    return (
+                      <CommandMessage
+                        key={message.id}
+                        command={command}
+                        result={result}
+                        timestamp={message.timestamp}
+                      />
+                    )
+                  } catch (e) {
+                    // Fallback to regular message if parsing fails
+                    return <ChatMessage key={message.id} message={message} />
+                  }
+                }
+                return <ChatMessage key={message.id} message={message} />
+              })}
             </div>
           )}
           {isLoading && (
@@ -343,6 +367,15 @@ export function ChatView() {
         onCommand={handleCommand}
         isLoading={isLoading}
         placeholder={isDragActive ? "Drop files here..." : undefined}
+        value={inputValue}
+        onChange={(value) => {
+          if (currentSessionId) {
+            setSessionStates(prev => ({
+              ...prev,
+              [currentSessionId]: { ...prev[currentSessionId], inputValue: value }
+            }))
+          }
+        }}
       />
     </div>
   )

@@ -12,6 +12,12 @@ interface ChatMessageProps {
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
+  const isCommand = message.role === 'command'
+
+  // Don't render command messages here - they're handled by CommandMessage
+  if (isCommand) {
+    return null
+  }
 
   return (
     <div

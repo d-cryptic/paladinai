@@ -18,10 +18,20 @@ interface CommandInputProps {
   onCommand: (command: string) => void
   isLoading?: boolean
   placeholder?: string
+  value?: string
+  onChange?: (value: string) => void
 }
 
-export function CommandInput({ onCommand, isLoading = false, placeholder }: CommandInputProps) {
-  const [input, setInput] = useState('')
+export function CommandInput({ onCommand, isLoading = false, placeholder, value, onChange }: CommandInputProps) {
+  const [localInput, setLocalInput] = useState('')
+  const input = value !== undefined ? value : localInput
+  const setInput = (newValue: string) => {
+    if (onChange) {
+      onChange(newValue)
+    } else {
+      setLocalInput(newValue)
+    }
+  }
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -29,6 +39,13 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
   const historyRef = useRef(new CommandHistory())
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const selectedItemRef = useRef<HTMLDivElement>(null)
+
+  // Sync external value changes to local state
+  useEffect(() => {
+    if (value !== undefined && value !== localInput) {
+      setLocalInput(value)
+    }
+  }, [value])
 
   useEffect(() => {
     // Update suggestions when input changes

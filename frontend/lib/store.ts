@@ -3,9 +3,13 @@ import { persist } from 'zustand/middleware'
 
 export interface Message {
   id: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'command'
   content: string
   timestamp: Date
+  metadata?: {
+    type?: string
+    [key: string]: any
+  }
 }
 
 export interface ChatSession {
