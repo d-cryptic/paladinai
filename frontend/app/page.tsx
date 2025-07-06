@@ -31,7 +31,7 @@ export default function Home() {
       
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile header */}
         <div className="lg:hidden border-b p-4 flex items-center gap-2">
           <Button
@@ -45,7 +45,7 @@ export default function Home() {
           <ThemeToggle />
         </div>
         
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden min-w-0">
           <ChatView />
         </main>
       </div>

@@ -165,7 +165,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       </ScrollArea>
 
       {/* Theme toggle at bottom */}
-      <div className="border-t p-4 hidden lg:block">
+      <div className="border-t p-4">
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Theme</span>
           <ThemeToggle />

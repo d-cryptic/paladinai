@@ -324,7 +324,7 @@ export function ChatView() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4 px-2 py-4 sm:p-4">
+            <div className="space-y-4 px-3 py-4 sm:px-4 lg:px-6 xl:max-w-5xl xl:mx-auto xl:px-8 max-w-full overflow-hidden">
               {/* All messages in chronological order */}
               {session.messages.map((message) => {
                 if (message.role === 'command' && message.metadata?.type === 'command') {

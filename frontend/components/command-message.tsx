@@ -47,8 +47,8 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
       if (content.startsWith('{') || content.startsWith('[')) {
         const parsed = JSON.parse(content)
         return (
-          <pre className="mt-2 overflow-auto">
-            <code className="text-sm">{JSON.stringify(parsed, null, 2)}</code>
+          <pre className="mt-2 overflow-x-auto max-w-full bg-muted p-2 rounded-md">
+            <code className="text-xs sm:text-sm">{JSON.stringify(parsed, null, 2)}</code>
           </pre>
         )
       }
@@ -63,7 +63,7 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
           remarkPlugins={[remarkGfm]}
           components={{
             pre: ({ children }) => (
-              <pre className="bg-muted p-3 rounded-md overflow-auto mt-2">
+              <pre className="bg-muted p-2 sm:p-3 rounded-md overflow-x-auto mt-2 text-xs sm:text-sm max-w-full">
                 {children}
               </pre>
             ),
@@ -82,8 +82,8 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
             li: ({ children }) => <li className="my-0.5">{children}</li>,
             // Table components
             table: ({ children }) => (
-              <div className="overflow-x-auto my-3">
-                <table className="min-w-full border-collapse text-xs sm:text-sm">
+              <div className="overflow-x-auto my-3 max-w-full">
+                <table className="w-full border-collapse text-xs sm:text-sm">
                   {children}
                 </table>
               </div>
@@ -92,11 +92,11 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
             tbody: ({ children }) => <tbody>{children}</tbody>,
             tr: ({ children }) => <tr className="border-b border-border">{children}</tr>,
             th: ({ children }) => (
-              <th className="px-2 sm:px-3 py-1.5 sm:py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th className="px-1 sm:px-3 py-1 sm:py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 {children}
               </th>
             ),
-            td: ({ children }) => <td className="px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm">{children}</td>,
+            td: ({ children }) => <td className="px-1 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm break-words">{children}</td>,
           }}
         >
           {content}

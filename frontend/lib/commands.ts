@@ -54,20 +54,50 @@ export function formatResponse(response: any): string {
   
   // Handle memory search results
   if (response.success && response.memories && Array.isArray(response.memories)) {
-    let output = `# Memory Search Results\n\n`
-    output += `**Query:** ${response.query}\n`
-    output += `**Total Results:** ${response.total_results}\n\n`
+    let output = `# 🧠 Memory Search Results\n\n`
+    output += `🔍 **Query:** \`${response.query}\`\n`
+    output += `📊 **Total Results:** ${response.total_results}\n\n`
+    
+    if (response.memories.length === 0) {
+      output += `*No memories found matching your query.*\n\n`
+      output += `**💡 Tips:**\n`
+      output += `- Try different keywords\n`
+      output += `- Use \`/memory store <instruction>\` to add relevant memories\n`
+      return output
+    }
+    
+    output += `---\n\n`
     
     response.memories.forEach((memory: any, index: number) => {
-      output += `## ${index + 1}. ${memory.memory_type.charAt(0).toUpperCase() + memory.memory_type.slice(1)} Memory\n`
-      output += `**Score:** ${(memory.score * 100).toFixed(1)}%\n`
-      output += `**Content:** ${memory.memory}\n`
-      output += `**Created:** ${new Date(memory.created_at).toLocaleString()}\n`
+      const score = (memory.score * 100).toFixed(1)
+      const scoreIcon = memory.score >= 0.8 ? '🟢' : memory.score >= 0.6 ? '🟡' : '🔴'
+      
+      output += `### ${index + 1}. ${scoreIcon} ${memory.memory_type.charAt(0).toUpperCase() + memory.memory_type.slice(1)} Memory\n\n`
+      
+      output += `**📈 Score:** ${score}%\n\n`
+      
+      output += `**📝 Content:**\n`
+      output += `> ${memory.memory}\n\n`
+      
+      output += `**📅 Created:** ${new Date(memory.created_at).toLocaleString()}\n\n`
+      
       if (memory.related_entities && memory.related_entities.length > 0) {
-        output += `**Related Entities:** ${memory.related_entities.map((e: any) => e.entity).join(', ')}\n`
+        output += `**🏷️ Related Entities:**\n`
+        const entities = memory.related_entities.map((e: any) => `\`${e.entity}\``).join(', ')
+        output += `${entities}\n\n`
       }
-      output += `\n`
+      
+      // Separator between results
+      if (index < response.memories.length - 1) {
+        output += `---\n\n`
+      }
     })
+    
+    // Footer with usage tips
+    output += `\n**💡 Pro Tips:**\n`
+    output += `- Higher scores (🟢) indicate better matches\n`
+    output += `- Use \`/memory store <instruction>\` to add new memories\n`
+    output += `- Try \`/memory types\` to see available memory categories\n`
     
     return output
   }
@@ -271,27 +301,89 @@ export function formatResponse(response: any): string {
   
   // Handle document search results
   if (response.results && Array.isArray(response.results)) {
-    let output = `# Document Search Results\n\n`
+    let output = `# 📄 Document Search Results\n\n`
+    
+    // Header info
     if (response.query) {
-      output += `**Query:** ${response.query}\n`
-    }
-    if (response.total_results) {
-      output += `**Total Results:** ${response.total_results}\n\n`
+      output += `🔍 **Query:** \`${response.query}\`\n`
     }
     
+    const totalResults = response.count || response.total_results || response.results.length
+    output += `📊 **Found:** ${totalResults} result${totalResults !== 1 ? 's' : ''}\n\n`
+    
+    if (response.results.length === 0) {
+      output += `*No documents found matching your query.*\n\n`
+      output += `**💡 Tips:**\n`
+      output += `- Try different keywords\n`
+      output += `- Use broader search terms\n`
+      output += `- Check if documents have been uploaded\n`
+      return output
+    }
+    
+    output += `---\n\n`
+    
     response.results.forEach((doc: any, index: number) => {
-      output += `## ${index + 1}. ${doc.title || 'Document'}\n`
-      if (doc.score) {
-        output += `**Relevance:** ${(doc.score * 100).toFixed(1)}%\n`
+      const relevanceScore = doc.score ? (doc.score * 100).toFixed(1) : 'N/A'
+      const relevanceIcon = doc.score >= 0.8 ? '🟢' : doc.score >= 0.6 ? '🟡' : '🔴'
+      
+      output += `### ${index + 1}. ${relevanceIcon} Document Match\n\n`
+      
+      // Metadata table
+      output += `| Field | Value |\n`
+      output += `|-------|-------|\n`
+      output += `| **Relevance** | ${relevanceScore}% |\n`
+      
+      if (doc.metadata?.source) {
+        output += `| **Source** | \`${doc.metadata.source}\` |\n`
       }
-      if (doc.content) {
-        output += `**Content:** ${doc.content.substring(0, 200)}${doc.content.length > 200 ? '...' : ''}\n`
+      
+      if (doc.metadata?.document_type) {
+        const typeIcon = doc.metadata.document_type === 'pdf' ? '📄' : '📝'
+        output += `| **Type** | ${typeIcon} ${doc.metadata.document_type.toUpperCase()} |\n`
       }
-      if (doc.source) {
-        output += `**Source:** ${doc.source}\n`
+      
+      if (doc.metadata?.page_number !== undefined) {
+        output += `| **Page** | ${doc.metadata.page_number} |\n`
       }
+      
+      if (doc.metadata?.chunk_index !== undefined && doc.metadata?.total_chunks !== undefined) {
+        output += `| **Section** | ${doc.metadata.chunk_index + 1} of ${doc.metadata.total_chunks} |\n`
+      }
+      
       output += `\n`
+      
+      // Content preview
+      if (doc.content) {
+        const cleanContent = doc.content
+          .replace(/\n+/g, ' ')  // Replace multiple newlines with single space
+          .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+          .replace(/`/g, '\\`')  // Escape backticks to prevent markdown conflicts
+          .replace(/\*/g, '\\*')  // Escape asterisks
+          .replace(/\#/g, '\\#')  // Escape hash symbols
+          .replace(/\[/g, '\\[')  // Escape square brackets
+          .replace(/\]/g, '\\]')  // Escape square brackets
+          .trim()
+        
+        const maxLength = 300
+        const truncatedContent = cleanContent.length > maxLength 
+          ? cleanContent.substring(0, maxLength) + '...'
+          : cleanContent
+        
+        output += `**📝 Content Preview:**\n\n`
+        output += `\`\`\`\n${truncatedContent}\n\`\`\`\n\n`
+      }
+      
+      // Separator between results
+      if (index < response.results.length - 1) {
+        output += `---\n\n`
+      }
     })
+    
+    // Footer with usage tips
+    output += `\n**💡 Pro Tips:**\n`
+    output += `- Higher relevance scores (🟢) indicate better matches\n`
+    output += `- Use specific technical terms for better results\n`
+    output += `- Try \`/document health\` to check system status\n`
     
     return output
   }
@@ -627,10 +719,12 @@ export const COMMANDS: Record<string, Command> = {
             return { type: 'error', content: 'Please provide a search query' }
           }
           try {
-            const result = await executeAPICall('/api/v1/documents/search', 'POST', {
-              query,
-              limit: 5
+            // Document search uses query parameters, not JSON body
+            const params = new URLSearchParams({
+              query: query,
+              limit: '5'
             })
+            const result = await executeAPICall(`/api/v1/documents/search?${params}`, 'POST')
             return {
               type: 'success',
               content: formatResponse(result)

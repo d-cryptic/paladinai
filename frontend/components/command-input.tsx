@@ -190,13 +190,14 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
   }
 
   return (
-    <div className="relative p-2 sm:p-4 border-t bg-background shrink-0">
-      {/* Suggestions dropdown */}
-      {showSuggestions && (
-        <div 
-          ref={suggestionsRef}
-          className="absolute bottom-full left-0 right-0 mb-1 bg-background border rounded-md shadow-lg max-h-64 overflow-y-auto overflow-x-hidden z-10 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
-        >
+    <div className="relative p-3 sm:p-4 lg:p-6 border-t bg-background shrink-0">
+      <div className="xl:max-w-5xl xl:mx-auto xl:px-8 max-w-full overflow-hidden">
+        {/* Suggestions dropdown */}
+        {showSuggestions && (
+          <div 
+            ref={suggestionsRef}
+            className="absolute bottom-full left-0 right-0 mb-1 bg-background border rounded-md shadow-lg max-h-64 overflow-y-auto overflow-x-hidden z-10 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+          >
           {suggestions.map((suggestion, index) => {
             const cmdName = suggestion.slice(1).split(' ')[0]
             const cmd = COMMANDS[cmdName]
@@ -247,45 +248,46 @@ export function CommandInput({ onCommand, isLoading = false, placeholder, value,
         accept=".pdf,.doc,.docx,.txt,.md,.json,.xml,.csv,.log"
       />
 
-      {/* Input field */}
-      <div className="flex gap-1 sm:gap-2">
-        <div className="relative flex-1">
-          <Input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={getPlaceholder()}
-            disabled={isLoading}
-            className={`pr-8 sm:pr-10 text-sm ${input.startsWith('/') ? 'font-mono' : ''}`}
-          />
-          {input.startsWith('/') && (
-            <Terminal className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+        {/* Input field */}
+        <div className="flex gap-1 sm:gap-2">
+          <div className="relative flex-1">
+            <Input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={getPlaceholder()}
+              disabled={isLoading}
+              className={`pr-8 sm:pr-10 text-sm ${input.startsWith('/') ? 'font-mono' : ''}`}
+            />
+            {input.startsWith('/') && (
+              <Terminal className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+            )}
+          </div>
+          
+          {/* File upload button */}
+          {onFileUpload && (
+            <Button
+              onClick={handleFileUpload}
+              disabled={isLoading}
+              size="icon"
+              variant="outline"
+              className="h-8 w-8 sm:h-10 sm:w-10"
+              title="Upload document"
+            >
+              <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
+            </Button>
           )}
-        </div>
-        
-        {/* File upload button */}
-        {onFileUpload && (
+          
           <Button
-            onClick={handleFileUpload}
-            disabled={isLoading}
+            onClick={handleSubmit}
+            disabled={!input.trim() || isLoading}
             size="icon"
-            variant="outline"
             className="h-8 w-8 sm:h-10 sm:w-10"
-            title="Upload document"
           >
-            <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
+            <Send className="h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
-        )}
-        
-        <Button
-          onClick={handleSubmit}
-          disabled={!input.trim() || isLoading}
-          size="icon"
-          className="h-8 w-8 sm:h-10 sm:w-10"
-        >
-          <Send className="h-3 w-3 sm:h-4 sm:w-4" />
-        </Button>
+        </div>
       </div>
     </div>
   )

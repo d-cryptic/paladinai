@@ -22,7 +22,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        'flex w-full gap-2 sm:gap-4 px-2 sm:px-4 py-3 sm:py-6',
+        'flex w-full gap-2 sm:gap-4 px-3 sm:px-4 py-3 sm:py-6 max-w-full overflow-hidden',
         isUser ? 'bg-background' : isSystem ? 'bg-blue-500/10' : 'bg-muted/50'
       )}
     >
@@ -50,7 +50,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 remarkPlugins={[remarkGfm]}
                 components={{
                   pre: ({ children }) => (
-                    <pre className="bg-muted p-3 rounded-md overflow-auto my-2">
+                    <pre className="bg-muted p-2 sm:p-3 rounded-md overflow-x-auto my-2 text-xs sm:text-sm max-w-full">
                       {children}
                     </pre>
                   ),
@@ -74,8 +74,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
                   em: ({ children }) => <em className="italic">{children}</em>,
                   // Table components
                   table: ({ children }) => (
-                    <div className="overflow-x-auto my-4">
-                      <table className="min-w-full border-collapse">
+                    <div className="overflow-x-auto my-4 max-w-full">
+                      <table className="w-full border-collapse text-xs sm:text-sm">
                         {children}
                       </table>
                     </div>
@@ -84,11 +84,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
                   tbody: ({ children }) => <tbody>{children}</tbody>,
                   tr: ({ children }) => <tr className="border-b border-border">{children}</tr>,
                   th: ({ children }) => (
-                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <th className="px-1 sm:px-3 py-1 sm:py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       {children}
                     </th>
                   ),
-                  td: ({ children }) => <td className="px-3 py-2 text-sm">{children}</td>,
+                  td: ({ children }) => <td className="px-1 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm break-words">{children}</td>,
                 }}
               >
                 {message.content}
