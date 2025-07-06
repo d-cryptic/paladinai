@@ -283,7 +283,7 @@ export function ChatView() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b p-4">
+      <div className="hidden lg:block border-b p-4">
         <h2 className="font-semibold">{session.title}</h2>
       </div>
 
@@ -291,12 +291,12 @@ export function ChatView() {
         <div className="pb-4" {...getRootProps()}>
           <input {...getInputProps()} />
           {session.messages.length === 0 && commandResults.length === 0 ? (
-            <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-              <div>
-                <h3 className="mb-2 text-lg font-semibold">Welcome to Paladin AI</h3>
-                <p className="mb-4">Start a conversation or use CLI commands to interact with the server.</p>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-center gap-2">
+            <div className="flex h-full items-center justify-center p-4 sm:p-8 text-center text-muted-foreground">
+              <div className="max-w-md">
+                <h3 className="mb-2 text-base sm:text-lg font-semibold">Welcome to Paladin AI</h3>
+                <p className="mb-4 text-sm sm:text-base">Start a conversation or use CLI commands to interact with the server.</p>
+                <div className="space-y-2 text-xs sm:text-sm">
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
                     <FileText className="h-4 w-4" />
                     <span>Drop files here to upload documents</span>
                   </div>
@@ -307,7 +307,7 @@ export function ChatView() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4 p-4">
+            <div className="space-y-4 px-2 py-4 sm:p-4">
               {/* Command results */}
               {commandResults.map((result) => (
                 <CommandMessage

@@ -56,4 +56,16 @@
   body {
     @apply bg-background text-foreground;
   }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+/* Ensure proper mobile viewport */
+@layer utilities {
+  .h-screen-safe {
+    height: 100vh;
+    height: 100dvh;
+  }
 }

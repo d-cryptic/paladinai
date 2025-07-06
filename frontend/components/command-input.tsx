@@ -98,14 +98,14 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
   }
 
   return (
-    <div className="relative">
+    <div className="relative p-2 sm:p-4 border-t bg-background">
       {/* Suggestions dropdown */}
       {showSuggestions && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 bg-background border rounded-md shadow-lg max-h-48 overflow-auto">
+        <div className="absolute bottom-full left-0 right-0 mb-1 bg-background border rounded-md shadow-lg max-h-48 overflow-auto z-10">
           {suggestions.map((suggestion, index) => (
             <div
               key={suggestion}
-              className={`px-3 py-2 cursor-pointer hover:bg-muted ${
+              className={`px-2 sm:px-3 py-1.5 sm:py-2 cursor-pointer hover:bg-muted ${
                 index === selectedSuggestion ? 'bg-muted' : ''
               }`}
               onClick={() => {
@@ -116,7 +116,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
             >
               <div className="flex items-center gap-2">
                 <Terminal className="h-3 w-3 text-muted-foreground" />
-                <span className="font-mono text-sm">{suggestion}</span>
+                <span className="font-mono text-xs sm:text-sm">{suggestion}</span>
               </div>
             </div>
           ))}
@@ -124,7 +124,7 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
       )}
 
       {/* Input field */}
-      <div className="flex gap-2">
+      <div className="flex gap-1 sm:gap-2">
         <div className="relative flex-1">
           <Input
             ref={inputRef}
@@ -133,18 +133,19 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
             onKeyDown={handleKeyDown}
             placeholder={getPlaceholder()}
             disabled={isLoading}
-            className={`pr-10 ${input.startsWith('/') ? 'font-mono' : ''}`}
+            className={`pr-8 sm:pr-10 text-sm ${input.startsWith('/') ? 'font-mono' : ''}`}
           />
           {input.startsWith('/') && (
-            <Terminal className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Terminal className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
           )}
         </div>
         <Button
           onClick={handleSubmit}
           disabled={!input.trim() || isLoading}
           size="icon"
+          className="h-8 w-8 sm:h-10 sm:w-10"
         >
-          <Send className="h-4 w-4" />
+          <Send className="h-3 w-3 sm:h-4 sm:w-4" />
         </Button>
       </div>
 

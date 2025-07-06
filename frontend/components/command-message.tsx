@@ -73,9 +73,9 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
                 <code className="text-sm">{children}</code>
               )
             },
-            h1: ({ children }) => <h1 className="text-lg font-bold mt-4 mb-2">{children}</h1>,
-            h2: ({ children }) => <h2 className="text-base font-semibold mt-3 mb-1">{children}</h2>,
-            h3: ({ children }) => <h3 className="text-sm font-semibold mt-2 mb-1">{children}</h3>,
+            h1: ({ children }) => <h1 className="text-base sm:text-lg font-bold mt-3 sm:mt-4 mb-2">{children}</h1>,
+            h2: ({ children }) => <h2 className="text-sm sm:text-base font-semibold mt-2 sm:mt-3 mb-1">{children}</h2>,
+            h3: ({ children }) => <h3 className="text-xs sm:text-sm font-semibold mt-2 mb-1">{children}</h3>,
             ul: ({ children }) => <ul className="list-disc list-inside ml-4 my-2">{children}</ul>,
             li: ({ children }) => <li className="my-0.5">{children}</li>,
           }}
@@ -87,12 +87,12 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
   }
 
   return (
-    <Card className={`p-4 ${getBorderColor()} border-l-4`}>
+    <Card className={`p-3 sm:p-4 ${getBorderColor()} border-l-4`}>
       {/* Command header */}
-      <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
-        <Terminal className="h-3 w-3" />
-        <span className="font-mono">{command}</span>
-        <span className="ml-auto text-xs">
+      <div className="flex items-center gap-2 mb-2 text-xs sm:text-sm text-muted-foreground">
+        <Terminal className="h-3 w-3 shrink-0" />
+        <span className="font-mono truncate">{command}</span>
+        <span className="ml-auto text-xs shrink-0">
           {timestamp.toLocaleTimeString()}
         </span>
       </div>

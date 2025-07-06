@@ -15,11 +15,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        'flex w-full gap-4 px-4 py-6',
+        'flex w-full gap-2 sm:gap-4 px-2 sm:px-4 py-3 sm:py-6',
         isUser ? 'bg-background' : isSystem ? 'bg-blue-500/10' : 'bg-muted/50'
       )}
     >
-      <Avatar className="h-8 w-8 shrink-0">
+      <Avatar className="h-6 w-6 sm:h-8 sm:w-8 shrink-0">
         <AvatarFallback>
           {isUser ? (
             <User className="h-4 w-4" />
@@ -30,11 +30,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
           )}
         </AvatarFallback>
       </Avatar>
-      <div className="flex-1 space-y-2">
-        <div className="font-semibold text-sm">
+      <div className="flex-1 space-y-1 sm:space-y-2 min-w-0">
+        <div className="font-semibold text-xs sm:text-sm">
           {isUser ? 'You' : isSystem ? 'Memory Context' : 'Paladin AI'}
         </div>
-        <div className="text-sm text-foreground/90">
+        <div className="text-xs sm:text-sm text-foreground/90 break-words">
           {isUser ? (
             <div className="whitespace-pre-wrap">{message.content}</div>
           ) : (
@@ -54,9 +54,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
                       <code className="text-sm">{children}</code>
                     )
                   },
-                  h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2">{children}</h1>,
-                  h2: ({ children }) => <h2 className="text-lg font-semibold mt-3 mb-2">{children}</h2>,
-                  h3: ({ children }) => <h3 className="text-base font-semibold mt-2 mb-1">{children}</h3>,
+                  h1: ({ children }) => <h1 className="text-lg sm:text-xl font-bold mt-3 sm:mt-4 mb-2">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-base sm:text-lg font-semibold mt-2 sm:mt-3 mb-1 sm:mb-2">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-sm sm:text-base font-semibold mt-2 mb-1">{children}</h3>,
                   p: ({ children }) => <p className="my-2">{children}</p>,
                   ul: ({ children }) => <ul className="list-disc list-inside ml-4 my-2">{children}</ul>,
                   ol: ({ children }) => <ol className="list-decimal list-inside ml-4 my-2">{children}</ol>,
