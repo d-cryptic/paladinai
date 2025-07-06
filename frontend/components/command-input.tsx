@@ -4,7 +4,15 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { Send, Terminal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CommandHistory, getCommandSuggestions } from '@/lib/commands'
+import { CommandHistory, getCommandSuggestions, COMMANDS } from '@/lib/commands'
+
+// Command sub-options (duplicated here for Tab completion)
+const COMMAND_SUB_OPTIONS: Record<string, string[]> = {
+  memory: ['search', 'store', 'types', 'health'],
+  checkpoint: ['get', 'exists', 'list', 'delete'],
+  document: ['search', 'health'],
+  alert: ['analyze'],
+}
 
 interface CommandInputProps {
   onCommand: (command: string) => void
@@ -19,18 +27,45 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
   const [showSuggestions, setShowSuggestions] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const historyRef = useRef(new CommandHistory())
+  const suggestionsRef = useRef<HTMLDivElement>(null)
+  const selectedItemRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // Update suggestions when input changes
-    if (input.startsWith('/')) {
+    if (input === '/') {
+      // Show all commands when just typing /
+      const allCommands = Object.keys(COMMANDS).map(cmd => `/${cmd}`)
+      setSuggestions(allCommands)
+      setShowSuggestions(true)
+      setSelectedSuggestion(0)
+    } else if (input.startsWith('/')) {
       const newSuggestions = getCommandSuggestions(input)
       setSuggestions(newSuggestions)
-      setShowSuggestions(newSuggestions.length > 0 && input.length > 1)
+      setShowSuggestions(newSuggestions.length > 0)
       setSelectedSuggestion(0)
     } else {
       setShowSuggestions(false)
     }
   }, [input])
+
+  // Scroll selected suggestion into view
+  useEffect(() => {
+    if (selectedItemRef.current && suggestionsRef.current) {
+      const container = suggestionsRef.current
+      const element = selectedItemRef.current
+      
+      const elementTop = element.offsetTop
+      const elementBottom = elementTop + element.offsetHeight
+      const containerTop = container.scrollTop
+      const containerBottom = containerTop + container.clientHeight
+      
+      if (elementTop < containerTop) {
+        container.scrollTop = elementTop
+      } else if (elementBottom > containerBottom) {
+        container.scrollTop = elementBottom - container.clientHeight
+      }
+    }
+  }, [selectedSuggestion])
 
   const handleSubmit = () => {
     if (input.trim() && !isLoading) {
@@ -69,8 +104,16 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
     // Accept suggestion
     else if (e.key === 'Tab' && showSuggestions && suggestions.length > 0) {
       e.preventDefault()
-      setInput(suggestions[selectedSuggestion])
-      setShowSuggestions(false)
+      const selected = suggestions[selectedSuggestion]
+      setInput(selected)
+      
+      // If it's a command that has sub-options and doesn't already have a space, add one
+      const cmdName = selected.slice(1).split(' ')[0]
+      if (COMMAND_SUB_OPTIONS[cmdName] && !selected.includes(' ')) {
+        setInput(selected + ' ')
+      } else {
+        setShowSuggestions(false)
+      }
     }
     
     // Submit on Enter
@@ -101,25 +144,42 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
     <div className="relative p-2 sm:p-4 border-t bg-background shrink-0">
       {/* Suggestions dropdown */}
       {showSuggestions && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 bg-background border rounded-md shadow-lg max-h-48 overflow-auto z-10">
-          {suggestions.map((suggestion, index) => (
-            <div
-              key={suggestion}
-              className={`px-2 sm:px-3 py-1.5 sm:py-2 cursor-pointer hover:bg-muted ${
-                index === selectedSuggestion ? 'bg-muted' : ''
-              }`}
-              onClick={() => {
-                setInput(suggestion)
-                setShowSuggestions(false)
-                inputRef.current?.focus()
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <Terminal className="h-3 w-3 text-muted-foreground" />
-                <span className="font-mono text-xs sm:text-sm">{suggestion}</span>
+        <div 
+          ref={suggestionsRef}
+          className="absolute bottom-full left-0 right-0 mb-1 bg-background border rounded-md shadow-lg max-h-64 overflow-y-auto overflow-x-hidden z-10 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+        >
+          {suggestions.map((suggestion, index) => {
+            const cmdName = suggestion.slice(1).split(' ')[0]
+            const cmd = COMMANDS[cmdName]
+            const isSelected = index === selectedSuggestion
+            return (
+              <div
+                key={suggestion}
+                ref={isSelected ? selectedItemRef : null}
+                className={`px-2 sm:px-3 py-2 sm:py-3 cursor-pointer transition-colors ${
+                  isSelected ? 'bg-muted' : 'hover:bg-muted/50'
+                }`}
+                onMouseEnter={() => setSelectedSuggestion(index)}
+                onClick={() => {
+                  setInput(suggestion)
+                  setShowSuggestions(false)
+                  inputRef.current?.focus()
+                }}
+              >
+                <div className="flex items-start gap-2">
+                  <Terminal className="h-3 w-3 text-muted-foreground mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-mono text-xs sm:text-sm font-medium">{suggestion}</div>
+                    {cmd && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {cmd.description}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -148,13 +208,6 @@ export function CommandInput({ onCommand, isLoading = false, placeholder }: Comm
           <Send className="h-3 w-3 sm:h-4 sm:w-4" />
         </Button>
       </div>
-
-      {/* Help text */}
-      {input === '/' && (
-        <div className="absolute top-full left-0 mt-1 text-xs text-muted-foreground">
-          Type /help to see available commands
-        </div>
-      )}
     </div>
   )
 }

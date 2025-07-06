@@ -490,15 +490,33 @@ export class CommandHistory {
   }
 }
 
+// Command sub-options
+const COMMAND_SUB_OPTIONS: Record<string, string[]> = {
+  memory: ['search', 'store', 'types', 'health'],
+  checkpoint: ['get', 'exists', 'list', 'delete'],
+  document: ['search', 'health'],
+  alert: ['analyze'],
+}
+
 // Get command suggestions based on partial input
 export function getCommandSuggestions(input: string): string[] {
   if (!input.startsWith('/')) return []
   
-  const partial = input.slice(1).toLowerCase()
-  const suggestions: string[] = []
+  const parts = input.slice(1).split(' ')
+  const mainCommand = parts[0].toLowerCase()
   
+  // If there's a space, show sub-options
+  if (parts.length > 1 && COMMAND_SUB_OPTIONS[mainCommand]) {
+    const subPartial = parts[1].toLowerCase()
+    return COMMAND_SUB_OPTIONS[mainCommand]
+      .filter(sub => sub.startsWith(subPartial))
+      .map(sub => `/${mainCommand} ${sub}`)
+  }
+  
+  // Otherwise show main commands
+  const suggestions: string[] = []
   for (const [name, cmd] of Object.entries(COMMANDS)) {
-    if (name.toLowerCase().startsWith(partial)) {
+    if (name.toLowerCase().startsWith(mainCommand)) {
       suggestions.push(`/${name}`)
     }
   }
