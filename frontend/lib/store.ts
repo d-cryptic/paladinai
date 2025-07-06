@@ -77,17 +77,42 @@ export const useChatStore = create<ChatStore>()(
           timestamp: new Date(),
         }
 
-        set((state) => ({
-          sessions: state.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  messages: [...session.messages, newMessage],
-                  updatedAt: new Date(),
+        set((state) => {
+          const updatedSessions = state.sessions.map((session) => {
+            if (session.id === sessionId) {
+              const updatedMessages = [...session.messages, newMessage]
+              let updatedTitle = session.title
+              
+              // Auto-update title from first user message if it's still the default
+              if ((session.title === 'New Chat' || session.title === 'Welcome Chat') && 
+                  message.role === 'user' && 
+                  session.messages.length === 0) {
+                // Extract first 50 characters for title, remove newlines
+                updatedTitle = message.content
+                  .replace(/\n/g, ' ')
+                  .trim()
+                  .substring(0, 50)
+                if (updatedTitle.length === 50) {
+                  updatedTitle += '...'
                 }
-              : session
-          ),
-        }))
+                // Fallback if content is empty
+                if (!updatedTitle) {
+                  updatedTitle = 'New Chat'
+                }
+              }
+              
+              return {
+                ...session,
+                messages: updatedMessages,
+                title: updatedTitle,
+                updatedAt: new Date(),
+              }
+            }
+            return session
+          })
+          
+          return { sessions: updatedSessions }
+        })
       },
 
       updateSessionTitle: (sessionId, title) => {
