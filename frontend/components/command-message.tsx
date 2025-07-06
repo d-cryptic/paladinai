@@ -3,6 +3,7 @@
 import { AlertCircle, CheckCircle, Info, Terminal, AlertTriangle } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { CommandResult } from '@/lib/commands'
 
 interface CommandMessageProps {
@@ -59,6 +60,7 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
     return (
       <div className="prose prose-sm dark:prose-invert max-w-none">
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           components={{
             pre: ({ children }) => (
               <pre className="bg-muted p-3 rounded-md overflow-auto mt-2">
@@ -78,6 +80,23 @@ export function CommandMessage({ command, result, timestamp }: CommandMessagePro
             h3: ({ children }) => <h3 className="text-xs sm:text-sm font-semibold mt-2 mb-1">{children}</h3>,
             ul: ({ children }) => <ul className="list-disc list-inside ml-4 my-2">{children}</ul>,
             li: ({ children }) => <li className="my-0.5">{children}</li>,
+            // Table components
+            table: ({ children }) => (
+              <div className="overflow-x-auto my-3">
+                <table className="min-w-full border-collapse text-xs sm:text-sm">
+                  {children}
+                </table>
+              </div>
+            ),
+            thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
+            tbody: ({ children }) => <tbody>{children}</tbody>,
+            tr: ({ children }) => <tr className="border-b border-border">{children}</tr>,
+            th: ({ children }) => (
+              <th className="px-2 sm:px-3 py-1.5 sm:py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                {children}
+              </th>
+            ),
+            td: ({ children }) => <td className="px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm">{children}</td>,
           }}
         >
           {content}

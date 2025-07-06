@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 import { User, Bot, Brain } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface ChatMessageProps {
   message: Message
@@ -40,6 +41,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
           ) : (
             <div className="prose prose-sm dark:prose-invert max-w-none">
               <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
                 components={{
                   pre: ({ children }) => (
                     <pre className="bg-muted p-3 rounded-md overflow-auto my-2">
@@ -64,6 +66,23 @@ export function ChatMessage({ message }: ChatMessageProps) {
                   hr: () => <hr className="my-4 border-t border-muted-foreground/20" />,
                   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                   em: ({ children }) => <em className="italic">{children}</em>,
+                  // Table components
+                  table: ({ children }) => (
+                    <div className="overflow-x-auto my-4">
+                      <table className="min-w-full border-collapse">
+                        {children}
+                      </table>
+                    </div>
+                  ),
+                  thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
+                  tbody: ({ children }) => <tbody>{children}</tbody>,
+                  tr: ({ children }) => <tr className="border-b border-border">{children}</tr>,
+                  th: ({ children }) => (
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      {children}
+                    </th>
+                  ),
+                  td: ({ children }) => <td className="px-3 py-2 text-sm">{children}</td>,
                 }}
               >
                 {message.content}
