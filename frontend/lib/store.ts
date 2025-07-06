@@ -28,6 +28,7 @@ interface ChatStore {
   updateSessionTitle: (sessionId: string, title: string) => void
   getCurrentSession: () => ChatSession | undefined
   getSession: (id: string) => ChatSession | undefined
+  clearSession: (id: string) => void
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -102,6 +103,16 @@ export const useChatStore = create<ChatStore>()(
 
       getSession: (id) => {
         return get().sessions.find((s) => s.id === id)
+      },
+
+      clearSession: (id) => {
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === id
+              ? { ...session, messages: [], updatedAt: new Date() }
+              : session
+          ),
+        }))
       },
     }),
     {
