@@ -17,7 +17,6 @@ venv/
 .uv_cache/
 old-docs
 .augment-guidelines
-prompts
 .mypy_cache
 !infra/mock/docs
 tests
