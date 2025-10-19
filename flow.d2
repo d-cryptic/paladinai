@@ -1,0 +1,224 @@
+# PaladinAI System Design & Query Flow
+
+direction: down
+
+title: {
+  label: PaladinAI System Architecture & Query Flow
+  near: top-center
+  shape: text
+  style.font-size: 28
+}
+
+# User Interfaces Layer
+ui: User Interfaces {
+  web: Web UI {
+    icon: https://icons.terrastruct.com/dev%2Freact.svg
+    shape: rectangle
+  }
+  cli: CLI Client {
+    icon: https://icons.terrastruct.com/aws%2F_general%2Fclient.svg
+    shape: rectangle
+  }
+  discord: Discord Bot {
+    icon: https://icons.terrastruct.com/social%2F025-discord.svg
+    shape: rectangle
+  }
+  api_client: API Client {
+    shape: rectangle
+  }
+}
+
+# API Gateway
+gateway: API Gateway {
+  fastapi: FastAPI Server {
+    shape: hexagon
+    style.fill: "#2E7D32"
+  }
+}
+
+# Core Workflow Engine
+workflow: Workflow Engine {
+  start: Start Node {
+    shape: circle
+    style.fill: "#4CAF50"
+  }
+  
+  guardrail: Guardrail Node {
+    shape: diamond
+    style.fill: "#FFC107"
+  }
+  
+  categorize: Categorization {
+    shape: diamond
+    style.fill: "#2196F3"
+  }
+  
+  flows: {
+    query: Query Workflow {
+      shape: rectangle
+      style.fill: "#81C784"
+    }
+    action: Action Workflow {
+      shape: rectangle
+      style.fill: "#64B5F6"
+    }
+    incident: Incident Workflow {
+      shape: rectangle
+      style.fill: "#FFB74D"
+    }
+  }
+  
+  result: Result Node {
+    shape: circle
+    style.fill: "#9C27B0"
+  }
+}
+
+# Data Collection Layer
+collectors: Data Collection {
+  prometheus: Prometheus Node {
+    icon: https://icons.terrastruct.com/dev%2Fprometheus.svg
+    shape: rectangle
+  }
+  loki: Loki Node {
+    icon: https://icons.terrastruct.com/dev%2Fgrafana.svg
+    shape: rectangle
+  }
+  alertmanager: Alertmanager Node {
+    shape: rectangle
+  }
+}
+
+# Intelligence Layer
+intelligence: AI & Memory {
+  llm: OpenAI GPT-4 {
+    shape: hexagon
+    style.fill: "#1976D2"
+  }
+  memory: Memory Service {
+    shape: cylinder
+    style.fill: "#4CAF50"
+  }
+  rag: RAG Engine {
+    shape: cylinder
+    style.fill: "#FF6F00"
+  }
+}
+
+# Data Stores
+storage: Data Layer {
+  mongodb: MongoDB\n(Checkpoints) {
+    shape: cylinder
+    style.fill: "#4DB33D"
+  }
+  neo4j: Neo4j\n(Memory Graph) {
+    shape: cylinder
+    style.fill: "#018BFF"
+  }
+  qdrant: Qdrant\n(Vectors) {
+    shape: cylinder
+    style.fill: "#7B1FA2"
+  }
+}
+
+# External Monitoring Stack
+monitoring: Monitoring Stack {
+  prom_server: Prometheus {
+    shape: rectangle
+    style.fill: "#E6522C"
+  }
+  loki_server: Loki {
+    shape: rectangle
+    style.fill: "#F46800"
+  }
+  grafana: Grafana {
+    shape: rectangle
+    style.fill: "#F46800"
+  }
+  alert_server: Alertmanager {
+    shape: rectangle
+    style.fill: "#E6522C"
+  }
+}
+
+# Connections - User Flow
+ui.web -> gateway.fastapi: "User Query"
+ui.cli -> gateway.fastapi: "CLI Command"
+ui.discord -> gateway.fastapi: "Discord Message"
+ui.api_client -> gateway.fastapi: "API Request"
+
+# Workflow Flow
+gateway.fastapi -> workflow.start: "1. Initialize"
+workflow.start -> workflow.guardrail: "2. Validate"
+workflow.guardrail -> workflow.categorize: "3. Categorize"
+
+workflow.categorize -> workflow.flows.query: "Simple Query"
+workflow.categorize -> workflow.flows.action: "Analysis Task"
+workflow.categorize -> workflow.flows.incident: "Investigation"
+
+# Data Collection Flow
+workflow.flows.query -> collectors.prometheus: "Fetch Metrics"
+workflow.flows.action -> collectors.prometheus: "Collect Data"
+workflow.flows.action -> collectors.loki: "Fetch Logs"
+workflow.flows.incident -> collectors.prometheus: "Full Investigation"
+workflow.flows.incident -> collectors.loki
+workflow.flows.incident -> collectors.alertmanager: "Check Alerts"
+
+# Intelligence Integration
+workflow.guardrail <-> intelligence.memory: "Enhance Context"
+workflow.flows.incident <-> intelligence.rag: "Search Docs"
+collectors.prometheus -> intelligence.llm: "Analyze"
+collectors.loki -> intelligence.llm: "Process"
+collectors.alertmanager -> intelligence.llm: "Interpret"
+
+# Result Generation
+intelligence.llm -> workflow.result: "Generate Response"
+workflow.result -> gateway.fastapi: "Final Result"
+
+# Data Persistence
+gateway.fastapi <-> storage.mongodb: "Checkpoints"
+intelligence.memory <-> storage.neo4j: "Knowledge Graph"
+intelligence.rag <-> storage.qdrant: "Embeddings"
+
+# External Connections
+collectors.prometheus <-> monitoring.prom_server: "PromQL"
+collectors.loki <-> monitoring.loki_server: "LogQL"
+collectors.alertmanager <-> monitoring.alert_server: "Alerts API"
+
+# Legend
+legend: Legend {
+  style.fill: "#F5F5F5"
+  style.stroke: "#9E9E9E"
+  
+  user_flow: "User Query Flow" {
+    style.stroke-width: 3
+    style.stroke: "#4CAF50"
+  }
+  
+  data_flow: "Data Collection" {
+    style.stroke-width: 3
+    style.stroke: "#2196F3"
+  }
+  
+  ai_flow: "AI Processing" {
+    style.stroke-width: 3
+    style.stroke: "#9C27B0"
+  }
+}
+
+# Query Flow Example
+example: {
+  near: bottom-center
+  label: |md
+    ## Example Query Flow: "Why is the payment service slow?"
+    1. User asks in natural language
+    2. Guardrail validates & enhances with memory
+    3. Categorized as "Incident" workflow
+    4. Collects metrics, logs, alerts in parallel
+    5. AI analyzes all data sources
+    6. Generates root cause analysis
+    7. Returns actionable response
+  |
+  shape: text
+  style.font-size: 16
+}
