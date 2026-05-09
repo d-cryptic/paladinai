@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { motion } from "framer-motion";
 import { PixelBadge } from "@/components/shared/PixelBadge";
 import { GlitchText } from "@/components/shared/GlitchText";
@@ -120,18 +121,26 @@ export function Architecture() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-80px" }}
           transition={{ duration: 0.6 }}
-          className="mt-6 sm:mt-14 mx-auto overflow-x-auto"
+          className="mt-6 sm:mt-14 mx-auto"
           style={{
-            background: "#ffffff",
             border: "3px solid #111111",
             boxShadow: "10px 10px 0 #111111",
-            padding: "20px",
           }}
         >
+          {/* Scroll container separated from the styled border box */}
+          <div
+            style={{
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch" as CSSProperties["WebkitOverflowScrolling"],
+              background: "#ffffff",
+              padding: "20px",
+            }}
+          >
           <svg
-            style={{ minWidth: 640 }}
+            width={900}
+            height={560}
             viewBox="0 0 900 560"
-            className="w-full h-auto"
+            style={{ display: "block", minWidth: 900 }}
             role="img"
             aria-label="Paladin AI architecture diagram"
           >
@@ -254,6 +263,7 @@ export function Architecture() {
               [ ENGINE ]
             </text>
           </svg>
+          </div>
         </motion.div>
       </div>
     </section>

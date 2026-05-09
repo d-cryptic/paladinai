@@ -1,4 +1,4 @@
-import { Star, ExternalLink } from "lucide-react";
+import { Star } from "lucide-react";
 
 const GITHUB_URL = "https://github.com/d-cryptic/paladinai";
 
@@ -44,25 +44,22 @@ export function Footer() {
       <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
         {/* Brand */}
         <div className="sm:col-span-2 lg:col-span-1">
-          <div className="flex items-center gap-2">
-            <Star size={18} fill="#FF3131" stroke="#FF3131" aria-hidden />
-            <span className="font-pixel text-white text-sm tracking-wider">
-              PALADIN.AI
-            </span>
-          </div>
-          <p className="font-mono text-white/70 mt-4 text-sm leading-relaxed">
-            The AI that watches your systems. Open source incident response,
-            powered by graphs and vectors.
-          </p>
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 mt-5 font-pixel text-[10px] text-[#FFE600] hover:text-white transition-colors break-all"
+            className="inline-flex items-center gap-2 hover:opacity-80 transition-opacity"
+            aria-label="Paladin AI on GitHub"
           >
-            <ExternalLink size={14} className="shrink-0" />
-            <span className="break-all">github.com/d-cryptic/paladinai</span>
+            <Star size={18} fill="#FF3131" stroke="#FF3131" aria-hidden />
+            <span className="font-pixel text-white text-sm tracking-wider">
+              PALADIN.AI
+            </span>
           </a>
+          <p className="font-mono text-white/70 mt-4 text-sm leading-relaxed">
+            The AI that watches your systems. Open source incident response,
+            powered by graphs and vectors.
+          </p>
         </div>
 
         {/* Link columns */}
