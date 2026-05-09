@@ -4,8 +4,8 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Star, BookOpen } from "lucide-react";
 
-const GITHUB_URL = "https://github.com/barundebnath/paladinai";
-const DOCS_URL = "https://github.com/barundebnath/paladinai#readme";
+const GITHUB_URL = "https://github.com/d-cryptic/paladinai";
+const DOCS_URL = "https://github.com/d-cryptic/paladinai#readme";
 
 const PIXELS = [
   { left: "8%", top: "20%", size: 14, color: "#FF3131" },

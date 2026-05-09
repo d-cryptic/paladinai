@@ -11,7 +11,7 @@ const NAV_LINKS = [
   { label: "Stack", href: "#stack" },
 ];
 
-const GITHUB_URL = "https://github.com/barundebnath/paladinai";
+const GITHUB_URL = "https://github.com/d-cryptic/paladinai";
 
 export function Navbar() {
   const [open, setOpen] = useState(false);

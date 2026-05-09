@@ -4,8 +4,8 @@ import { motion } from "framer-motion";
 import { Star, ArrowRight } from "lucide-react";
 import { PixelBadge } from "@/components/shared/PixelBadge";
 
-const GITHUB_URL = "https://github.com/barundebnath/paladinai";
-const DOCS_URL = "https://github.com/barundebnath/paladinai#readme";
+const GITHUB_URL = "https://github.com/d-cryptic/paladinai";
+const DOCS_URL = "https://github.com/d-cryptic/paladinai#readme";
 
 const TERMINAL_LINES: { text: string; color?: string; delay: number }[] = [
   { text: '> paladin ask "why is API latency spiking?"', color: "#FFE600", delay: 0.2 },

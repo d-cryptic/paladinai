@@ -1,6 +1,6 @@
 import { Star, ExternalLink } from "lucide-react";
 
-const GITHUB_URL = "https://github.com/barundebnath/paladinai";
+const GITHUB_URL = "https://github.com/d-cryptic/paladinai";
 
 const COLUMNS = [
   {
@@ -35,15 +35,15 @@ const COLUMNS = [
 export function Footer() {
   return (
     <footer
-      className="relative px-5 sm:px-8 pt-16 pb-8"
+      className="relative px-5 sm:px-8 pt-14 pb-8 overflow-hidden"
       style={{
         background: "#111111",
         borderTop: "3px solid #FFE600",
       }}
     >
-      <div className="max-w-6xl mx-auto grid lg:grid-cols-4 gap-10">
+      <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
         {/* Brand */}
-        <div className="lg:col-span-1">
+        <div className="sm:col-span-2 lg:col-span-1">
           <div className="flex items-center gap-2">
             <Star size={18} fill="#FF3131" stroke="#FF3131" aria-hidden />
             <span className="font-pixel text-white text-sm tracking-wider">
@@ -58,10 +58,10 @@ export function Footer() {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 mt-5 font-pixel text-[10px] text-[#FFE600] hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 mt-5 font-pixel text-[10px] text-[#FFE600] hover:text-white transition-colors break-all"
           >
-            <ExternalLink size={14} />
-            github.com/barundebnath/paladinai
+            <ExternalLink size={14} className="shrink-0" />
+            <span className="break-all">github.com/d-cryptic/paladinai</span>
           </a>
         </div>
 
@@ -89,9 +89,9 @@ export function Footer() {
         ))}
       </div>
 
-      {/* Stats row */}
-      <div className="max-w-6xl mx-auto mt-12 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t-2 border-[#FFE600]/30">
-        <p className="font-pixel text-[10px] text-white/60 tracking-wider text-center sm:text-left">
+      {/* Bottom bar */}
+      <div className="max-w-6xl mx-auto mt-12 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t-2 border-[#FFE600]/30">
+        <p className="font-pixel text-[9px] text-white/60 tracking-wider text-center sm:text-left leading-relaxed">
           © 2025 PALADIN AI — APACHE 2.0 + COMMONS CLAUSE
         </p>
         <div className="flex items-center gap-4 font-pixel text-[9px] text-white/60">
@@ -99,7 +99,7 @@ export function Footer() {
             <span className="w-2 h-2 bg-[#00FF88] inline-block" /> ONLINE
           </span>
           <span>v0.1.0</span>
-          <span className="text-[#FFE600]">★ MADE WITH PIXELS</span>
+          <span className="text-[#FFE600]">★ PIXELS</span>
         </div>
       </div>
     </footer>
