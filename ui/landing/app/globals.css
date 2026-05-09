@@ -1,0 +1,227 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --radius: 0rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* Neubrutalism tokens */
+  --nb-black: #111111;
+  --nb-cream: #F5F0E4;
+  --nb-red: #FF3131;
+  --nb-yellow: #FFE600;
+  --nb-green: #00FF88;
+  --nb-blue: #4DAAFF;
+  --nb-purple: #A855F7;
+  --nb-orange: #FF7A00;
+  --nb-border: 2.5px solid #111111;
+  --nb-border-thick: 4px solid #111111;
+  --nb-shadow: 5px 5px 0px #111111;
+  --nb-shadow-hover: 2px 2px 0px #111111;
+  --nb-shadow-lg: 8px 8px 0px #111111;
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    background-color: var(--nb-cream);
+    color: var(--nb-black);
+    overflow-x: hidden;
+  }
+  html { scroll-behavior: smooth; }
+}
+
+/* Typography */
+.font-pixel { font-family: "Press Start 2P", monospace; letter-spacing: 0.05em; }
+
+/* Neubrutalism primitives */
+.neu-card {
+  border: var(--nb-border);
+  box-shadow: var(--nb-shadow);
+  background: #fff;
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+.neu-card:hover { box-shadow: var(--nb-shadow-hover); transform: translate(3px, 3px); }
+
+.neu-btn {
+  border: var(--nb-border);
+  box-shadow: var(--nb-shadow);
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-family: "Press Start 2P", monospace; font-size: 0.6rem;
+  letter-spacing: 0.05em; cursor: pointer;
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+  text-decoration: none; white-space: nowrap;
+}
+.neu-btn:hover { box-shadow: var(--nb-shadow-hover); transform: translate(3px, 3px); }
+.neu-btn:active { box-shadow: none; transform: translate(5px, 5px); }
+
+.neu-btn-yellow { background: var(--nb-yellow); color: var(--nb-black); }
+.neu-btn-red { background: var(--nb-red); color: #fff; }
+.neu-btn-white { background: #fff; color: var(--nb-black); }
+.neu-btn-green { background: var(--nb-green); color: var(--nb-black); }
+.neu-btn-dark { background: var(--nb-black); color: #fff; }
+
+/* Keyframes */
+@keyframes glitch {
+  0%, 88%, 100% { clip-path: none; transform: translate(0); text-shadow: none; }
+  89% { clip-path: polygon(0 20%, 100% 20%, 100% 35%, 0 35%); transform: translate(-4px); text-shadow: 3px 0 var(--nb-red); }
+  91% { clip-path: polygon(0 60%, 100% 60%, 100% 80%, 0 80%); transform: translate(4px); text-shadow: -3px 0 var(--nb-blue); }
+  93% { clip-path: polygon(0 40%, 100% 40%, 100% 55%, 0 55%); transform: translate(-2px); text-shadow: 2px 0 var(--nb-green); }
+}
+@keyframes float { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-14px) rotate(3deg); } }
+@keyframes floatB { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(10px) rotate(-2deg); } }
+@keyframes marqueeScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes flowPath { from { stroke-dashoffset: 200; } to { stroke-dashoffset: 0; } }
+@keyframes pixelIn { 0% { opacity: 0; transform: scale(0.85); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes ripple { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(2); opacity: 0; } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Animation utilities */
+.animate-glitch { animation: glitch 5s infinite; }
+.animate-float { animation: float 6s ease-in-out infinite; }
+.animate-float-b { animation: floatB 7s ease-in-out infinite; }
+.animate-blink { animation: blink 1s step-end infinite; }
+.animate-marquee { animation: marqueeScroll 28s linear infinite; }
+.animate-pixel-in { animation: pixelIn 0.35s ease-out forwards; }
+.arch-path { stroke-dasharray: 12 6; animation: flowPath 2.5s linear infinite; }
+.arch-path-rev { stroke-dasharray: 12 6; animation: flowPath 2.5s linear infinite reverse; }
+
+/* Scanline overlay */
+.scanline-overlay::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 10;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.035) 3px, rgba(0,0,0,0.035) 4px);
+}
+
+/* Terminal */
+.terminal-window { background: #0d0d0d; border: var(--nb-border-thick); box-shadow: var(--nb-shadow-lg); }
+.terminal-bar { background: #1a1a1a; border-bottom: 2.5px solid #111; padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.5rem; }
+.terminal-dot { width: 12px; height: 12px; border: 1.5px solid #333; display: inline-block; }
+
+/* Section spacing */
+.section-pad { padding: 5rem 1.5rem; }
+@media (min-width: 768px) { .section-pad { padding: 6rem 3rem; } }
+@media (min-width: 1280px) { .section-pad { padding: 8rem 5rem; } }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--nb-cream); }
+::-webkit-scrollbar-thumb { background: var(--nb-black); }
+
+/* ─── Button aliases used in components ─── */
+.neu-btn-primary { background: var(--nb-yellow); color: var(--nb-black); }
+.neu-btn-secondary { background: #ffffff; color: var(--nb-black); }
+
+/* ─── Dot grid background ─── */
+.dot-grid {
+  background-image: radial-gradient(circle, #11111130 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ─── Glitch text via pseudo ─── */
+.glitch-text {
+  position: relative;
+  animation: glitch 5s infinite;
+}
+.glitch-text::before,
+.glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0; left: 0;
+  opacity: 0;
+}
+.glitch-text:hover::before {
+  opacity: 0.7;
+  clip-path: polygon(0 30%, 100% 30%, 100% 50%, 0 50%);
+  transform: translateX(-4px);
+  color: var(--nb-red);
+}
+.glitch-text:hover::after {
+  opacity: 0.5;
+  clip-path: polygon(0 60%, 100% 60%, 100% 80%, 0 80%);
+  transform: translateX(4px);
+  color: var(--nb-blue);
+}
+
+/* ─── Scanline on terminal ─── */
+.scanline {
+  position: relative;
+  overflow: hidden;
+}
+.scanline::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.05) 3px, rgba(0,0,0,0.05) 4px);
+}
+
+/* ─── Film grain ─── */
+.film-grain {
+  position: relative;
+}
+.film-grain::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* ─── Flowing animated SVG path ─── */
+.flow-path {
+  stroke-dasharray: 8 8;
+  animation: flowPath 2.5s linear infinite;
+}

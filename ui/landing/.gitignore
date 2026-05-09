@@ -1,0 +1,7 @@
+.next/
+node_modules/
+out/
+*.tsbuildinfo
+test-results/
+playwright-report/
+tests/screenshots/*.png
