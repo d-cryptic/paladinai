@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Press_Start_2P, Space_Mono } from "next/font/google";
 import "./globals.css";
 import { ReactScanInit } from "@/components/dev/ReactScanInit";
+import { PostHogProvider } from "@/components/providers/PostHogProvider";
 
 const pressStart = Press_Start_2P({
   variable: "--font-pixel",
@@ -36,7 +37,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-[#F5F0E4] text-[#111111]" style={{ fontFamily: "var(--font-mono), 'Space Mono', monospace" }}>
         <ReactScanInit />
-        {children}
+        <PostHogProvider>
+          {children}
+        </PostHogProvider>
       </body>
     </html>
   );
