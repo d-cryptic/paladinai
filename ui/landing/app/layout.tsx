@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Press_Start_2P, Space_Mono } from "next/font/google";
 import "./globals.css";
+import { ReactScanInit } from "@/components/dev/ReactScanInit";
 
 const pressStart = Press_Start_2P({
   variable: "--font-pixel",
@@ -34,6 +35,7 @@ export default function RootLayout({
       className={`${pressStart.variable} ${spaceMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-[#F5F0E4] text-[#111111]" style={{ fontFamily: "var(--font-mono), 'Space Mono', monospace" }}>
+        <ReactScanInit />
         {children}
       </body>
     </html>

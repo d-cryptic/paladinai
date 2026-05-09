@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Star, ArrowRight } from "lucide-react";
 import { PixelBadge } from "@/components/shared/PixelBadge";
@@ -36,15 +36,8 @@ function useTypewriter(lines: typeof TERMINAL_LINES) {
   useEffect(() => {
     cancelRef.current = false;
 
-    const sleep = (ms: number) =>
-      new Promise<void>((res) => {
-        const id = setTimeout(res, ms);
-        // check cancellation
-        const check = setInterval(() => {
-          if (cancelRef.current) { clearTimeout(id); clearInterval(check); res(); }
-        }, 50);
-        setTimeout(() => clearInterval(check), ms + 100);
-      });
+    // Simple sleep — just setTimeout. Cancellation is checked at each await point.
+    const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
     async function run() {
       setDisplayed([]);
@@ -57,10 +50,8 @@ function useTypewriter(lines: typeof TERMINAL_LINES) {
         await sleep(line.pauseBefore);
         if (cancelRef.current) return;
 
-        // push placeholder for this line
         setDisplayed((prev) => [...prev, { text: "", color: line.color, typing: true }]);
 
-        // type characters
         for (let c = 1; c <= line.text.length; c++) {
           if (cancelRef.current) return;
           const partial = line.text.slice(0, c);
@@ -69,11 +60,10 @@ function useTypewriter(lines: typeof TERMINAL_LINES) {
             next[i] = { text: partial, color: line.color, typing: true };
             return next;
           });
-          const delay = line.text[c - 1] === " " ? CHAR_SPEED * 0.6 : CHAR_SPEED;
-          await sleep(delay);
+          await sleep(line.text[c - 1] === " " ? CHAR_SPEED * 0.6 : CHAR_SPEED);
         }
 
-        // mark done
+        if (cancelRef.current) return;
         setDisplayed((prev) => {
           const next = [...prev];
           if (next[i]) next[i] = { ...next[i], typing: false };
@@ -81,7 +71,6 @@ function useTypewriter(lines: typeof TERMINAL_LINES) {
         });
       }
 
-      // replay after pause
       await sleep(3200);
       if (!cancelRef.current) run();
     }
@@ -103,9 +92,8 @@ const FLOATERS = [
 
 export function Hero() {
   const displayed = useTypewriter(TERMINAL_LINES);
-  // index of the line currently being typed
-  const typingIdx = displayed.findIndex((l) => l.typing);
-  const allDone   = displayed.length > 0 && displayed.every((l) => !l.typing);
+  const typingIdx = useMemo(() => displayed.findIndex((l) => l.typing), [displayed]);
+  const allDone   = useMemo(() => displayed.length > 0 && displayed.every((l) => !l.typing), [displayed]);
 
   return (
     <section

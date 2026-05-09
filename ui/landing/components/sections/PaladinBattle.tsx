@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { memo, useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { motion, useAnimation, AnimatePresence } from "framer-motion";
 
 /* ─── Action pool ────────────────────────────────────────────── */
@@ -31,11 +31,19 @@ interface Bug {
   dying: boolean;
 }
 
-const BUG_LABELS = ["ERR 503", "OOM", "SEGFAULT", "DEADLOCK", "TIMEOUT", "NullPtr", "404", "PANIC"];
-const BUG_COLORS = ["#FF3131", "#FF7A00", "#A855F7", "#FF3131", "#FF7A00"];
+const BUG_LABELS   = ["ERR 503", "OOM", "SEGFAULT", "DEADLOCK", "TIMEOUT", "NullPtr", "404", "PANIC"];
+const BUG_COLORS   = ["#FF3131", "#FF7A00", "#A855F7", "#FF3131", "#FF7A00"];
+const BG_ERRORS    = ["503", "OOM", "NaN", "ERR", "PANIC", "NULL"] as const;
+const LOG_MESSAGES = [
+  "DB CONNECTION POOL EXHAUSTED", "P99 LATENCY: 2.3s", "ACTIVE ALERTS: 3",
+  "MEMORY USAGE: 94%", "DISK I/O SPIKE DETECTED", "CIRCUIT BREAKER: OPEN",
+  "QUEUE DEPTH: 18,432", "CPU THROTTLED",
+] as const;
+// Doubled for seamless marquee loop
+const LOG_TICKER = [...LOG_MESSAGES, ...LOG_MESSAGES];
 
 /* ─── Pixel-art paladin sprite ───────────────────────────────── */
-function PaladinSprite({ pose, facing }: { pose: PoseId; facing: 1 | -1 }) {
+const PaladinSprite = memo(function PaladinSprite({ pose, facing }: { pose: PoseId; facing: 1 | -1 }) {
   const attacking = pose === "attack";
   const blocking  = pose === "block";
   const victory   = pose === "victory";
@@ -147,17 +155,20 @@ function PaladinSprite({ pose, facing }: { pose: PoseId; facing: 1 | -1 }) {
       <rect x={54} y={138} width={24} height={6}  fill="#111" />
     </svg>
   );
-}
+});
 
 /* ─── Bug enemy sprite ───────────────────────────────────────── */
-function BugSprite({ label, color, dying }: { label: string; color: string; dying: boolean }) {
+// Stable animation configs — defined outside component so they're never recreated
+const BUG_DIE_ANIM   = { scale: [1, 1.4, 0], opacity: [1, 1, 0], rotate: [0, 15, -15, 0] };
+const BUG_IDLE_ANIM  = { y: [0, -4, 0] };
+const BUG_DIE_TRANS  = { duration: 0.4, ease: "easeOut" } as const;
+const BUG_IDLE_TRANS = { duration: 1.2, repeat: Infinity, ease: "easeInOut" } as const;
+
+const BugSprite = memo(function BugSprite({ label, color, dying }: { label: string; color: string; dying: boolean }) {
   return (
     <motion.div
-      animate={dying ? { scale: [1, 1.4, 0], opacity: [1, 1, 0], rotate: [0, 15, -15, 0] } : { y: [0, -4, 0] }}
-      transition={dying
-        ? { duration: 0.4, ease: "easeOut" }
-        : { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
-      }
+      animate={dying ? BUG_DIE_ANIM : BUG_IDLE_ANIM}
+      transition={dying ? BUG_DIE_TRANS : BUG_IDLE_TRANS}
       className="flex flex-col items-center gap-1"
     >
       <svg width={48} height={48} viewBox="0 0 48 48" style={{ imageRendering: "pixelated" }}>
@@ -186,7 +197,7 @@ function BugSprite({ label, color, dying }: { label: string; color: string; dyin
       </span>
     </motion.div>
   );
-}
+});
 
 /* ─── Main component ─────────────────────────────────────────── */
 export function PaladinBattle() {
@@ -194,19 +205,17 @@ export function PaladinBattle() {
   const [facing, setFacing]   = useState<1 | -1>(1);
   const [bubble, setBubble]   = useState<typeof ACTIONS[number] | null>(null);
   const [bugs, setBugs]       = useState<Bug[]>([]);
-  const [bugId, setBugId]     = useState(0);
   const [clicks, setClicks]   = useState(0);
   const controls              = useAnimation();
   const containerRef          = useRef<HTMLDivElement>(null);
-  const walkingRef            = useRef(true);
+  const bugIdRef              = useRef(0);  // ref so spawn interval never restarts
   const bubbleTimer           = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const poseTimer             = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  /* spawn bugs periodically */
+  /* spawn bugs periodically — empty dep array, bugId via ref */
   useEffect(() => {
     const interval = setInterval(() => {
       if (!containerRef.current) return;
-      // clamp to actual visible width so bugs never overflow
       const w = Math.min(containerRef.current.offsetWidth, window.innerWidth);
       const fromRight = Math.random() > 0.5;
       setBugs((prev) => {
@@ -214,7 +223,7 @@ export function PaladinBattle() {
         return [
           ...prev,
           {
-            id: bugId,
+            id: bugIdRef.current++,
             x: fromRight ? w - 80 : 20,
             label: BUG_LABELS[Math.floor(Math.random() * BUG_LABELS.length)],
             color: BUG_COLORS[Math.floor(Math.random() * BUG_COLORS.length)],
@@ -222,11 +231,10 @@ export function PaladinBattle() {
           },
         ];
       });
-      setBugId((n) => n + 1);
     }, 3200);
 
     return () => clearInterval(interval);
-  }, [bugId]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* auto-remove dead bugs */
   useEffect(() => {
@@ -303,8 +311,8 @@ export function PaladinBattle() {
     poseTimer.current   = setTimeout(() => setPose("walk"),   800);
   }, []);
 
-  /* walk leg bob */
-  const legBob = pose === "walk" ? { y: [0, -6, 0] } : { y: 0 };
+  /* walk leg bob — memoised so motion.div doesn't get a new object reference each render */
+  const legBob = useMemo(() => (pose === "walk" ? { y: [0, -6, 0] } : { y: 0 }), [pose]);
 
   return (
     <section
@@ -343,7 +351,7 @@ export function PaladinBattle() {
         <div className="absolute inset-0 dot-grid opacity-10 pointer-events-none" />
 
         {/* background: floating "error" text */}
-        {["503", "OOM", "NaN", "ERR", "PANIC", "NULL"].map((t, i) => (
+        {BG_ERRORS.map((t, i) => (
           <motion.span
             key={t}
             className="absolute font-pixel text-[9px] select-none pointer-events-none"
@@ -463,24 +471,7 @@ export function PaladinBattle() {
             animate={{ x: ["0%", "-50%"] }}
             transition={{ duration: 18, repeat: Infinity, ease: "linear" }}
           >
-            {[
-              "DB CONNECTION POOL EXHAUSTED",
-              "P99 LATENCY: 2.3s",
-              "ACTIVE ALERTS: 3",
-              "MEMORY USAGE: 94%",
-              "DISK I/O SPIKE DETECTED",
-              "CIRCUIT BREAKER: OPEN",
-              "QUEUE DEPTH: 18,432",
-              "CPU THROTTLED",
-              "DB CONNECTION POOL EXHAUSTED",
-              "P99 LATENCY: 2.3s",
-              "ACTIVE ALERTS: 3",
-              "MEMORY USAGE: 94%",
-              "DISK I/O SPIKE DETECTED",
-              "CIRCUIT BREAKER: OPEN",
-              "QUEUE DEPTH: 18,432",
-              "CPU THROTTLED",
-            ].map((t, i) => (
+            {LOG_TICKER.map((t, i) => (
               <span key={i} className="shrink-0">
                 <span className="text-[#FF3131]">■</span> {t}
               </span>
