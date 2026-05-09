@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, Star } from "lucide-react";
+import { Menu, X } from "lucide-react";
+import { PaladinLogoMark } from "@/components/shared/PaladinLogo";
 
 const NAV_LINKS = [
   { label: "Features", href: "#features" },
@@ -27,15 +28,11 @@ export function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
         {/* Logo */}
-        <a href="#" className="flex items-center gap-2 font-pixel text-white">
-          <Star
-            size={18}
-            fill="#FF3131"
-            stroke="#FF3131"
-            className="-mt-0.5"
-            aria-hidden
-          />
-          <span className="text-xs sm:text-sm tracking-wider">PALADIN.AI</span>
+        <a href="#" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
+          <PaladinLogoMark size={32} variant="color" />
+          <span className="font-pixel text-white text-xs sm:text-sm tracking-wider">
+            PALADIN.AI
+          </span>
         </a>
 
         {/* Desktop nav */}

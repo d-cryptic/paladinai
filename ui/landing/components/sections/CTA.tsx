@@ -108,7 +108,7 @@ export function CTA() {
           transition={{ duration: 0.5, delay: 0.55 }}
           className="mt-10 font-pixel text-[10px] text-[#FFE600]/80 tracking-widest"
         >
-          [ INSERT COIN TO CONTINUE ]
+          [ PLAYER 1 — PRESS START TO DEPLOY ]
           <span className="animate-blink ml-1">▋</span>
         </motion.div>
       </div>

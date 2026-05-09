@@ -148,7 +148,7 @@ export function Hero() {
             <span className="text-[#111111]/30">/</span>
             <span className="text-[#A855F7]">Neo4j</span>
             <span className="text-[#111111]/30">/</span>
-            <span className="text-[#00FF88]">Qdrant</span>
+            <span className="text-[#FF7A00]">Qdrant</span>
           </motion.div>
         </div>
 

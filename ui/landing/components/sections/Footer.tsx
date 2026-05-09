@@ -1,4 +1,4 @@
-import { Star } from "lucide-react";
+import { PaladinLogoMark } from "@/components/shared/PaladinLogo";
 
 const GITHUB_URL = "https://github.com/d-cryptic/paladinai";
 
@@ -48,10 +48,10 @@ export function Footer() {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 hover:opacity-80 transition-opacity"
+            className="inline-flex items-center gap-2.5 hover:opacity-80 transition-opacity"
             aria-label="Paladin AI on GitHub"
           >
-            <Star size={18} fill="#FF3131" stroke="#FF3131" aria-hidden />
+            <PaladinLogoMark size={36} variant="color" />
             <span className="font-pixel text-white text-sm tracking-wider">
               PALADIN.AI
             </span>
