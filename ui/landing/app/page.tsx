@@ -6,6 +6,7 @@ import { HowItWorks } from "@/components/sections/HowItWorks";
 import { Architecture } from "@/components/sections/Architecture";
 import { Features } from "@/components/sections/Features";
 import { TechStack } from "@/components/sections/TechStack";
+import { PaladinBattle } from "@/components/sections/PaladinBattle";
 import { CTA } from "@/components/sections/CTA";
 import { Footer } from "@/components/sections/Footer";
 
@@ -22,6 +23,7 @@ export default function Home() {
         <Features />
         <TechStack />
         <CTA />
+        <PaladinBattle />
       </main>
       <Footer />
     </>

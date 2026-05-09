@@ -53,7 +53,7 @@ export function CTA() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.55 }}
-          className="font-pixel text-2xl sm:text-4xl md:text-5xl leading-[1.3] text-white"
+          className="font-pixel text-2xl sm:text-4xl lg:text-5xl leading-[1.3] text-white"
         >
           READY TO DEPLOY{" "}
           <span className="bg-[#FFE600] text-[#111] px-2 inline-block">

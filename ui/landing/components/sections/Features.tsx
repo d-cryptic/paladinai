@@ -93,7 +93,7 @@ export function Features() {
             <GlitchText
               as="h2"
               text="EVERYTHING YOU NEED TO FIGHT INCIDENTS"
-              className="text-2xl sm:text-3xl md:text-4xl"
+              className="text-2xl sm:text-3xl lg:text-4xl"
             />
           </div>
           <p className="font-mono mt-5 max-w-2xl mx-auto text-[#111]/70">
@@ -102,7 +102,7 @@ export function Features() {
           </p>
         </div>
 
-        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-3 gap-7">
+        <div className="mt-14 grid md:grid-cols-2 lg:grid-cols-3 gap-7">
           {FEATURES.map((f, idx) => {
             const Icon = f.icon;
             return (

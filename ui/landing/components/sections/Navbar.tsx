@@ -36,7 +36,7 @@ export function Navbar() {
         </a>
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-7">
+        <nav className="hidden lg:flex items-center gap-7">
           {NAV_LINKS.map((l) => (
             <a
               key={l.href}
@@ -49,7 +49,7 @@ export function Navbar() {
         </nav>
 
         {/* Right CTA */}
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
           <a
             href={GITHUB_URL}
             target="_blank"
@@ -63,7 +63,7 @@ export function Navbar() {
         {/* Mobile menu button */}
         <button
           type="button"
-          className="md:hidden text-white p-2"
+          className="lg:hidden text-white p-2"
           aria-label="Toggle menu"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
@@ -80,7 +80,7 @@ export function Navbar() {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="md:hidden overflow-hidden"
+            className="lg:hidden overflow-hidden"
             style={{ background: "#111111", borderTop: "2px solid #FFE600" }}
           >
             <nav className="flex flex-col px-6 py-5 gap-4">

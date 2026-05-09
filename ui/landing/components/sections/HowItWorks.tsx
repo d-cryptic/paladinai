@@ -63,7 +63,7 @@ export function HowItWorks() {
             <GlitchText
               as="h2"
               text="FOUR STEPS TO INCIDENT MASTERY"
-              className="text-2xl sm:text-3xl md:text-4xl"
+              className="text-2xl sm:text-3xl lg:text-4xl"
             />
           </div>
           <p className="font-mono mt-5 max-w-2xl mx-auto text-[#111]/80">
@@ -72,7 +72,7 @@ export function HowItWorks() {
           </p>
         </div>
 
-        <div className="mt-14 grid sm:grid-cols-2 gap-8">
+        <div className="mt-14 grid md:grid-cols-2 gap-8">
           {STEPS.map((step, idx) => (
             <motion.div
               key={step.level}

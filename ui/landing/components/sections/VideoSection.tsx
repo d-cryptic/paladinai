@@ -41,7 +41,7 @@ export function VideoSection() {
           <GlitchText
             as="h2"
             text="SEE IT IN ACTION"
-            className="text-2xl sm:text-4xl md:text-5xl"
+            className="text-2xl sm:text-4xl lg:text-5xl"
           />
         </motion.div>
 

@@ -1,6 +1,5 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import { motion } from "framer-motion";
 import { PixelBadge } from "@/components/shared/PixelBadge";
 import { GlitchText } from "@/components/shared/GlitchText";
@@ -102,7 +101,7 @@ export function Architecture() {
             <GlitchText
               as="h2"
               text="BUILT ON A BATTLE-TESTED STACK"
-              className="text-2xl sm:text-3xl md:text-4xl"
+              className="text-2xl sm:text-3xl lg:text-4xl"
             />
           </div>
           <p className="font-mono mt-5 max-w-2xl mx-auto text-[#111]/70">
@@ -110,11 +109,6 @@ export function Architecture() {
             reasoning — wired through a single graph-based engine.
           </p>
         </div>
-
-        {/* Mobile scroll hint */}
-        <p className="sm:hidden font-pixel text-[9px] text-[#111]/50 text-center mt-8 mb-2 tracking-wider">
-          ← SCROLL TO EXPLORE →
-        </p>
 
         <motion.div
           initial={{ opacity: 0, y: 28 }}
@@ -125,22 +119,14 @@ export function Architecture() {
           style={{
             border: "3px solid #111111",
             boxShadow: "10px 10px 0 #111111",
+            background: "#ffffff",
+            padding: "12px",
           }}
         >
-          {/* Scroll container separated from the styled border box */}
-          <div
-            style={{
-              overflowX: "auto",
-              WebkitOverflowScrolling: "touch" as CSSProperties["WebkitOverflowScrolling"],
-              background: "#ffffff",
-              padding: "20px",
-            }}
-          >
           <svg
-            width={900}
-            height={560}
+            width="100%"
             viewBox="0 0 900 560"
-            style={{ display: "block", minWidth: 900 }}
+            style={{ display: "block" }}
             role="img"
             aria-label="Paladin AI architecture diagram"
           >
@@ -263,7 +249,6 @@ export function Architecture() {
               [ ENGINE ]
             </text>
           </svg>
-          </div>
         </motion.div>
       </div>
     </section>
