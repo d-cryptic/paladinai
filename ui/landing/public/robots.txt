@@ -1,0 +1,26 @@
+User-agent: *
+Allow: /
+
+# AI crawlers — explicitly allowed for GEO
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+Sitemap: https://getpaladin.dev/sitemap.xml

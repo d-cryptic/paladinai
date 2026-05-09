@@ -18,11 +18,78 @@ const spaceMono = Space_Mono({
   display: "swap",
 });
 
+const siteUrl = "https://getpaladin.dev";
+
 export const metadata: Metadata = {
-  title: "Paladin AI — The AI That Watches Your Systems",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "Paladin AI — The AI That Watches Your Systems",
+    template: "%s | Paladin AI",
+  },
   description:
-    "AI-powered incident response and monitoring. Natural language queries across Prometheus, Loki, Grafana, and Alertmanager with persistent intelligent memory.",
-  keywords: ["AI monitoring", "incident response", "Prometheus", "LangGraph", "observability"],
+    "AI-powered incident response and infrastructure monitoring. Natural language queries across Prometheus, Loki, Grafana, and Alertmanager with persistent intelligent memory.",
+  keywords: [
+    "AI monitoring",
+    "incident response",
+    "Prometheus",
+    "Loki",
+    "Grafana",
+    "LangGraph",
+    "observability",
+    "SRE",
+    "DevOps",
+    "on-call",
+    "infrastructure monitoring",
+    "AI ops",
+  ],
+  authors: [{ name: "Paladin AI" }],
+  creator: "Paladin AI",
+  publisher: "Paladin AI",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+  alternates: {
+    canonical: siteUrl,
+  },
+  openGraph: {
+    type: "website",
+    url: siteUrl,
+    siteName: "Paladin AI",
+    title: "Paladin AI — The AI That Watches Your Systems",
+    description:
+      "AI-powered incident response and infrastructure monitoring. Natural language queries across Prometheus, Loki, Grafana, and Alertmanager with persistent intelligent memory.",
+    images: [
+      {
+        url: "/og-image.svg",
+        width: 1200,
+        height: 630,
+        alt: "Paladin AI — The AI That Watches Your Systems",
+      },
+    ],
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Paladin AI — The AI That Watches Your Systems",
+    description:
+      "AI-powered incident response and infrastructure monitoring. Natural language queries across Prometheus, Loki, Grafana, and Alertmanager.",
+    images: ["/og-image.svg"],
+    creator: "@paladinai",
+  },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({

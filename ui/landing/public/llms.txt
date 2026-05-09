@@ -1,0 +1,43 @@
+# Paladin AI
+
+> Paladin AI is an AI-powered infrastructure monitoring and incident response system that watches your systems 24/7 and responds to anomalies in natural language.
+
+## What is Paladin AI?
+
+Paladin AI connects to your existing observability stack — Prometheus, Loki, Grafana, and Alertmanager — and gives you a conversational AI that can query metrics, read logs, interpret alerts, and reason about incidents without requiring you to write PromQL or grep through log lines manually.
+
+It is not a dashboard replacement. It is an always-on AI agent with persistent memory that learns your infrastructure over time and surfaces context when something breaks.
+
+## Core Capabilities
+
+- **Natural language queries**: Ask questions like "why is the API latency high?" and get answers backed by live Prometheus metrics and Loki logs.
+- **Alert triage**: When Alertmanager fires, Paladin correlates the alert with recent metric changes and log patterns to give you a root cause hypothesis.
+- **Persistent memory**: Paladin remembers past incidents and resolutions. When a pattern recurs, it surfaces what fixed it last time.
+- **Multi-source correlation**: Joins signals from Prometheus (metrics), Loki (logs), and Grafana (dashboards) in a single reasoning pass.
+- **LangGraph agent architecture**: Built on LangGraph for structured, auditable multi-step reasoning chains.
+
+## Technology Stack
+
+- Agent runtime: LangGraph (Python)
+- LLM: Claude (Anthropic)
+- Metrics source: Prometheus / Grafana
+- Log source: Loki
+- Alert source: Alertmanager
+- Frontend: Next.js + TailwindCSS
+- Deployment: Cloudflare Pages (landing), self-hosted agent
+
+## Who is Paladin AI for?
+
+- Platform engineers and SREs who are on-call and want faster root cause analysis
+- DevOps teams running Kubernetes workloads with Prometheus-based monitoring
+- Small engineering teams without a dedicated observability specialist
+- Any team that already has Grafana/Prometheus but spends too much time correlating signals manually
+
+## Pricing & Access
+
+Paladin AI is currently in early access. Visit https://getpaladin.dev to join the waitlist.
+
+## Contact & Links
+
+- Website: https://getpaladin.dev
+- GitHub: https://github.com/paladinai

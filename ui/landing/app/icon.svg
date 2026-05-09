@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 59" fill="none" shape-rendering="crispEdges">
+  <!-- Drop shadow -->
+  <path d="M5 3 L45 3 L49 8 L49 33 C49 46 25 56 25 56 C25 56 1 46 1 33 L1 8 Z" fill="#111111" transform="translate(3 3)" opacity="0.9"/>
+  <!-- Shield body -->
+  <path d="M5 3 L45 3 L49 8 L49 33 C49 46 25 56 25 56 C25 56 1 46 1 33 L1 8 Z" fill="#FF3131" stroke="#111111" stroke-width="2.5" stroke-linejoin="miter"/>
+  <!-- Inner bevel -->
+  <path d="M9 7 L41 7 L44 11 L44 32 C44 43 25 52 25 52 C25 52 6 43 6 32 L6 11 Z" fill="none" stroke="#FF6B6B" stroke-width="1.5" opacity="0.35"/>
+  <!-- Sword blade layers -->
+  <polygon points="25,0 19,26 31,26" fill="#8B6200" stroke="#111111" stroke-width="1.5" stroke-linejoin="miter"/>
+  <polygon points="25,1 25,25.5 30,25.5" fill="#FFB800"/>
+  <polygon points="25,1 26,25.5 30,25.5" fill="#FFE600"/>
+  <polygon points="25,0.5 27,25.5 29,25.5" fill="#FFF8A0" opacity="0.9"/>
+  <polygon points="25,0 24,6 26,6" fill="#ffffff" opacity="0.95"/>
+  <polygon points="25,1 20,25.5 24,25.5" fill="#8B6200" opacity="0.55"/>
+  <!-- Crossguard shadow -->
+  <rect x="10" y="28" width="30" height="8" fill="#111111" opacity="0.5"/>
+  <!-- Crossguard main -->
+  <rect x="10" y="26" width="30" height="8" fill="#FFE600" stroke="#111111" stroke-width="2.5"/>
+  <rect x="11" y="27" width="28" height="2" fill="#FFF8A0" opacity="0.5"/>
+  <rect x="11" y="31" width="28" height="2" fill="#B8A000" opacity="0.6"/>
+  <rect x="23" y="26" width="4" height="8" fill="#B8A000" opacity="0.4"/>
+  <!-- Eye outer glow -->
+  <ellipse cx="25" cy="30" rx="8" ry="5" fill="#ffffff" opacity="0.2"/>
+  <!-- Eye sclera -->
+  <ellipse cx="25" cy="30" rx="6.5" ry="4" fill="#ffffff" stroke="#111111" stroke-width="1.2"/>
+  <!-- Eye iris -->
+  <ellipse cx="25" cy="30" rx="3.5" ry="2.8" fill="#4DAAFF"/>
+  <!-- Eye pupil -->
+  <circle cx="25" cy="30" r="1.8" fill="#111111"/>
+  <!-- Eye glint -->
+  <circle cx="26.2" cy="28.9" r="0.9" fill="#00FF88"/>
+  <!-- Circuit nodes -->
+  <rect x="6" y="27" width="6" height="6" fill="#00FF88" stroke="#111111" stroke-width="1"/>
+  <rect x="38" y="27" width="6" height="6" fill="#00FF88" stroke="#111111" stroke-width="1"/>
+  <rect x="7.5" y="28.5" width="3" height="3" fill="#111111" opacity="0.4"/>
+  <rect x="39.5" y="28.5" width="3" height="3" fill="#111111" opacity="0.4"/>
+  <!-- Handle -->
+  <rect x="23" y="34" width="4" height="13" fill="#B8A000" stroke="#111111" stroke-width="2"/>
+  <rect x="23" y="35" width="4" height="2" fill="#FFE600" opacity="0.5"/>
+  <rect x="23" y="39" width="4" height="2" fill="#FFE600" opacity="0.5"/>
+  <rect x="23" y="43" width="4" height="2" fill="#FFE600" opacity="0.5"/>
+  <!-- Pommel -->
+  <rect x="20" y="47" width="10" height="7" fill="#FFE600" stroke="#111111" stroke-width="2.5"/>
+  <rect x="21" y="48" width="8" height="2" fill="#FFF8A0" opacity="0.5"/>
+</svg>

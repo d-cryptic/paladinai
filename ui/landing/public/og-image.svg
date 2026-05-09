@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#111111"/>
+  <!-- Neubrutalism border -->
+  <rect x="16" y="16" width="1168" height="598" fill="none" stroke="#FF3131" stroke-width="6"/>
+  <!-- Grid dots pattern -->
+  <pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+    <circle cx="20" cy="20" r="1.5" fill="#FF3131" opacity="0.15"/>
+  </pattern>
+  <rect width="1200" height="630" fill="url(#dots)"/>
+
+  <!-- Shield logo (scaled up) -->
+  <g transform="translate(120, 140) scale(4.5)">
+    <!-- Drop shadow -->
+    <path d="M5 3 L45 3 L49 8 L49 33 C49 46 25 56 25 56 C25 56 1 46 1 33 L1 8 Z" fill="#000000" transform="translate(3 3)" opacity="0.9"/>
+    <!-- Shield body -->
+    <path d="M5 3 L45 3 L49 8 L49 33 C49 46 25 56 25 56 C25 56 1 46 1 33 L1 8 Z" fill="#FF3131" stroke="#F5F0E4" stroke-width="2" stroke-linejoin="miter"/>
+    <!-- Inner bevel -->
+    <path d="M9 7 L41 7 L44 11 L44 32 C44 43 25 52 25 52 C25 52 6 43 6 32 L6 11 Z" fill="none" stroke="#FF6B6B" stroke-width="1.2" opacity="0.35"/>
+    <!-- Sword blade -->
+    <polygon points="25,0 19,26 31,26" fill="#8B6200" stroke="#F5F0E4" stroke-width="1.2" stroke-linejoin="miter"/>
+    <polygon points="25,1 25,25.5 30,25.5" fill="#FFB800"/>
+    <polygon points="25,1 26,25.5 30,25.5" fill="#FFE600"/>
+    <polygon points="25,0.5 27,25.5 29,25.5" fill="#FFF8A0" opacity="0.9"/>
+    <polygon points="25,0 24,6 26,6" fill="#ffffff" opacity="0.95"/>
+    <polygon points="25,1 20,25.5 24,25.5" fill="#8B6200" opacity="0.55"/>
+    <!-- Crossguard -->
+    <rect x="10" y="28" width="30" height="8" fill="#000000" opacity="0.5"/>
+    <rect x="10" y="26" width="30" height="8" fill="#FFE600" stroke="#F5F0E4" stroke-width="2"/>
+    <rect x="11" y="27" width="28" height="2" fill="#FFF8A0" opacity="0.5"/>
+    <rect x="11" y="31" width="28" height="2" fill="#B8A000" opacity="0.6"/>
+    <!-- Eye -->
+    <ellipse cx="25" cy="30" rx="8" ry="5" fill="#ffffff" opacity="0.2"/>
+    <ellipse cx="25" cy="30" rx="6.5" ry="4" fill="#ffffff" stroke="#F5F0E4" stroke-width="1"/>
+    <ellipse cx="25" cy="30" rx="3.5" ry="2.8" fill="#4DAAFF"/>
+    <circle cx="25" cy="30" r="1.8" fill="#111111"/>
+    <circle cx="26.2" cy="28.9" r="0.9" fill="#00FF88"/>
+    <!-- Circuit nodes -->
+    <rect x="6" y="27" width="6" height="6" fill="#00FF88" stroke="#F5F0E4" stroke-width="0.8"/>
+    <rect x="38" y="27" width="6" height="6" fill="#00FF88" stroke="#F5F0E4" stroke-width="0.8"/>
+    <!-- Handle -->
+    <rect x="23" y="34" width="4" height="13" fill="#B8A000" stroke="#F5F0E4" stroke-width="1.5"/>
+    <rect x="23" y="35" width="4" height="2" fill="#FFE600" opacity="0.5"/>
+    <rect x="23" y="39" width="4" height="2" fill="#FFE600" opacity="0.5"/>
+    <rect x="23" y="43" width="4" height="2" fill="#FFE600" opacity="0.5"/>
+    <!-- Pommel -->
+    <rect x="20" y="47" width="10" height="7" fill="#FFE600" stroke="#F5F0E4" stroke-width="2"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="460" y="240" font-family="monospace" font-size="72" font-weight="bold" fill="#F5F0E4" letter-spacing="2">PALADIN.AI</text>
+
+  <!-- Tagline -->
+  <text x="460" y="310" font-family="monospace" font-size="28" fill="#FF3131" letter-spacing="1">The AI That Watches Your Systems</text>
+
+  <!-- Description line -->
+  <text x="460" y="370" font-family="monospace" font-size="20" fill="#888888">AI-powered incident response · Prometheus · Loki · Grafana</text>
+
+  <!-- Bottom CTA chip -->
+  <rect x="460" y="420" width="220" height="50" fill="#FF3131" rx="0"/>
+  <rect x="466" y="426" width="220" height="50" fill="#111111" stroke="#FF3131" stroke-width="2" rx="0"/>
+  <text x="510" y="457" font-family="monospace" font-size="18" fill="#F5F0E4" font-weight="bold">getpaladin.dev</text>
+
+  <!-- Accent lines -->
+  <line x1="460" y1="270" x2="820" y2="270" stroke="#FF3131" stroke-width="2" opacity="0.4"/>
+  <line x1="460" y1="395" x2="820" y2="395" stroke="#333333" stroke-width="1"/>
+</svg>
