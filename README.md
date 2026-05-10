@@ -11,3 +11,4 @@ AI-powered infrastructure monitoring and incident response platform.
 ## Docs
 
 - [`docs/plans/01.arch-stage1.md`](docs/plans/01.arch-stage1.md) — Language split, service boundaries, key architectural decisions
+- [`docs/plans/02.messaging-stage2.md`](docs/plans/02.messaging-stage2.md) — NATS JetStream, alert flow, deduplication, correlation
