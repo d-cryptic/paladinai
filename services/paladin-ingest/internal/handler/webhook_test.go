@@ -111,6 +111,25 @@ func TestWebhookHandler_Alertmanager_MissingTenantID(t *testing.T) {
 	assert.NotEqual(t, http.StatusAccepted, rr.Code)
 }
 
+func TestWebhookHandler_Alertmanager_InvalidTenantID_NATSInjection(t *testing.T) {
+	wh := handler.NewWebhookHandler(&fakePublisher{}, newFakeDedup(), zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	// Tenant IDs with NATS wildcard characters must be rejected
+	badIDs := []string{"foo.bar", "foo>bar", "foo*bar", "foo..bar"}
+	payload := alertmanagerBody(t, "firing", "Test", "warning")
+
+	for _, id := range badIDs {
+		req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/"+id, bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusBadRequest, rr.Code, "expected rejection for tenant_id=%q", id)
+	}
+}
+
 func TestWebhookHandler_Alertmanager_InvalidPayload(t *testing.T) {
 	wh := handler.NewWebhookHandler(&fakePublisher{}, newFakeDedup(), zap.NewNop())
 

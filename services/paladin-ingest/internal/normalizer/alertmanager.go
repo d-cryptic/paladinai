@@ -74,8 +74,12 @@ func NormalizeAlertmanager(tenantID string, raw json.RawMessage) ([]alert.AlertE
 			env.EndsAt = &t
 		}
 
-		// Preserve original payload for audit trail
-		env.Payload = raw
+		// Preserve per-alert payload for the audit trail.
+		// We marshal only the individual alert, not the full batch, to avoid
+		// storing N copies of an 8MB payload in NATS.
+		if alertPayload, err := json.Marshal(a); err == nil {
+			env.Payload = alertPayload
+		}
 
 		envelopes = append(envelopes, env)
 	}
@@ -105,6 +109,8 @@ func mapStatus(s string) alert.Status {
 	case "resolved":
 		return alert.StatusResolved
 	default:
+		// Return firing as a conservative default but callers may inspect
+		// the raw payload to detect the actual status.
 		return alert.StatusFiring
 	}
 }

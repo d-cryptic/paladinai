@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -58,7 +59,11 @@ func run() error {
 	defer natsClient.Close()
 
 	// Valkey (Redis-compatible)
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr(conf.Base.ValkeyURL)})
+	valkeyAddr, err := parseRedisAddr(conf.Base.ValkeyURL)
+	if err != nil {
+		return fmt.Errorf("valkey URL: %w", err)
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: valkeyAddr})
 	if _, err := rdb.Ping(ctx).Result(); err != nil {
 		return fmt.Errorf("valkey ping: %w", err)
 	}
@@ -66,7 +71,7 @@ func run() error {
 
 	// Wire dependencies
 	pub := publisher.New(natsClient, log)
-	ded := dedup.New(rdb, log)
+	ded := dedup.New(dedup.NewValkeyStore(rdb), log)
 	webhooks := handler.NewWebhookHandler(pub, ded, log)
 	health := &handler.HealthHandler{}
 
@@ -114,11 +119,19 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// redisAddr extracts host:port from a redis:// URL.
-func redisAddr(url string) string {
-	// redis://localhost:6379 → localhost:6379
-	if len(url) > 8 && url[:8] == "redis://" {
-		return url[8:]
+// parseRedisAddr extracts the host:port from a Redis/Valkey URL.
+// Handles redis://, rediss://, valkey://, and bare host:port.
+func parseRedisAddr(rawURL string) (string, error) {
+	if rawURL == "" {
+		return "localhost:6379", nil
 	}
-	return url
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse %q: %w", rawURL, err)
+	}
+	if u.Host != "" {
+		return u.Host, nil // host already includes port
+	}
+	// Bare host:port with no scheme
+	return rawURL, nil
 }

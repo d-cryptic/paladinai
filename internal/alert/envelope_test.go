@@ -49,25 +49,48 @@ func TestComputeFingerprint_DifferentSources(t *testing.T) {
 	assert.NotEqual(t, fpAM, fpDD, "same labels from different sources should produce different fingerprints")
 }
 
-func TestAlertEnvelope_NATSSubject(t *testing.T) {
-	env := alert.AlertEnvelope{
-		TenantID: "tenant-abc",
-		Source:   alert.SourceAlertmanager,
-	}
-
-	assert.Equal(t, "paladin.alerts.raw.tenant-abc.alertmanager", env.NATSSubject())
-}
 
 func TestAlertEnvelope_Clone(t *testing.T) {
 	original := alert.AlertEnvelope{
 		TenantID: "t1",
 		Labels:   map[string]string{"env": "prod"},
+		Payload:  []byte(`{"key":"value"}`),
 	}
 
 	clone := original.Clone()
 	clone.Labels["env"] = "staging"
 	clone.TenantID = "t2"
+	clone.Payload[0] = '!'
 
 	assert.Equal(t, "prod", original.Labels["env"], "clone mutation must not affect original labels")
 	assert.Equal(t, "t1", original.TenantID, "clone mutation must not affect original tenant")
+	assert.Equal(t, byte('{'), original.Payload[0], "clone mutation must not affect original payload bytes")
+}
+
+func TestValidateTenantID(t *testing.T) {
+	valid := []string{"tenant-123", "ACME_Corp", "abc", "t1"}
+	for _, id := range valid {
+		assert.NoError(t, alert.ValidateTenantID(id), "expected %q to be valid", id)
+	}
+
+	invalid := []string{"", "foo.bar", "foo>bar", "foo*bar", "has space", "slash/here"}
+	for _, id := range invalid {
+		assert.Error(t, alert.ValidateTenantID(id), "expected %q to be invalid", id)
+	}
+}
+
+func TestAlertEnvelope_NATSSubject_ValidTenant(t *testing.T) {
+	env := alert.AlertEnvelope{
+		TenantID: "tenant-abc",
+		Source:   alert.SourceAlertmanager,
+	}
+	assert.Equal(t, "paladin.alerts.raw.tenant-abc.alertmanager", env.NATSSubject())
+}
+
+func TestAlertEnvelope_NATSSubject_InvalidTenant_Panics(t *testing.T) {
+	env := alert.AlertEnvelope{
+		TenantID: "bad.tenant",
+		Source:   alert.SourceAlertmanager,
+	}
+	assert.Panics(t, func() { env.NATSSubject() }, "invalid tenant_id should panic")
 }

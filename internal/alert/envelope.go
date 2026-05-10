@@ -7,10 +7,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+// tenantIDPattern restricts tenant IDs to safe characters for NATS subjects.
+// NATS subjects use '.' as delimiter and '*'/'>' as wildcards — none are allowed.
+var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // Severity maps to P1–P4 incident classification.
 type Severity string
@@ -109,9 +114,25 @@ func ComputeFingerprint(source Source, labels map[string]string) string {
 	return hex.EncodeToString(h[:16]) // 32 hex chars, compact
 }
 
+// ValidateTenantID returns an error if the tenant ID contains characters that
+// would allow NATS subject injection (wildcards, dots, or empty string).
+func ValidateTenantID(tenantID string) error {
+	if tenantID == "" {
+		return fmt.Errorf("tenant_id must not be empty")
+	}
+	if !tenantIDPattern.MatchString(tenantID) {
+		return fmt.Errorf("tenant_id %q contains invalid characters (only [a-zA-Z0-9_-] allowed)", tenantID)
+	}
+	return nil
+}
+
 // NATSSubject returns the NATS subject for publishing this alert.
 // Format: paladin.alerts.raw.<tenant_id>.<source>
+// Panics if TenantID is invalid — callers must validate before constructing an envelope.
 func (e *AlertEnvelope) NATSSubject() string {
+	if err := ValidateTenantID(e.TenantID); err != nil {
+		panic(fmt.Sprintf("AlertEnvelope.NATSSubject: %s", err))
+	}
 	return fmt.Sprintf("paladin.alerts.raw.%s.%s", e.TenantID, string(e.Source))
 }
 
@@ -129,6 +150,10 @@ func (e AlertEnvelope) Clone() AlertEnvelope {
 		for k, v := range e.Annotations {
 			clone.Annotations[k] = v
 		}
+	}
+	// json.RawMessage is []byte — clone the slice to avoid sharing the underlying array.
+	if e.Payload != nil {
+		clone.Payload = append(json.RawMessage(nil), e.Payload...)
 	}
 	return clone
 }

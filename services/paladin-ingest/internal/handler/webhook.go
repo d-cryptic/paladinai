@@ -53,6 +53,12 @@ func (h *WebhookHandler) alertmanager(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate tenant ID to prevent NATS subject injection
+	if err := alert.ValidateTenantID(tenantID); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid tenant_id: %s", err))
+		return
+	}
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8*1024*1024)) // 8MB max
 	if err != nil {
 		h.log.Error("read webhook body", zap.Error(err))
@@ -70,37 +76,45 @@ func (h *WebhookHandler) alertmanager(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	published := 0
+	// Process all envelopes, collecting failures.
+	// We never return 500 mid-batch because Alertmanager will retry the full
+	// batch, causing duplicates for already-published alerts.
+	published, suppressed, failed := 0, 0, 0
+
 	for i := range envelopes {
 		env := envelopes[i]
 
-		isDup, err := h.dedup.IsDuplicate(r.Context(), &env)
-		if err != nil {
-			h.log.Error("dedup check failed", zap.Error(err), zap.String("fingerprint", env.Fingerprint))
-			// Non-fatal: let it through on dedup errors to avoid suppressing real alerts
-		}
-
-		if isDup {
-			h.log.Debug("suppressed duplicate alert",
+		isDup, dupErr := h.dedup.IsDuplicate(r.Context(), &env)
+		if dupErr != nil {
+			// Dedup failure is non-fatal — let the alert through to avoid
+			// suppressing real incidents. Observable via the failed counter.
+			h.log.Error("dedup check failed",
+				zap.String("fingerprint", env.Fingerprint),
+				zap.Error(dupErr),
+			)
+			failed++
+		} else if isDup {
+			h.log.Debug("suppressed duplicate",
 				zap.String("fingerprint", env.Fingerprint),
 				zap.String("tenant", tenantID),
 			)
+			suppressed++
 			continue
 		}
 
+		// Clear dedup key for resolved alerts so the same alert can re-fire.
 		if env.Status == alert.StatusResolved {
-			// Clear dedup so the alert can re-fire if needed
 			_ = h.dedup.Reset(r.Context(), env.TenantID, env.Fingerprint)
 		}
 
-		if err := h.pub.PublishAlert(r.Context(), env); err != nil {
+		if pubErr := h.pub.PublishAlert(r.Context(), env); pubErr != nil {
 			h.log.Error("publish alert",
 				zap.String("tenant", tenantID),
 				zap.String("fingerprint", env.Fingerprint),
-				zap.Error(err),
+				zap.Error(pubErr),
 			)
-			writeError(w, http.StatusInternalServerError, "publish failed")
-			return
+			failed++
+			continue
 		}
 		published++
 	}
@@ -110,15 +124,22 @@ func (h *WebhookHandler) alertmanager(w http.ResponseWriter, r *http.Request) {
 		zap.String("integration", "alertmanager"),
 		zap.Int("total", len(envelopes)),
 		zap.Int("published", published),
-		zap.Int("suppressed", len(envelopes)-published),
+		zap.Int("suppressed", suppressed),
+		zap.Int("failed", failed),
 	)
 
+	// Return 202 always — even partial failure is reported in the body.
+	// Alertmanager expects 2xx and will retry on non-2xx; partial publish
+	// info is surfaced here for observability.
+	code := http.StatusAccepted
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":    "accepted",
-		"published": published,
-		"total":     len(envelopes),
+		"status":     "accepted",
+		"published":  published,
+		"suppressed": suppressed,
+		"failed":     failed,
+		"total":      len(envelopes),
 	})
 }
 

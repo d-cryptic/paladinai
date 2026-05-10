@@ -4,11 +4,9 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
-// memStore is an in-memory redis.SetNX/Del stub for unit tests.
+// memStore is a plain in-memory Store stub for unit tests.
 // No networking — safe to run in sandbox environments.
 type memStore struct {
 	mu      sync.Mutex
@@ -24,15 +22,12 @@ func newMemStore() *memStore {
 	return &memStore{entries: make(map[string]memEntry)}
 }
 
-func (m *memStore) SetNX(_ context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd {
+func (m *memStore) SetNX(_ context.Context, key string, value interface{}, expiration time.Duration) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cmd := redis.NewBoolCmd(context.Background())
-
 	if e, ok := m.entries[key]; ok && time.Now().Before(e.expiry) {
-		cmd.SetVal(false) // key exists and not expired → NX fails
-		return cmd
+		return false, nil // key exists and not expired → NX fails
 	}
 
 	val := ""
@@ -40,22 +35,14 @@ func (m *memStore) SetNX(_ context.Context, key string, value interface{}, expir
 		val = s
 	}
 	m.entries[key] = memEntry{value: val, expiry: time.Now().Add(expiration)}
-	cmd.SetVal(true)
-	return cmd
+	return true, nil
 }
 
-func (m *memStore) Del(_ context.Context, keys ...string) *redis.IntCmd {
+func (m *memStore) Del(_ context.Context, keys ...string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	cmd := redis.NewIntCmd(context.Background())
-	var deleted int64
 	for _, k := range keys {
-		if _, ok := m.entries[k]; ok {
-			delete(m.entries, k)
-			deleted++
-		}
+		delete(m.entries, k)
 	}
-	cmd.SetVal(deleted)
-	return cmd
+	return nil
 }

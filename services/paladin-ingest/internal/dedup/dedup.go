@@ -8,17 +8,16 @@ import (
 	"time"
 
 	"github.com/paladinai/paladinai/internal/alert"
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
 const defaultWindow = 5 * time.Minute
 
-// Store is the minimal Redis interface needed for dedup.
-// Allows swapping with an in-memory implementation in tests.
+// Store is the minimal interface needed for dedup.
+// Using plain return types keeps it backend-agnostic (Valkey, Dragonfly, in-memory).
 type Store interface {
-	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error)
+	Del(ctx context.Context, keys ...string) error
 }
 
 // Deduplicator uses a Store to track seen alert fingerprints.
@@ -43,7 +42,7 @@ func (d *Deduplicator) IsDuplicate(ctx context.Context, env *alert.AlertEnvelope
 	key := d.key(env.TenantID, env.Fingerprint)
 
 	// SET NX with TTL — only succeeds on first sight
-	ok, err := d.store.SetNX(ctx, key, env.ID, d.window).Result()
+	ok, err := d.store.SetNX(ctx, key, env.ID, d.window)
 	if err != nil {
 		return false, fmt.Errorf("dedup check: %w", err)
 	}
@@ -66,7 +65,7 @@ func (d *Deduplicator) IsDuplicate(ctx context.Context, env *alert.AlertEnvelope
 // Reset clears the dedup entry for an alert (call when alert resolves so it can re-fire).
 func (d *Deduplicator) Reset(ctx context.Context, tenantID, fingerprint string) error {
 	key := d.key(tenantID, fingerprint)
-	return d.store.Del(ctx, key).Err()
+	return d.store.Del(ctx, key)
 }
 
 func (d *Deduplicator) key(tenantID, fingerprint string) string {
