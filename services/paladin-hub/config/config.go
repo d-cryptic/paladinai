@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/paladinai/paladinai/internal/config"
 )
@@ -11,6 +12,9 @@ import (
 type Hub struct {
 	config.Base
 	Server config.Server
+	// DatabaseURL is the PostgreSQL DSN (e.g. postgres://user:pass@host/db).
+	// Empty string means use MemStore (development / test mode).
+	DatabaseURL string
 }
 
 // Load reads Hub config from environment variables.
@@ -25,5 +29,5 @@ func Load() (*Hub, error) {
 		return nil, fmt.Errorf("hub config load server: %w", err)
 	}
 
-	return &Hub{Base: base, Server: srv}, nil
+	return &Hub{Base: base, Server: srv, DatabaseURL: os.Getenv("DATABASE_URL")}, nil
 }

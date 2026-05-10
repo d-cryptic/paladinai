@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/internal/logger"
 	hubcfg "github.com/paladinai/paladinai/services/paladin-hub/config"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/handler"
@@ -31,8 +33,29 @@ func main() {
 	}
 	defer log.Sync() //nolint:errcheck
 
-	// In production, swap MemStore for a Postgres-backed store.
-	s := store.NewMemStore()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Use PostgresStore when DATABASE_URL is set; fall back to MemStore in dev.
+	var s store.Store
+	if cfg.DatabaseURL != "" {
+		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Fatal("postgres pool init failed", zap.Error(err))
+		}
+		defer pool.Close()
+
+		pgStore := store.NewPostgresStore(pool)
+		if err := pgStore.MigrateUp(ctx); err != nil {
+			log.Fatal("postgres migration failed", zap.Error(err))
+		}
+		s = pgStore
+		log.Info("paladin-hub using PostgresStore")
+	} else {
+		s = store.NewMemStore()
+		log.Warn("paladin-hub using MemStore (set DATABASE_URL for production)")
+	}
+
 	h := handler.New(s, log)
 
 	r := chi.NewRouter()
@@ -59,9 +82,6 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		log.Info("paladin-hub listening", zap.String("addr", addr))
