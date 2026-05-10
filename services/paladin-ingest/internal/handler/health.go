@@ -10,9 +10,8 @@ import (
 
 const checkTimeout = 2 * time.Second
 
-var startTime = time.Now()
-
 // Checker tests a single dependency's health.
+// Name must be unique across checkers registered with one HealthHandler.
 type Checker interface {
 	Name() string
 	Check(ctx context.Context) error
@@ -20,14 +19,20 @@ type Checker interface {
 
 // HealthHandler exposes liveness and readiness probes.
 type HealthHandler struct {
-	service  string
-	checkers []Checker
+	service   string
+	checkers  []Checker
+	startTime time.Time
 }
 
 // NewHealthHandler creates a HealthHandler for the given service name.
 // Checkers are run concurrently on /readyz; passing none gives a trivial "ok" readiness.
+// Each Checker's Name() should be unique; duplicate names silently overwrite earlier results.
 func NewHealthHandler(service string, checkers ...Checker) *HealthHandler {
-	return &HealthHandler{service: service, checkers: checkers}
+	return &HealthHandler{
+		service:   service,
+		checkers:  checkers,
+		startTime: time.Now(),
+	}
 }
 
 // Liveness returns 200 if the process is running.
@@ -80,7 +85,7 @@ func (h *HealthHandler) Readiness(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  status,
-		"uptime":  time.Since(startTime).String(),
+		"uptime":  time.Since(h.startTime).String(),
 		"service": h.service,
 		"checks":  checks,
 	})

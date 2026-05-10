@@ -13,6 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// slowChecker blocks until ctx is cancelled, then returns ctx.Err().
+type slowChecker struct{ name string }
+
+func (s *slowChecker) Name() string { return s.name }
+func (s *slowChecker) Check(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 // stubChecker satisfies handler.Checker.
 type stubChecker struct {
 	name string
@@ -110,6 +119,23 @@ func TestHealthHandler_ReadinessValkeyUnhealthy(t *testing.T) {
 	checks := body["checks"].(map[string]any)
 	assert.Equal(t, "ok", checks["nats"])
 	assert.Equal(t, "dial tcp: timeout", checks["valkey"])
+}
+
+func TestHealthHandler_ReadinessTimeoutReturns503(t *testing.T) {
+	h := handler.NewHealthHandler("paladin-ingest",
+		&slowChecker{name: "nats"},
+	)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rr := httptest.NewRecorder()
+
+	h.Readiness(rr, req)
+
+	// The 2-second internal timeout fires, context is cancelled, slowChecker returns
+	// context.DeadlineExceeded — should degrade to 503.
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, "degraded", body["status"])
 }
 
 func TestHealthHandler_ReadinessBothUnhealthy(t *testing.T) {
