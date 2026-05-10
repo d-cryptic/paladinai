@@ -185,15 +185,13 @@ func printMCPSingle(body []byte) error {
 		Data map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		fmt.Fprintln(os.Stdout, string(body))
-		return nil
+		return fmt.Errorf("unexpected response format: %w", err)
 	}
 	s := response.Data
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "ID:\t%s\n", strField(s, "id"))
-	fmt.Fprintf(w, "Name:\t%s\n", strField(s, "name"))
-	fmt.Fprintf(w, "Endpoint:\t%s\n", strField(s, "endpoint"))
-	fmt.Fprintf(w, "Healthy:\t%v\n", s["healthy"])
+	if s == nil {
+		return fmt.Errorf("response missing data field")
+	}
+	caps := ""
 	if c, ok := s["capabilities"].([]any); ok {
 		parts := make([]string, 0, len(c))
 		for _, v := range c {
@@ -201,8 +199,14 @@ func printMCPSingle(body []byte) error {
 				parts = append(parts, str)
 			}
 		}
-		fmt.Fprintf(w, "Capabilities:\t%s\n", strings.Join(parts, ", "))
+		caps = strings.Join(parts, ", ")
 	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "ID:\t%s\n", strField(s, "id"))
+	fmt.Fprintf(w, "Name:\t%s\n", strField(s, "name"))
+	fmt.Fprintf(w, "Endpoint:\t%s\n", strField(s, "endpoint"))
+	fmt.Fprintf(w, "Healthy:\t%v\n", s["healthy"])
+	fmt.Fprintf(w, "Capabilities:\t%s\n", caps)
 	return w.Flush()
 }
 
