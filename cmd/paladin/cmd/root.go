@@ -8,13 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	// flags shared across commands
-	flagAPIURL  string
-	flagTenant  string
-	flagOutput  string // json | table
-)
-
 var rootCmd = &cobra.Command{
 	Use:   "paladin",
 	Short: "PaladinAI CLI — manage alerts, incidents, and MCP servers",
@@ -35,9 +28,9 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&flagAPIURL, "api-url", envStr("PALADIN_API_URL", "http://localhost:8080"), "PaladinAI API base URL")
-	rootCmd.PersistentFlags().StringVar(&flagTenant, "tenant", os.Getenv("PALADIN_TENANT"), "Tenant ID")
-	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "table", "Output format: table or json")
+	rootCmd.PersistentFlags().String("api-url", envStr("PALADIN_API_URL", "http://localhost:8080"), "PaladinAI API base URL")
+	rootCmd.PersistentFlags().String("tenant", os.Getenv("PALADIN_TENANT"), "Tenant ID")
+	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
 
 	rootCmd.AddCommand(alertCmd)
 	rootCmd.AddCommand(mcpCmd)
@@ -52,16 +45,13 @@ func envStr(key, fallback string) string {
 	return fallback
 }
 
-// requireTenant checks that a tenant ID is set, printing a friendly error if not.
+// requireTenant reads the tenant from the persistent --tenant flag (which cobra
+// propagates automatically to all subcommands via PersistentFlags).
 func requireTenant(cmd *cobra.Command) (string, error) {
-	t, _ := cmd.Flags().GetString("tenant")
-	if t == "" {
-		if f := cmd.InheritedFlags().Lookup("tenant"); f != nil {
-			t = f.Value.String()
-		}
-	}
-	if t == "" {
+	// cmd.Flag("tenant") walks up the command tree to find the persistent flag.
+	f := cmd.Flag("tenant")
+	if f == nil || f.Value.String() == "" {
 		return "", fmt.Errorf("tenant ID is required — set --tenant or PALADIN_TENANT env var")
 	}
-	return t, nil
+	return f.Value.String(), nil
 }

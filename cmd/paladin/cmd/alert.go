@@ -3,12 +3,12 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"net/url"
 	"os"
 	"text/tabwriter"
 	"time"
 
+	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/spf13/cobra"
 )
 
@@ -27,23 +27,18 @@ var alertListCmd = &cobra.Command{
 		}
 
 		apiURL, _ := cmd.Flags().GetString("api-url")
-		url := fmt.Sprintf("%s/api/v1/alerts?status=firing", apiURL)
-
-		req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, url, nil)
+		u, err := url.Parse(apiURL)
 		if err != nil {
-			return fmt.Errorf("build request: %w", err)
+			return fmt.Errorf("invalid api-url: %w", err)
 		}
-		req.Header.Set("X-Tenant-ID", tenant)
+		u.Path = "/api/v1/alerts"
+		q := u.Query()
+		q.Set("status", "firing")
+		u.RawQuery = q.Encode()
 
-		resp, err := http.DefaultClient.Do(req)
+		body, err := client.Get(cmd.Context(), u.String(), tenant)
 		if err != nil {
-			return fmt.Errorf("request failed: %w", err)
-		}
-		defer resp.Body.Close()
-
-		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+			return err
 		}
 
 		outputFmt, _ := cmd.Flags().GetString("output")

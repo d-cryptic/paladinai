@@ -3,10 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"net/url"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/paladinai/paladinai/cmd/paladin/tui"
 	"github.com/spf13/cobra"
 )
@@ -23,10 +23,11 @@ var dashboardCmd = &cobra.Command{
 		apiURL, _ := cmd.Flags().GetString("api-url")
 		m := tui.New(tenant)
 
-		// Pre-load alerts before launching TUI
 		alerts, fetchErr := fetchAlerts(cmd, apiURL, tenant)
 		if fetchErr != nil {
-			m = m.SetAlerts(nil)
+			// Surface error in TUI rather than silently showing an empty dashboard.
+			updated, _ := m.Update(tui.ErrMsg{Err: fetchErr})
+			m = updated.(tui.Model)
 		} else {
 			m = m.SetAlerts(alerts)
 		}
@@ -39,22 +40,18 @@ var dashboardCmd = &cobra.Command{
 
 // fetchAlerts queries the API and converts the response to []tui.Alert.
 func fetchAlerts(cmd *cobra.Command, apiURL, tenant string) ([]tui.Alert, error) {
-	url := fmt.Sprintf("%s/api/v1/alerts?status=firing", apiURL)
-	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, url, nil)
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid api-url: %w", err)
+	}
+	u.Path = "/api/v1/alerts"
+	q := u.Query()
+	q.Set("status", "firing")
+	u.RawQuery = q.Encode()
+
+	body, err := client.Get(cmd.Context(), u.String(), tenant)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("X-Tenant-ID", tenant)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API %d", resp.StatusCode)
 	}
 
 	var response struct {
@@ -67,7 +64,7 @@ func fetchAlerts(cmd *cobra.Command, apiURL, tenant string) ([]tui.Alert, error)
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
 	alerts := make([]tui.Alert, len(response.Data))

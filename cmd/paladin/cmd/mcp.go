@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +28,10 @@ var mcpListCmd = &cobra.Command{
 			return err
 		}
 		apiURL, _ := cmd.Flags().GetString("api-url")
-		body, err := apiGet(cmd, apiURL+"/api/v1/mcp/servers", tenant)
+		u, _ := url.Parse(apiURL)
+		u.Path = "/api/v1/mcp/servers"
+
+		body, err := client.Get(cmd.Context(), u.String(), tenant)
 		if err != nil {
 			return err
 		}
@@ -71,20 +75,15 @@ var mcpRegisterCmd = &cobra.Command{
 		data, _ := json.Marshal(payload)
 
 		apiURL, _ := cmd.Flags().GetString("api-url")
-		req, _ := http.NewRequestWithContext(cmd.Context(), http.MethodPost,
-			apiURL+"/api/v1/mcp/servers", bytes.NewReader(data))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Tenant-ID", tenant)
+		u, _ := url.Parse(apiURL)
+		u.Path = "/api/v1/mcp/servers"
 
-		resp, err := http.DefaultClient.Do(req)
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), tenant, bytes.NewReader(data))
 		if err != nil {
-			return fmt.Errorf("request failed: %w", err)
+			return err
 		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-
-		if resp.StatusCode != http.StatusCreated {
-			return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		if status != http.StatusCreated {
+			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 		fmt.Println("MCP server registered successfully.")
 		return nil
@@ -101,23 +100,18 @@ var mcpDeregisterCmd = &cobra.Command{
 			return err
 		}
 		apiURL, _ := cmd.Flags().GetString("api-url")
-		url := fmt.Sprintf("%s/api/v1/mcp/servers/%s", apiURL, args[0])
+		u, _ := url.Parse(apiURL)
+		u.Path = fmt.Sprintf("/api/v1/mcp/servers/%s", url.PathEscape(args[0]))
 
-		req, _ := http.NewRequestWithContext(cmd.Context(), http.MethodDelete, url, nil)
-		req.Header.Set("X-Tenant-ID", tenant)
-
-		resp, err := http.DefaultClient.Do(req)
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodDelete, u.String(), tenant, nil)
 		if err != nil {
-			return fmt.Errorf("request failed: %w", err)
+			return err
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusNoContent {
+		if status == http.StatusNoContent {
 			fmt.Printf("MCP server %q deregistered.\n", args[0])
 			return nil
 		}
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("API error %d: %s", status, string(body))
 	},
 }
 
@@ -153,26 +147,6 @@ func printMCPTable(body []byte) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", id, name, ep, healthy, caps)
 	}
 	return w.Flush()
-}
-
-func apiGet(cmd *cobra.Command, url, tenant string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("X-Tenant-ID", tenant)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
-	}
-	return body, nil
 }
 
 func init() {
