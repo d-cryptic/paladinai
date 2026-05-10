@@ -34,12 +34,17 @@ type ResultPublisher interface {
 }
 
 // Worker consumes correlated alerts from NATS, triages them, and publishes results.
+//
+// Copy-safety invariant: Worker fields are interfaces, scalars, or pointer types
+// with no embedded sync.Mutex or mutable maps. WithRCA relies on shallow copy.
+// If you add a mutex or map directly to this struct, update WithRCA accordingly.
 type Worker struct {
 	triager       Triager
 	rcaAnalyzer   RCAAnalyzer // optional; nil skips RCA step
 	pub           ResultPublisher
 	log           *zap.Logger
 	triageTimeout time.Duration
+	rcaTimeout    time.Duration // 0 means use triageTimeout
 	concurrency   int
 }
 
@@ -53,6 +58,7 @@ func New(triager Triager, pub ResultPublisher, triageTimeout time.Duration, conc
 		pub:           pub,
 		log:           log,
 		triageTimeout: triageTimeout,
+		rcaTimeout:    2 * triageTimeout, // Tier C is slower; default 2× triage
 		concurrency:   concurrency,
 	}
 }
@@ -63,6 +69,13 @@ func New(triager Triager, pub ResultPublisher, triageTimeout time.Duration, conc
 func (w *Worker) WithRCA(rca RCAAnalyzer) *Worker {
 	cp := *w
 	cp.rcaAnalyzer = rca
+	return &cp
+}
+
+// WithRCATimeout overrides the default RCA operation timeout.
+func (w *Worker) WithRCATimeout(d time.Duration) *Worker {
+	cp := *w
+	cp.rcaTimeout = d
 	return &cp
 }
 
@@ -193,9 +206,13 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	// Optionally run RCA after triage. On failure, fall back to triage-only publish.
 	var rcaResult *agent.RCAResult
 	if w.rcaAnalyzer != nil {
-		rcaCtx, rcaCancel := context.WithTimeout(ctx, w.triageTimeout)
-		defer rcaCancel()
+		timeout := w.rcaTimeout
+		if timeout <= 0 {
+			timeout = w.triageTimeout
+		}
+		rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
 		rcaResult, err = w.rcaAnalyzer.Analyze(rcaCtx, &env, result)
+		rcaCancel() // cancel immediately; do not defer (timer would run until handleMsg returns)
 		if err != nil {
 			w.log.Warn("worker: rca failed, publishing triage-only result",
 				zap.String("fingerprint", env.Fingerprint),
@@ -281,11 +298,13 @@ func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triag
 
 // nakDelay returns exponential backoff for NATS Nak: 10s, 30s, 2m, 10m, capped at 10m.
 func nakDelay(deliveries uint64) time.Duration {
-	base := 10.0 // seconds
-	max := 10 * 60.0
+	const (
+		base     = 10.0       // seconds
+		maxDelay = 10 * 60.0  // seconds
+	)
 	d := base * math.Pow(3, float64(deliveries))
-	if d > max {
-		d = max
+	if d > maxDelay {
+		d = maxDelay
 	}
 	return time.Duration(d) * time.Second
 }
@@ -300,7 +319,13 @@ func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) 
 
 	var rca *agent.RCAResult
 	if w.rcaAnalyzer != nil {
-		rca, err = w.rcaAnalyzer.Analyze(ctx, env, triage)
+		timeout := w.rcaTimeout
+		if timeout <= 0 {
+			timeout = w.triageTimeout
+		}
+		rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
+		rca, err = w.rcaAnalyzer.Analyze(rcaCtx, env, triage)
+		rcaCancel()
 		if err != nil {
 			w.log.Warn("ProcessEnvelope: rca failed, falling back to triage-only",
 				zap.String("fingerprint", env.Fingerprint),

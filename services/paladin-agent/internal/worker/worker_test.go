@@ -230,3 +230,17 @@ func TestWorkerWithRCA_TriageErrorSkipsRCA(t *testing.T) {
 	assert.Equal(t, 0, rca.callCount(), "RCA must not run if triage failed")
 	assert.Equal(t, 0, pub.count())
 }
+
+func TestWorkerWithRCA_NilResultTreatedAsFallback(t *testing.T) {
+	// Analyze returning (nil, nil) must be treated like an RCA skip —
+	// worker should publish to triaged subject, not analyzed.
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P3"}}
+	rca := &stubRCA{result: nil, callErr: nil} // returns (nil, nil)
+	pub := &stubPublisher{}
+
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).WithRCA(rca)
+	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("t4", "fp-nil-rca")))
+
+	assert.Equal(t, 1, pub.count())
+	assert.Contains(t, pub.lastSubject(), "paladin.alerts.triaged.", "nil RCA result should fall back to triaged subject")
+}

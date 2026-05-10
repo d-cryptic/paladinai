@@ -159,17 +159,19 @@ func (r *RCAAgent) Analyze(ctx context.Context, env *alert.AlertEnvelope, triage
 			zap.Error(err),
 		)
 		// Degrade: populate from triage context as best-effort.
+		hypothesis := triage.LikelyCause
+		if hypothesis == "" {
+			hypothesis = resp.Content
+		}
 		result = RCAResult{
-			RootCauseHypothesis: truncate(triage.LikelyCause, maxHypothesisLen),
+			RootCauseHypothesis: hypothesis,
 			Evidence:            []string{},
 			Confidence:          "LOW",
-			RecommendedFix:      truncate(triage.RecommendedAction, maxFixLen),
+			RecommendedFix:      triage.RecommendedAction,
 			RunbookKeywords:     []string{},
 			Degraded:            true,
 		}
-		if result.RootCauseHypothesis == "" {
-			result.RootCauseHypothesis = truncate(resp.Content, maxHypothesisLen)
-		}
+		result.validate() // clamp lengths even in degraded path
 		return &result, nil
 	}
 

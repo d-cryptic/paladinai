@@ -81,11 +81,16 @@ func (r *TriageResult) validate() error {
 	return nil
 }
 
+// truncate clips s to max runes — safe for multibyte UTF-8.
 func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
+	i := 0
+	for j := range s {
+		if i >= max {
+			return s[:j]
+		}
+		i++
 	}
-	return s[:max]
+	return s
 }
 
 // TriageAgent wraps an Eino ReAct agent for alert triage.

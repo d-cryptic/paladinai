@@ -18,8 +18,12 @@ type Agent struct {
 	// AgentWorkers is the number of concurrent alert processing workers.
 	AgentWorkers int
 
-	// TriageTimeout is the max time allowed for a single triage operation.
+	// TriageTimeout is the max time allowed for a single triage operation (Tier B model).
 	TriageTimeout time.Duration
+
+	// RCATimeout is the max time allowed for a single RCA operation (Tier C model — slower).
+	// Defaults to 2× TriageTimeout.
+	RCATimeout time.Duration
 
 	// NATSConsumerName is the durable consumer name for this agent instance.
 	NATSConsumerName string
@@ -37,11 +41,13 @@ func Load() (*Agent, error) {
 		return nil, fmt.Errorf("agent config load llm: %w", err)
 	}
 
+	triageTimeout := 30 * time.Second
 	return &Agent{
 		Base:             base,
 		LLM:              llm,
 		AgentWorkers:     envInt("AGENT_WORKERS", 4),
-		TriageTimeout:    30 * time.Second,
+		TriageTimeout:    triageTimeout,
+		RCATimeout:       2 * triageTimeout,
 		NATSConsumerName: envStr("AGENT_CONSUMER_NAME", "paladin-agent-runtime"),
 	}, nil
 }

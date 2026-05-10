@@ -76,7 +76,9 @@ func main() {
 	defer natsClient.Close()
 
 	// ── Worker ───────────────────────────────────────────────────────────────
-	w := worker.New(triageAgent, natsClient, cfg.TriageTimeout, cfg.AgentWorkers, log).WithRCA(rcaAgent)
+	w := worker.New(triageAgent, natsClient, cfg.TriageTimeout, cfg.AgentWorkers, log).
+		WithRCA(rcaAgent).
+		WithRCATimeout(cfg.RCATimeout)
 
 	log.Info("paladin-agent starting",
 		zap.String("consumer", cfg.NATSConsumerName),
