@@ -1,0 +1,265 @@
+// Package worker implements the NATS consumer that dispatches correlated alerts to agents.
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"runtime/debug"
+	"sync"
+	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
+	"go.uber.org/zap"
+)
+
+const (
+	maxDeliveries   = 5
+	dlqSubjectFmt   = "paladin.alerts.triage.dlq.%s"
+)
+
+// Triager is satisfied by agent.TriageAgent (and test fakes).
+type Triager interface {
+	Triage(ctx context.Context, env *alert.AlertEnvelope) (*agent.TriageResult, error)
+}
+
+// ResultPublisher publishes triage results downstream.
+type ResultPublisher interface {
+	Publish(ctx context.Context, subject string, data []byte) (*jetstream.PubAck, error)
+}
+
+// Worker consumes correlated alerts from NATS, triages them, and publishes results.
+type Worker struct {
+	triager       Triager
+	pub           ResultPublisher
+	log           *zap.Logger
+	triageTimeout time.Duration
+	concurrency   int
+}
+
+// New creates a Worker. concurrency controls the bounded goroutine pool size.
+func New(triager Triager, pub ResultPublisher, triageTimeout time.Duration, concurrency int, log *zap.Logger) *Worker {
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+	return &Worker{
+		triager:       triager,
+		pub:           pub,
+		log:           log,
+		triageTimeout: triageTimeout,
+		concurrency:   concurrency,
+	}
+}
+
+// Run starts a bounded pool of workers consuming from paladin.alerts.correlated.>.
+// Blocks until ctx is cancelled, returning ctx.Err() on clean shutdown.
+func (w *Worker) Run(ctx context.Context, js jetstream.JetStream, consumerName string) error {
+	cons, err := js.CreateOrUpdateConsumer(ctx, "PALADIN_ALERTS", jetstream.ConsumerConfig{
+		Name:          consumerName,
+		Durable:       consumerName,
+		FilterSubject: "paladin.alerts.correlated.>",
+		DeliverPolicy: jetstream.DeliverNewPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		MaxDeliver:    maxDeliveries,
+		AckWait:       60 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("worker consumer create %s: %w", consumerName, err)
+	}
+
+	cc, err := cons.Messages()
+	if err != nil {
+		return fmt.Errorf("worker consumer messages %s: %w", consumerName, err)
+	}
+	defer cc.Stop()
+
+	// Bounded worker pool — semaphore limits concurrency.
+	sem := make(chan struct{}, w.concurrency)
+	var wg sync.WaitGroup
+
+	msgCh := make(chan jetstream.Msg, w.concurrency*2)
+	go func() {
+		defer close(msgCh)
+		for {
+			msg, err := cc.Next()
+			if err != nil {
+				if !errors.Is(err, jetstream.ErrMsgIteratorClosed) {
+					w.log.Error("worker iterator error", zap.Error(err))
+				}
+				return
+			}
+			select {
+			case msgCh <- msg:
+			case <-ctx.Done():
+				_ = msg.Nak()
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Wait() // drain in-flight handlers before returning
+			return ctx.Err()
+		case msg, ok := <-msgCh:
+			if !ok {
+				wg.Wait()
+				return fmt.Errorf("worker: consumer stopped unexpectedly")
+			}
+			sem <- struct{}{}
+			wg.Add(1)
+			go func(m jetstream.Msg) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				w.handleMsg(ctx, m)
+			}(msg)
+		}
+	}
+}
+
+func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
+	// Recover from any panic in triage (e.g. nil-deref in Eino) to prevent
+	// crashing the whole consumer pool.
+	defer func() {
+		if r := recover(); r != nil {
+			w.log.Error("worker: triage panic",
+				zap.Any("panic", r),
+				zap.ByteString("stack", debug.Stack()),
+			)
+			_ = msg.Term()
+		}
+	}()
+
+	var env alert.AlertEnvelope
+	if err := json.Unmarshal(msg.Data(), &env); err != nil {
+		w.log.Error("worker: invalid message, terming",
+			zap.String("subject", msg.Subject()),
+			zap.Error(err),
+		)
+		_ = msg.Term()
+		return
+	}
+
+	// Check delivery count for DLQ routing.
+	md, _ := msg.Metadata()
+	var deliveries uint64
+	if md != nil {
+		deliveries = md.NumDelivered
+	}
+
+	pctx, cancel := context.WithTimeout(ctx, w.triageTimeout)
+	defer cancel()
+
+	result, err := w.triager.Triage(pctx, &env)
+	if err != nil {
+		if deliveries >= maxDeliveries {
+			w.log.Error("worker: triage failed at max deliveries, routing to DLQ",
+				zap.String("fingerprint", env.Fingerprint),
+				zap.Uint64("deliveries", deliveries),
+				zap.Error(err),
+			)
+			w.publishDLQ(ctx, &env, err)
+			_ = msg.Term()
+			return
+		}
+		delay := nakDelay(deliveries)
+		w.log.Warn("worker: triage failed, nacking with backoff",
+			zap.String("fingerprint", env.Fingerprint),
+			zap.Duration("delay", delay),
+			zap.Error(err),
+		)
+		if nakErr := msg.NakWithDelay(delay); nakErr != nil {
+			w.log.Warn("worker: NakWithDelay failed", zap.Error(nakErr))
+		}
+		return
+	}
+
+	// Publish triage result downstream before Acking.
+	if err := w.publishResult(ctx, &env, result); err != nil {
+		w.log.Error("worker: publish result failed, nacking",
+			zap.String("fingerprint", env.Fingerprint),
+			zap.Error(err),
+		)
+		if nakErr := msg.NakWithDelay(nakDelay(deliveries)); nakErr != nil {
+			w.log.Warn("worker: NakWithDelay failed", zap.Error(nakErr))
+		}
+		return
+	}
+
+	if ackErr := msg.Ack(); ackErr != nil {
+		w.log.Warn("worker: Ack failed",
+			zap.String("fingerprint", env.Fingerprint),
+			zap.Error(ackErr),
+		)
+	}
+
+	w.log.Info("worker: triage complete",
+		zap.String("fingerprint", env.Fingerprint),
+		zap.String("correlation_id", env.CorrelationID),
+		zap.String("tenant", env.TenantID),
+		zap.String("severity", result.ConfirmedSeverity),
+		zap.Bool("needs_human", result.NeedsHuman),
+		zap.Bool("degraded", result.Degraded),
+	)
+}
+
+func (w *Worker) publishResult(ctx context.Context, env *alert.AlertEnvelope, result *agent.TriageResult) error {
+	payload, err := json.Marshal(struct {
+		Envelope *alert.AlertEnvelope `json:"envelope"`
+		Triage   *agent.TriageResult  `json:"triage"`
+	}{Envelope: env, Triage: result})
+	if err != nil {
+		return fmt.Errorf("marshal triage result: %w", err)
+	}
+
+	subject := fmt.Sprintf("paladin.alerts.triaged.%s.%s", env.TenantID, string(env.Source))
+	if _, err := w.pub.Publish(ctx, subject, payload); err != nil {
+		return fmt.Errorf("publish to %s: %w", subject, err)
+	}
+	return nil
+}
+
+func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triageErr error) {
+	payload, _ := json.Marshal(map[string]any{
+		"fingerprint":    env.Fingerprint,
+		"tenant_id":      env.TenantID,
+		"correlation_id": env.CorrelationID,
+		"error":          triageErr.Error(),
+	})
+	subject := fmt.Sprintf(dlqSubjectFmt, env.TenantID)
+	if _, err := w.pub.Publish(ctx, subject, payload); err != nil {
+		w.log.Error("worker: DLQ publish failed", zap.Error(err))
+	}
+}
+
+// nakDelay returns exponential backoff for NATS Nak: 10s, 30s, 2m, 10m, capped at 10m.
+func nakDelay(deliveries uint64) time.Duration {
+	base := 10.0 // seconds
+	max := 10 * 60.0
+	d := base * math.Pow(3, float64(deliveries))
+	if d > max {
+		d = max
+	}
+	return time.Duration(d) * time.Second
+}
+
+// ProcessEnvelope runs the triage + publish pipeline for a single envelope.
+// Exported for tests that bypass the NATS consumer.
+func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) error {
+	result, err := w.triager.Triage(ctx, env)
+	if err != nil {
+		return err
+	}
+	return w.publishResult(ctx, env, result)
+}
+
+// TriageEnvelope runs only the triage agent on the envelope and returns the result.
+// Exported for tests that need to inspect the result directly.
+func (w *Worker) TriageEnvelope(ctx context.Context, env *alert.AlertEnvelope) (*agent.TriageResult, error) {
+	return w.triager.Triage(ctx, env)
+}
