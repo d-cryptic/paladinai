@@ -32,6 +32,9 @@ func Load() (Config, error) {
 	if secret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}
+	if len(secret) < 32 {
+		return Config{}, fmt.Errorf("JWT_SECRET must be at least 32 bytes (got %d)", len(secret))
+	}
 
 	return Config{
 		Base:         b,

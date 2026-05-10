@@ -33,6 +33,15 @@ func TestLoad_JWTSecretSetReturnsConfig(t *testing.T) {
 	assert.Equal(t, []byte("ws-secret-at-least-32-bytes!!!!!"), c.JWTSecret)
 }
 
+func TestLoad_ShortJWTSecretReturnsError(t *testing.T) {
+	clearWSEnv(t)
+	t.Setenv("JWT_SECRET", "tooshort") // < 32 bytes
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWT_SECRET")
+}
+
 func TestLoad_DefaultNATSSubjectAndConsumer(t *testing.T) {
 	clearWSEnv(t)
 	t.Setenv("JWT_SECRET", "ws-secret-at-least-32-bytes!!!!!")

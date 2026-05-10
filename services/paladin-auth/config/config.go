@@ -40,7 +40,14 @@ func Load() (*Config, error) {
 
 	c.JWTSecret = os.Getenv("JWT_SECRET")
 	if c.JWTSecret == "" {
+		// In production (ENV=production) a real secret is mandatory.
+		if base.Env == "production" {
+			return nil, fmt.Errorf("JWT_SECRET is required in production")
+		}
 		c.JWTSecret = "dev-secret-change-in-production!!" // ≥32 bytes
+	}
+	if len(c.JWTSecret) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET must be at least 32 bytes (got %d)", len(c.JWTSecret))
 	}
 
 	c.AdminSecret = os.Getenv("ADMIN_SECRET")
