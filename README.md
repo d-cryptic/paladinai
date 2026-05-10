@@ -12,3 +12,4 @@ AI-powered infrastructure monitoring and incident response platform.
 
 - [`docs/plans/01.arch-stage1.md`](docs/plans/01.arch-stage1.md) — Language split, service boundaries, key architectural decisions
 - [`docs/plans/02.messaging-stage2.md`](docs/plans/02.messaging-stage2.md) — NATS JetStream, alert flow, deduplication, correlation
+- [`docs/plans/03.agent-runtime-stage3.md`](docs/plans/03.agent-runtime-stage3.md) — Eino agent graphs, multi-agent structure, tool calls, streaming, checkpointing
