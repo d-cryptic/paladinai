@@ -175,9 +175,59 @@ func printIncidentDetail(inc map[string]any) {
 	w.Flush()
 }
 
+// paladin incidents replay <id>
+var incidentReplayCmd = &cobra.Command{
+	Use:   "replay <id>",
+	Short: "Replay an incident through the current agent build for regression testing",
+	Long: `Sends the incident's original alert data through the agent pipeline again.
+Useful for testing agent improvements without real infrastructure.
+
+The replay runs asynchronously; use --wait to poll for completion.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tenant, err := requireTenant(cmd)
+		if err != nil {
+			return err
+		}
+
+		u, err := url.Parse(apiURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid api-url: %w", err)
+		}
+		u.Path = fmt.Sprintf("/api/v1/incidents/%s/replay", url.PathEscape(args[0]))
+
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
+			client.Options{TenantID: tenant, Token: optToken(cmd)}, nil)
+		if err != nil {
+			return err
+		}
+		if status < 200 || status >= 300 {
+			return fmt.Errorf("API error %d: %s", status, string(body))
+		}
+
+		outputFmt, _ := cmd.Flags().GetString("output")
+		if outputFmt == "json" {
+			fmt.Fprintln(os.Stdout, string(body))
+			return nil
+		}
+
+		var result struct {
+			ReplayID string `json:"replay_id"`
+			Status   string `json:"status"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			fmt.Fprintln(os.Stdout, string(body))
+			return nil
+		}
+		fmt.Printf("Replay started (id: %s, status: %s).\n", result.ReplayID, result.Status)
+		fmt.Printf("Use `paladin incidents show %s` to check the replayed incident.\n", result.ReplayID)
+		return nil
+	},
+}
+
 func init() {
 	incidentListCmd.Flags().String("status", "", "Filter by status (open, resolved)")
 	incidentResolveCmd.Flags().String("note", "", "Resolution note")
 
-	incidentCmd.AddCommand(incidentListCmd, incidentShowCmd, incidentResolveCmd)
+	incidentCmd.AddCommand(incidentListCmd, incidentShowCmd, incidentResolveCmd, incidentReplayCmd)
 }
