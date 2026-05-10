@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	base "github.com/paladinai/paladinai/internal/config"
 )
@@ -17,6 +18,10 @@ type Config struct {
 	// JWTSecret is the HS256 signing key for verifying agent JWTs (dev only).
 	// In production, validation is delegated to paladin-auth via gRPC.
 	JWTSecret string
+	// HubURL is the base URL of the paladin-hub MCP registry service.
+	// e.g. "http://paladin-hub:8082". When empty, the /api/v1/mcp routes are
+	// registered but return 502 immediately (safe for local dev without hub running).
+	HubURL string
 }
 
 func Load() (Config, error) {
@@ -42,5 +47,7 @@ func Load() (Config, error) {
 		Server:       srv,
 		LLM:          llm,
 		RateLimitRPS: 60,
+		JWTSecret:    os.Getenv("JWT_SECRET"),
+		HubURL:       os.Getenv("HUB_URL"),
 	}, nil
 }
