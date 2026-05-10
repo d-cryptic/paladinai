@@ -1,40 +1,13 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// captureStdout replaces os.Stdout with a pipe, runs fn, and returns what was written.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-
-	orig := os.Stdout
-	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = orig })
-
-	var buf bytes.Buffer
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = io.Copy(&buf, r)
-	}()
-
-	fn()
-
-	w.Close()
-	<-done
-	return buf.String()
-}
 
 // ── strField ──────────────────────────────────────────────────────────────────
 
@@ -62,8 +35,10 @@ func TestStrField_Over32CharsTruncated(t *testing.T) {
 	s := strings.Repeat("b", 33)
 	m := map[string]any{"k": s}
 	got := strField(m, "k")
-	assert.Equal(t, strings.Repeat("b", 32)+"…", got)
-	assert.Equal(t, 33+2, len(got), "32 bytes + 3-byte ellipsis (…)")
+	want := strings.Repeat("b", 32) + "…"
+	assert.Equal(t, want, got)
+	assert.Equal(t, len(strings.Repeat("b", 32))+len("…"), len(got),
+		"should be 32 ASCII bytes + 3-byte UTF-8 ellipsis")
 }
 
 // ── printAlertTable ───────────────────────────────────────────────────────────
@@ -102,13 +77,22 @@ func TestPrintAlertTable_PrintsAlertRow(t *testing.T) {
 	assert.Contains(t, out, "corr-xyz")
 }
 
-func TestPrintAlertTable_MalformedJSON_PrintsRaw(t *testing.T) {
+func TestPrintAlertTable_MalformedJSON_PrintsRawAndNoError(t *testing.T) {
 	out := captureStdout(t, func() {
 		err := printAlertTable([]byte("not json"))
-		// Malformed JSON falls back to printing raw body; should not error.
+		// Malformed JSON falls back to printing raw body and returning nil.
 		require.NoError(t, err)
 	})
 	assert.Contains(t, out, "not json")
+}
+
+func TestPrintAlertTable_EmptyBody_PrintsRawAndNoError(t *testing.T) {
+	out := captureStdout(t, func() {
+		err := printAlertTable([]byte{})
+		require.NoError(t, err)
+	})
+	// Empty body is not valid JSON; raw bytes (empty) are printed.
+	_ = out
 }
 
 func TestPrintAlertTable_EmptyData_PrintsHeaderOnly(t *testing.T) {
@@ -117,7 +101,6 @@ func TestPrintAlertTable_EmptyData_PrintsHeaderOnly(t *testing.T) {
 		require.NoError(t, err)
 	})
 	assert.Contains(t, out, "FINGERPRINT")
-	// No data rows — just the header line.
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	assert.Len(t, lines, 1)
 }

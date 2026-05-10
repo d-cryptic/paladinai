@@ -57,7 +57,7 @@ func TestPrintIncidentTable_IDNotTruncated(t *testing.T) {
 	assert.NotContains(t, out, "…", "no ellipsis should appear in the ID column")
 }
 
-func TestPrintIncidentTable_MalformedJSON_PrintsRaw(t *testing.T) {
+func TestPrintIncidentTable_MalformedJSON_PrintsRawAndNoError(t *testing.T) {
 	out := captureStdout(t, func() {
 		err := printIncidentTable([]byte("not json {{"))
 		require.NoError(t, err)
