@@ -9,14 +9,25 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/internal/logger"
 	hubcfg "github.com/paladinai/paladinai/services/paladin-hub/config"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/store"
 	"go.uber.org/zap"
 )
+
+// sanitizeDSN returns only the host+dbname from a DSN for safe logging.
+func sanitizeDSN(dsn string) string {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return "<invalid DSN>"
+	}
+	return fmt.Sprintf("%s/%s", cfg.ConnConfig.Host, cfg.ConnConfig.Database)
+}
 
 func main() {
 	cfg, err := hubcfg.Load()
@@ -31,8 +42,43 @@ func main() {
 	}
 	defer log.Sync() //nolint:errcheck
 
-	// In production, swap MemStore for a Postgres-backed store.
-	s := store.NewMemStore()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Use PostgresStore when DATABASE_URL is set; fall back to MemStore in dev.
+	var s store.Store
+	if cfg.DatabaseURL != "" {
+		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			// Log only sanitized host/db — never the full DSN which may contain credentials.
+			log.Fatal("postgres pool init failed",
+				zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
+				zap.Error(err),
+			)
+		}
+		defer pool.Close()
+
+		// Verify connectivity before proceeding — pgxpool.New is lazy.
+		if err := pool.Ping(ctx); err != nil {
+			log.Fatal("postgres ping failed",
+				zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
+				zap.Error(err),
+			)
+		}
+
+		pgStore := store.NewPostgresStore(pool)
+		if err := pgStore.MigrateUp(ctx); err != nil {
+			log.Fatal("postgres migration failed", zap.Error(err))
+		}
+		s = pgStore
+		log.Info("paladin-hub using PostgresStore",
+			zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
+		)
+	} else {
+		s = store.NewMemStore()
+		log.Warn("paladin-hub using MemStore (set DATABASE_URL for production)")
+	}
+
 	h := handler.New(s, log)
 
 	r := chi.NewRouter()
@@ -59,9 +105,6 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		log.Info("paladin-hub listening", zap.String("addr", addr))
