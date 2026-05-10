@@ -20,6 +20,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// sanitizeDSN returns only the host+dbname from a DSN for safe logging.
+func sanitizeDSN(dsn string) string {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return "<invalid DSN>"
+	}
+	return fmt.Sprintf("%s/%s", cfg.ConnConfig.Host, cfg.ConnConfig.Database)
+}
+
 func main() {
 	cfg, err := hubcfg.Load()
 	if err != nil {
@@ -41,16 +50,30 @@ func main() {
 	if cfg.DatabaseURL != "" {
 		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
-			log.Fatal("postgres pool init failed", zap.Error(err))
+			// Log only sanitized host/db — never the full DSN which may contain credentials.
+			log.Fatal("postgres pool init failed",
+				zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
+				zap.Error(err),
+			)
 		}
 		defer pool.Close()
+
+		// Verify connectivity before proceeding — pgxpool.New is lazy.
+		if err := pool.Ping(ctx); err != nil {
+			log.Fatal("postgres ping failed",
+				zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
+				zap.Error(err),
+			)
+		}
 
 		pgStore := store.NewPostgresStore(pool)
 		if err := pgStore.MigrateUp(ctx); err != nil {
 			log.Fatal("postgres migration failed", zap.Error(err))
 		}
 		s = pgStore
-		log.Info("paladin-hub using PostgresStore")
+		log.Info("paladin-hub using PostgresStore",
+			zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
+		)
 	} else {
 		s = store.NewMemStore()
 		log.Warn("paladin-hub using MemStore (set DATABASE_URL for production)")

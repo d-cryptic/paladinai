@@ -11,19 +11,9 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/registry"
 )
 
-const createTableSQL = `
-CREATE TABLE IF NOT EXISTS mcp_servers (
-    id            TEXT        NOT NULL,
-    tenant_id     TEXT        NOT NULL,
-    name          TEXT        NOT NULL,
-    description   TEXT        NOT NULL DEFAULT '',
-    endpoint      TEXT        NOT NULL,
-    capabilities  TEXT[]      NOT NULL DEFAULT '{}',
-    healthy       BOOLEAN     NOT NULL DEFAULT TRUE,
-    registered_at TIMESTAMPTZ NOT NULL,
-    last_seen_at  TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (tenant_id, id)
-)`
+// mcpServersLockID is a stable application-level advisory lock ID for migration.
+// Prevents duplicate DDL when multiple paladin-hub replicas start simultaneously.
+const mcpServersLockID = int64(0x706c6474686562) // "pldtheb" in hex
 
 // PostgresStore is a production Store backed by PostgreSQL via pgx/v5.
 type PostgresStore struct {
@@ -37,11 +27,37 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 }
 
 // MigrateUp creates the mcp_servers table if it does not already exist.
-// Idempotent; safe to call at startup.
+// Uses a Postgres advisory transaction lock so concurrent replicas do not
+// race on catalog updates during simultaneous startup.
 func (p *PostgresStore) MigrateUp(ctx context.Context) error {
-	_, err := p.pool.Exec(ctx, createTableSQL)
+	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("postgres store migrate: %w", err)
+		return fmt.Errorf("postgres store migrate begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck — no-op after Commit
+
+	// Hold an advisory lock for the duration of the DDL so only one replica
+	// executes CREATE TABLE at a time.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, mcpServersLockID); err != nil {
+		return fmt.Errorf("postgres store migrate advisory lock: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS mcp_servers (
+			id            TEXT        NOT NULL,
+			tenant_id     TEXT        NOT NULL,
+			name          TEXT        NOT NULL,
+			description   TEXT        NOT NULL DEFAULT '',
+			endpoint      TEXT        NOT NULL,
+			capabilities  TEXT[]      NOT NULL DEFAULT '{}',
+			healthy       BOOLEAN     NOT NULL DEFAULT TRUE,
+			registered_at TIMESTAMPTZ NOT NULL,
+			last_seen_at  TIMESTAMPTZ NOT NULL,
+			PRIMARY KEY (tenant_id, id)
+		)`); err != nil {
+		return fmt.Errorf("postgres store migrate create table: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres store migrate commit: %w", err)
 	}
 	return nil
 }
