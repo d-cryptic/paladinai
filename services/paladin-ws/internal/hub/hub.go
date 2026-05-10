@@ -101,6 +101,18 @@ func trySend(c *Client, msg []byte) {
 	}
 }
 
+// CloseAll unsubscribes every connected client, triggering a CloseGoingAway
+// frame from each pump goroutine. Call this before http.Server.Shutdown to
+// drain WebSocket connections within the shutdown timeout.
+func (h *Hub) CloseAll() {
+	h.mu.Lock()
+	for c := range h.clients {
+		delete(h.clients, c)
+		close(c.done)
+	}
+	h.mu.Unlock()
+}
+
 // Len returns the number of connected clients.
 func (h *Hub) Len() int {
 	h.mu.RLock()

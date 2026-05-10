@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
+	"github.com/paladinai/paladinai/internal/auth"
 	"github.com/paladinai/paladinai/services/paladin-ws/internal/hub"
 )
 
@@ -23,7 +24,10 @@ const (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
-	CheckOrigin:     func(r *http.Request) bool { return true }, // auth handled by middleware
+	// Origin validation is handled by the JWT middleware — by the time we reach
+	// the upgrade, the request already carries a verified bearer token, making
+	// cross-site WebSocket hijacking impossible without a valid credential.
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 // AlertPayload is the structure broadcast over the wire.
@@ -40,26 +44,29 @@ type AlertPayload struct {
 
 // WSHandler handles WebSocket upgrade requests and pumps hub messages to clients.
 type WSHandler struct {
-	hub *hub.Hub
+	h   *hub.Hub
 	log *zap.Logger
 }
 
 // New returns a WSHandler wired to h.
 func New(h *hub.Hub, log *zap.Logger) *WSHandler {
-	return &WSHandler{hub: h, log: log}
+	return &WSHandler{h: h, log: log}
 }
 
 // ServeHTTP upgrades the connection, subscribes the client, and streams alerts
 // until the client disconnects or ctx is cancelled.
+//
+// The JWT middleware must run before this handler. TenantID is derived from the
+// verified token claim — never from a client-supplied header.
 //
 // Query params:
 //
 //	severity — optional filter (e.g. "p1")
 //	service  — optional filter (e.g. "payments-api")
 func (wh *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.Header.Get("X-Tenant-ID")
-	if tenantID == "" {
-		http.Error(w, "missing X-Tenant-ID", http.StatusUnauthorized)
+	tenantID, ok := auth.TenantIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -71,11 +78,8 @@ func (wh *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wh.log.Warn("ws upgrade failed", zap.Error(err), zap.String("tenant", tenantID))
 		return
 	}
-	defer conn.Close()
 
-	client := wh.hub.Subscribe(tenantID, severity, service)
-	defer wh.hub.Unsubscribe(client)
-
+	client := wh.h.Subscribe(tenantID, severity, service)
 	wh.log.Info("ws client connected",
 		zap.String("tenant", tenantID),
 		zap.String("severity", severity),
@@ -83,12 +87,17 @@ func (wh *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 
 	wh.pump(r.Context(), conn, client)
+	wh.h.Unsubscribe(client)
 
+	conn.Close()
 	wh.log.Info("ws client disconnected", zap.String("tenant", tenantID))
 }
 
 // pump writes hub messages to the WebSocket connection until ctx is cancelled
 // or the read loop detects the connection is gone.
+//
+// Invariant: all WriteMessage calls happen on this goroutine only.
+// WriteControl is the sole ws API safe to call from other goroutines.
 func (wh *WSHandler) pump(ctx context.Context, conn *websocket.Conn, c *hub.Client) {
 	conn.SetReadLimit(maxMsgSize)
 	conn.SetReadDeadline(time.Now().Add(pongWait))    //nolint:errcheck
@@ -110,6 +119,14 @@ func (wh *WSHandler) pump(ctx context.Context, conn *websocket.Conn, c *hub.Clie
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
 
+	defer func() {
+		// Unblock the read goroutine by closing the connection.
+		// ServeHTTP's explicit conn.Close() acts as a backup, but we also
+		// close here so the read goroutine exits synchronously before pump returns.
+		conn.Close()
+		<-readDone
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -123,20 +140,20 @@ func (wh *WSHandler) pump(ctx context.Context, conn *websocket.Conn, c *hub.Clie
 		case <-readDone:
 			return
 
-		case <-ticker.C:
-			conn.SetWriteDeadline(time.Now().Add(writeWait)) //nolint:errcheck
-			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
-				return
-			}
-
 		case <-c.Done():
-			// Hub evicted this client (e.g. server shutdown).
+			// Hub evicted this client (e.g. hub shutdown).
 			conn.WriteControl( //nolint:errcheck
 				websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseGoingAway, ""),
 				time.Now().Add(writeWait),
 			)
 			return
+
+		case <-ticker.C:
+			conn.SetWriteDeadline(time.Now().Add(writeWait)) //nolint:errcheck
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
+				return
+			}
 
 		case msg := <-c.Send:
 			conn.SetWriteDeadline(time.Now().Add(writeWait)) //nolint:errcheck
@@ -148,19 +165,21 @@ func (wh *WSHandler) pump(ctx context.Context, conn *websocket.Conn, c *hub.Clie
 	}
 }
 
-// NATSHandler is the callback passed to the NATS consumer.
+// NATSHandler returns a callback for the NATS consumer.
 // It parses the raw NATS message, extracts routing keys, and calls hub.Broadcast.
-func NATSHandler(h *hub.Hub, log *zap.Logger) func([]byte) {
-	return func(data []byte) {
+// Returns true if the message should be Ack'd, false if it should be Term'd.
+func NATSHandler(h *hub.Hub, log *zap.Logger) func([]byte) bool {
+	return func(data []byte) bool {
 		var payload AlertPayload
 		if err := json.Unmarshal(data, &payload); err != nil {
-			log.Warn("nats msg: unmarshal failed", zap.Error(err))
-			return
+			log.Warn("nats msg: unmarshal failed — terminating", zap.Error(err))
+			return false // permanently bad; Term at call site
 		}
 		if payload.TenantID == "" {
-			log.Warn("nats msg: missing tenant_id, skipping broadcast")
-			return
+			log.Warn("nats msg: missing tenant_id — terminating")
+			return false
 		}
 		h.Broadcast(payload.TenantID, payload.Severity, payload.Service, data)
+		return true
 	}
 }

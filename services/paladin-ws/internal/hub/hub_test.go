@@ -3,6 +3,7 @@ package hub
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestSubscribeAddsClient(t *testing.T) {
@@ -145,10 +146,9 @@ func TestBroadcastSlowClientDropped(t *testing.T) {
 
 	select {
 	case <-done:
-	default:
-		// Must complete without blocking; if we get here the goroutine finished
+	case <-time.After(time.Second):
+		t.Fatal("Broadcast blocked on a slow client — should have dropped the frame")
 	}
-	<-done // ensure goroutine exits
 }
 
 func TestConcurrentSubscribeUnsubscribe(t *testing.T) {

@@ -11,12 +11,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/paladinai/paladinai/internal/logger"
+	jwtmw "github.com/paladinai/paladinai/internal/middleware"
 	inats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/telemetry"
 	cfg "github.com/paladinai/paladinai/services/paladin-ws/config"
@@ -55,36 +55,36 @@ func run() error {
 
 	h := hub.New()
 
-	// Start the NATS consumer in the background.
 	consumerCtx, cancelConsumer := context.WithCancel(ctx)
-	defer cancelConsumer()
-
 	if err := startNATSConsumer(consumerCtx, natsClient, conf, h, log); err != nil {
+		cancelConsumer()
 		return fmt.Errorf("nats consumer: %w", err)
 	}
 
-	// HTTP router.
 	wsH := wshandler.New(h, log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"*"},
-		AllowedMethods: []string{"GET"},
-		AllowedHeaders: []string{"X-Tenant-ID", "Authorization"},
-	}))
 
 	r.Get("/healthz", healthz)
+
+	// Metrics on the same port but unauthenticated — only expose internally.
+	// TODO: move to a separate admin port if this service faces the internet.
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
-	r.Get("/v2/ws/alerts", wsH.ServeHTTP)
+
+	// WebSocket alerts endpoint: JWT required, tenantID derived from claims.
+	r.With(jwtmw.JWTMiddleware(conf.JWTSecret, log)).
+		Get("/v2/ws/alerts", wsH.ServeHTTP)
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", conf.Server.Port),
-		Handler:      r,
+		Addr:    fmt.Sprintf(":%d", conf.Server.Port),
+		Handler: r,
+		// WriteTimeout is intentionally 0 for long-lived WebSocket connections.
+		// /healthz and /metrics responses complete well within IdleTimeout.
+		WriteTimeout: 0,
 		ReadTimeout:  conf.Server.ReadTimeout,
-		WriteTimeout: 0, // WebSocket connections are long-lived; no write timeout on HTTP layer
 		IdleTimeout:  conf.Server.IdleTimeout,
 	}
 
@@ -101,13 +101,19 @@ func run() error {
 	<-quit
 	log.Info("shutting down")
 
+	// Stop the NATS consumer first so no new messages arrive.
+	cancelConsumer()
+
+	// Evict all WebSocket clients so their pump goroutines send CloseGoingAway
+	// and exit cleanly, instead of waiting for http.Server.Shutdown's timeout.
+	h.CloseAll()
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
 }
 
-// startNATSConsumer creates a push consumer on the alerts stream and calls
-// hub.Broadcast for each message.
+// startNATSConsumer creates a durable push consumer on the alerts stream.
 func startNATSConsumer(ctx context.Context, nc *inats.Client, conf cfg.Config, h *hub.Hub, log *zap.Logger) error {
 	js := nc.JS()
 	consumer, err := js.CreateOrUpdateConsumer(ctx, inats.StreamAlerts, jetstream.ConsumerConfig{
@@ -126,14 +132,18 @@ func startNATSConsumer(ctx context.Context, nc *inats.Client, conf cfg.Config, h
 	broadcast := wshandler.NATSHandler(h, log)
 
 	cc, err := consumer.Consume(func(msg jetstream.Msg) {
-		broadcast(msg.Data())
-		msg.Ack() //nolint:errcheck
+		if broadcast(msg.Data()) {
+			msg.Ack() //nolint:errcheck
+		} else {
+			// Permanently bad message (malformed JSON, missing tenant_id).
+			// Term prevents pointless redeliveries.
+			msg.Term() //nolint:errcheck
+		}
 	})
 	if err != nil {
 		return fmt.Errorf("start consume: %w", err)
 	}
 
-	// Stop consuming when the context is done.
 	go func() {
 		<-ctx.Done()
 		cc.Stop()

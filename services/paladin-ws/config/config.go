@@ -10,10 +10,11 @@ import (
 
 // Config is the full configuration for paladin-ws.
 type Config struct {
-	Base          base.Base
-	Server        base.Server
-	NATSSubject   string
-	NATSConsumer  string
+	Base         base.Base
+	Server       base.Server
+	NATSSubject  string
+	NATSConsumer string
+	JWTSecret    []byte
 }
 
 // Load reads configuration from environment variables.
@@ -26,11 +27,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("server config: %w", err)
 	}
+
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return Config{}, fmt.Errorf("JWT_SECRET is required")
+	}
+
 	return Config{
 		Base:         b,
 		Server:       srv,
 		NATSSubject:  getEnvOr("NATS_ALERTS_SUBJECT", "paladin.alerts.processed"),
 		NATSConsumer: getEnvOr("NATS_CONSUMER_NAME", "paladin-ws"),
+		JWTSecret:    []byte(secret),
 	}, nil
 }
 
