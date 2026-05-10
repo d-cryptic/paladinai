@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,10 @@ func issueTestToken(t *testing.T, secret, tenantID, userID string, roles []strin
 	tok, err := auth.IssueToken([]byte(secret), tenantID, userID, roles, ttl)
 	require.NoError(t, err)
 	return tok
+}
+
+func b64url(s string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(s))
 }
 
 // ── ValidateSecret ────────────────────────────────────────────────────────────
@@ -69,7 +74,7 @@ func TestParseClaims_ValidToken(t *testing.T) {
 }
 
 func TestParseClaims_ExpiredToken(t *testing.T) {
-	tok := issueTestToken(t, testSecret, "acme-corp", "user-1", nil, -time.Second)
+	tok := issueTestToken(t, testSecret, "acme-corp", "user-1", nil, -time.Minute)
 
 	_, err := auth.ParseClaims(tok, []byte(testSecret))
 	assert.ErrorIs(t, err, auth.ErrInvalidToken)
@@ -90,12 +95,51 @@ func TestParseClaims_MalformedToken(t *testing.T) {
 
 func TestParseClaims_EmptyToken(t *testing.T) {
 	_, err := auth.ParseClaims("", []byte(testSecret))
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, auth.ErrInvalidToken)
 }
 
 func TestParseClaims_WeakSecret(t *testing.T) {
 	_, err := auth.ParseClaims("anything", []byte(weakSecret))
 	assert.ErrorIs(t, err, auth.ErrWeakSecret)
+}
+
+// TestParseClaims_AlgNoneRejected ensures tokens claiming "alg":"none" are rejected.
+// This defends against the JWT algorithm-confusion attack.
+func TestParseClaims_AlgNoneRejected(t *testing.T) {
+	header := b64url(`{"alg":"none","typ":"JWT"}`)
+	payload := b64url(`{"sub":"u1","tenant_id":"t1","exp":9999999999,"iss":"paladin-auth","aud":["paladin"]}`)
+	tok := header + "." + payload + "." // unsigned
+
+	_, err := auth.ParseClaims(tok, []byte(testSecret))
+	assert.ErrorIs(t, err, auth.ErrInvalidToken)
+}
+
+// TestParseClaims_WrongAlgorithmRejected ensures tokens claiming a non-HS256 algorithm
+// are rejected even when the rest of the token looks structurally valid.
+func TestParseClaims_WrongAlgorithmRejected(t *testing.T) {
+	valid := issueTestToken(t, testSecret, "t1", "u1", nil, time.Hour)
+	parts := strings.Split(valid, ".")
+
+	// Swap header to claim HS384; original signature is over the old header so it will be invalid.
+	wrongAlgHeader := b64url(`{"alg":"HS384","typ":"JWT"}`)
+	tamperedTok := wrongAlgHeader + "." + parts[1] + "." + parts[2]
+
+	_, err := auth.ParseClaims(tamperedTok, []byte(testSecret))
+	assert.ErrorIs(t, err, auth.ErrInvalidToken)
+}
+
+// TestParseClaims_TamperedPayload ensures a token with a modified payload but the
+// original (now-invalid) signature is rejected.
+func TestParseClaims_TamperedPayload(t *testing.T) {
+	valid := issueTestToken(t, testSecret, "acme-corp", "u1", nil, time.Hour)
+	parts := strings.Split(valid, ".")
+
+	// Flip tenant_id in the payload while keeping the original signature.
+	evilPayload := b64url(`{"sub":"u1","tenant_id":"evil-corp","exp":9999999999,"iss":"paladin-auth","aud":["paladin"]}`)
+	tamperedTok := parts[0] + "." + evilPayload + "." + parts[2]
+
+	_, err := auth.ParseClaims(tamperedTok, []byte(testSecret))
+	assert.ErrorIs(t, err, auth.ErrInvalidToken)
 }
 
 // ── Context helpers ───────────────────────────────────────────────────────────
@@ -139,6 +183,16 @@ func TestRolesFromContext_SetAndGet(t *testing.T) {
 func TestRolesFromContext_Missing(t *testing.T) {
 	roles := auth.RolesFromContext(context.Background())
 	assert.Nil(t, roles)
+}
+
+// TestRolesFromContext_MutationSafe ensures callers cannot mutate the context's
+// role slice through the returned reference.
+func TestRolesFromContext_MutationSafe(t *testing.T) {
+	ctx := auth.WithRoles(context.Background(), []string{"admin", "viewer"})
+	roles := auth.RolesFromContext(ctx)
+	roles[0] = "tampered"
+	again := auth.RolesFromContext(ctx)
+	assert.Equal(t, "admin", again[0], "mutating returned slice must not affect context")
 }
 
 // ── Round-trip ────────────────────────────────────────────────────────────────

@@ -47,9 +47,15 @@ func UserIDFromContext(ctx context.Context) (string, bool) {
 }
 
 // RolesFromContext retrieves roles from context.
+// Returns a defensive copy so callers cannot mutate the stored slice.
 func RolesFromContext(ctx context.Context) []string {
 	v, _ := ctx.Value(ContextKeyRoles).([]string)
-	return v
+	if v == nil {
+		return nil
+	}
+	cp := make([]string, len(v))
+	copy(cp, v)
+	return cp
 }
 
 // ValidateSecret fails fast if the secret is too weak to be safe.

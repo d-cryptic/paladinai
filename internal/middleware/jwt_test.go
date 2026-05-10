@@ -77,15 +77,18 @@ func TestJWTMiddleware_MissingAuthHeader_Returns401(t *testing.T) {
 
 func TestJWTMiddleware_MalformedAuthHeader_Returns401(t *testing.T) {
 	for _, hdr := range []string{"Basic dXNlcjpwYXNz", "Bearer", " ", "token-without-bearer"} {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", hdr)
-		rr := serve(newMiddleware(), req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code, "header: %q", hdr)
+		hdr := hdr
+		t.Run(hdr, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("Authorization", hdr)
+			rr := serve(newMiddleware(), req)
+			assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		})
 	}
 }
 
 func TestJWTMiddleware_ExpiredToken_Returns401(t *testing.T) {
-	tok := issueToken(t, "t1", "u1", nil, -time.Second)
+	tok := issueToken(t, "t1", "u1", nil, -time.Minute)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rr := serve(newMiddleware(), req)
@@ -94,7 +97,8 @@ func TestJWTMiddleware_ExpiredToken_Returns401(t *testing.T) {
 
 func TestJWTMiddleware_WrongSecret_Returns401(t *testing.T) {
 	other := strings.Repeat("z", 32)
-	tok, _ := auth.IssueToken([]byte(other), "t1", "u1", nil, time.Hour)
+	tok, err := auth.IssueToken([]byte(other), "t1", "u1", nil, time.Hour)
+	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rr := serve(newMiddleware(), req)
@@ -119,14 +123,34 @@ func TestJWTMiddleware_TenantIDHeaderMismatch_Returns403(t *testing.T) {
 
 	rr := serve(newMiddleware(), req)
 	assert.Equal(t, http.StatusForbidden, rr.Code)
+	// Response must not leak the real tenant to the attacker.
+	assert.NotContains(t, rr.Body.String(), "acme-corp")
 }
 
 func TestJWTMiddleware_CaseInsensitiveBearer(t *testing.T) {
 	tok := issueToken(t, "t1", "u1", nil, time.Hour)
+
 	for _, prefix := range []string{"Bearer", "bearer", "BEARER", "BeArEr"} {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", prefix+" "+tok)
-		rr := serve(newMiddleware(), req)
-		assert.Equal(t, http.StatusOK, rr.Code, "prefix: %q", prefix)
+		prefix := prefix
+		t.Run("valid_"+prefix, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("Authorization", prefix+" "+tok)
+			rr := serve(newMiddleware(), req)
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+
+	// Negative: scheme variants that must NOT be accepted.
+	for _, hdr := range []string{
+		"Bearer" + tok,  // no space between scheme and token
+		"Bear " + tok,   // wrong scheme name
+	} {
+		hdr := hdr
+		t.Run("invalid_"+hdr[:5], func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("Authorization", hdr)
+			rr := serve(newMiddleware(), req)
+			assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		})
 	}
 }
