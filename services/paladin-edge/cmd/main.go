@@ -19,8 +19,11 @@ import (
 
 	cfg "github.com/paladinai/paladinai/services/paladin-edge/config"
 	"github.com/paladinai/paladinai/services/paladin-edge/internal/handler"
+	"github.com/paladinai/paladinai/services/paladin-edge/internal/middleware"
+	"github.com/paladinai/paladinai/services/paladin-edge/internal/proxy"
 	"github.com/paladinai/paladinai/services/paladin-edge/internal/ratelimit"
 
+	"github.com/paladinai/paladinai/internal/auth"
 	"github.com/paladinai/paladinai/internal/logger"
 	"github.com/paladinai/paladinai/internal/telemetry"
 )
@@ -59,17 +62,28 @@ func run() error {
 	}
 	defer rdb.Close()
 
+	// JWT_SECRET must be at least 32 bytes for HS256. Fail fast on misconfiguration
+	// rather than silently registering a broken middleware.
+	jwtSecret := []byte(conf.JWTSecret)
+	if err := auth.ValidateSecret(jwtSecret); err != nil {
+		return fmt.Errorf("JWT_SECRET: %w", err)
+	}
+
 	rateLimiter := ratelimit.NewValkeyLimiter(rdb, conf.RateLimitRPS, log)
 	health := &handler.HealthHandler{}
+
+	// Build the hub proxy. When HUB_URL is empty we still register the routes
+	// so that the router is complete; they return 502 until the hub is configured.
+	hubProxy, err := buildProxy(conf.HubURL, "/api/v1/mcp", log)
+	if err != nil {
+		return fmt.Errorf("hub proxy: %w", err)
+	}
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.Timeout(30 * time.Second))
 	r.Use(cors.Handler(cors.Options{
-		// Restrict in production via ALLOWED_ORIGINS env var.
-		// This is an internal service — CORS is for the dashboard SPA only.
 		AllowedOrigins: []string{"http://localhost:3000", "http://localhost:3001"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID", "X-Tenant-ID"},
@@ -80,11 +94,24 @@ func run() error {
 	r.Get("/readyz", health.Readiness)
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
-	// API v1 — placeholder routes (filled as services are implemented)
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"message":"pong","service":"paladin-edge"}`)
+		// Unauthenticated routes carry the global 30 s timeout.
+		r.Group(func(r chi.Router) {
+			r.Use(chimiddleware.Timeout(30 * time.Second))
+			r.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintln(w, `{"message":"pong","service":"paladin-edge"}`)
+			})
+		})
+
+		// JWT-protected routes. Timeout is intentionally omitted here so that
+		// long-lived proxy responses (SSE, streaming JSON-RPC) are not cut short.
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTMiddleware(jwtSecret, log))
+
+			// MCP server registry — proxied to paladin-hub.
+			// /api/v1/mcp/* → paladin-hub /api/v1/*  (prefix stripped in Director)
+			r.Mount("/mcp", hubProxy)
 		})
 	})
 
@@ -111,6 +138,29 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// buildProxy constructs a reverse-proxy Handler for a backend service.
+// When rawURL is empty, a stub that always returns 502 is returned so routes
+// are still registered and return a clear error rather than 404.
+// When rawURL is non-empty it is validated (must be http/https with a host).
+func buildProxy(rawURL, prefix string, log *zap.Logger) (http.Handler, error) {
+	if rawURL == "" {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			//nolint:errcheck
+			fmt.Fprint(w, `{"error":{"code":"BACKEND_NOT_CONFIGURED","message":"backend not configured"}}`)
+		}), nil
+	}
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse %q: %w", rawURL, err)
+	}
+	if err := proxy.Validate(target); err != nil {
+		return nil, err
+	}
+	return proxy.New(target, prefix, log), nil
 }
 
 func parseRedisAddr(rawURL string) (string, error) {
