@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/spf13/cobra"
@@ -14,7 +15,6 @@ import (
 )
 
 // paladinYAML represents the project config file (paladin.yaml).
-// Only the fields needed for validation are parsed; unknown fields are preserved.
 type paladinYAML struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
@@ -23,18 +23,51 @@ type paladinYAML struct {
 		Tier   string `yaml:"tier"`
 	} `yaml:"metadata"`
 	Spec struct {
-		Region       string   `yaml:"region"`
-		Integrations []struct {
-			Name    string `yaml:"name"`
-			Version string `yaml:"version"`
-			Enabled bool   `yaml:"enabled"`
-		} `yaml:"integrations"`
+		Region       string        `yaml:"region"`
+		Integrations []Integration `yaml:"integrations"`
 	} `yaml:"spec"`
+}
+
+// Integration is a named type so it can be referenced without ambiguity.
+type Integration struct {
+	Name    string `yaml:"name"`
+	Version string `yaml:"version"`
+	Enabled bool   `yaml:"enabled"`
 }
 
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage paladin.yaml project configuration",
+}
+
+// validateConfig returns human-readable error strings; empty slice means valid.
+func validateConfig(cfg paladinYAML) []string {
+	var errs []string
+	if cfg.APIVersion != "paladin.io/v2" {
+		errs = append(errs, fmt.Sprintf("apiVersion: expected paladin.io/v2, got %q", cfg.APIVersion))
+	}
+	if cfg.Kind != "Config" {
+		errs = append(errs, fmt.Sprintf("kind: expected Config, got %q", cfg.Kind))
+	}
+	if cfg.Metadata.Tenant == "" {
+		errs = append(errs, "metadata.tenant: must not be empty")
+	}
+	validTiers := map[string]bool{"pool": true, "bridge": true, "silo": true}
+	if cfg.Metadata.Tier != "" && !validTiers[cfg.Metadata.Tier] {
+		errs = append(errs, fmt.Sprintf("metadata.tier: must be pool, bridge, or silo; got %q", cfg.Metadata.Tier))
+	}
+	if cfg.Spec.Region == "" {
+		errs = append(errs, "spec.region: must not be empty")
+	}
+	for i, intg := range cfg.Spec.Integrations {
+		if intg.Name == "" {
+			errs = append(errs, fmt.Sprintf("spec.integrations[%d]: name must not be empty", i))
+		}
+		if intg.Version == "" {
+			errs = append(errs, fmt.Sprintf("spec.integrations[%d] (%s): version must not be empty", i, intg.Name))
+		}
+	}
+	return errs
 }
 
 // paladin config validate
@@ -53,6 +86,7 @@ Checks performed:
   - Each integration has a non-empty name and version
 
 Returns exit code 0 on success, 1 on validation errors.`,
+	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path, _ := cmd.Flags().GetString("file")
 		if path == "" {
@@ -69,37 +103,13 @@ Returns exit code 0 on success, 1 on validation errors.`,
 			return fmt.Errorf("parse %s: %w", path, err)
 		}
 
-		var errs []string
-		if cfg.APIVersion != "paladin.io/v2" {
-			errs = append(errs, fmt.Sprintf("apiVersion: expected paladin.io/v2, got %q", cfg.APIVersion))
-		}
-		if cfg.Kind != "Config" {
-			errs = append(errs, fmt.Sprintf("kind: expected Config, got %q", cfg.Kind))
-		}
-		if cfg.Metadata.Tenant == "" {
-			errs = append(errs, "metadata.tenant: must not be empty")
-		}
-		validTiers := map[string]bool{"pool": true, "bridge": true, "silo": true}
-		if cfg.Metadata.Tier != "" && !validTiers[cfg.Metadata.Tier] {
-			errs = append(errs, fmt.Sprintf("metadata.tier: must be pool, bridge, or silo; got %q", cfg.Metadata.Tier))
-		}
-		if cfg.Spec.Region == "" {
-			errs = append(errs, "spec.region: must not be empty")
-		}
-		for i, intg := range cfg.Spec.Integrations {
-			if intg.Name == "" {
-				errs = append(errs, fmt.Sprintf("spec.integrations[%d]: name must not be empty", i))
-			}
-			if intg.Version == "" {
-				errs = append(errs, fmt.Sprintf("spec.integrations[%d] (%s): version must not be empty", i, intg.Name))
-			}
-		}
-
+		errs := validateConfig(cfg)
 		if len(errs) > 0 {
 			fmt.Fprintf(os.Stderr, "%s: validation failed:\n", path)
 			for _, e := range errs {
 				fmt.Fprintf(os.Stderr, "  - %s\n", e)
 			}
+			// Return a sentinel so Cobra exits 1, but SilenceErrors suppresses reprinting it.
 			return fmt.Errorf("found %d validation error(s)", len(errs))
 		}
 
@@ -126,13 +136,28 @@ the PaladinAI API. The control plane reconciles the desired state.`,
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 
-		// Validate before sending.
+		const maxConfigBytes = 1 << 20 // 1 MiB
+		if len(data) > maxConfigBytes {
+			return fmt.Errorf("%s: file too large (%d bytes, max %d)", path, len(data), maxConfigBytes)
+		}
+
 		var cfg paladinYAML
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return fmt.Errorf("parse %s: %w", path, err)
 		}
-		if cfg.Metadata.Tenant == "" {
-			return fmt.Errorf("%s: metadata.tenant is required", path)
+
+		// Full validation (same rules as `validate`) before sending.
+		if errs := validateConfig(cfg); len(errs) > 0 {
+			fmt.Fprintf(os.Stderr, "%s: validation failed:\n", path)
+			for _, e := range errs {
+				fmt.Fprintf(os.Stderr, "  - %s\n", e)
+			}
+			return fmt.Errorf("found %d validation error(s)", len(errs))
+		}
+
+		// Reject tenant values containing control characters or CRLF to prevent header injection.
+		if strings.ContainsAny(cfg.Metadata.Tenant, "\r\n\x00") {
+			return fmt.Errorf("metadata.tenant contains invalid characters")
 		}
 
 		// Convert YAML → generic map to POST as JSON.

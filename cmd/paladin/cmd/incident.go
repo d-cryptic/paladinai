@@ -121,7 +121,7 @@ var incidentResolveCmd = &cobra.Command{
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Printf("Incident %q resolved.\n", args[0])
+		fmt.Fprintf(os.Stdout, "Incident %q resolved.\n", args[0])
 		return nil
 	},
 }
@@ -182,7 +182,7 @@ var incidentReplayCmd = &cobra.Command{
 	Long: `Sends the incident's original alert data through the agent pipeline again.
 Useful for testing agent improvements without real infrastructure.
 
-The replay runs asynchronously; use --wait to poll for completion.`,
+The replay runs asynchronously; poll status with: paladin incident show <replay-id>`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tenant, err := requireTenant(cmd)
@@ -219,8 +219,8 @@ The replay runs asynchronously; use --wait to poll for completion.`,
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
-		fmt.Printf("Replay started (id: %s, status: %s).\n", result.ReplayID, result.Status)
-		fmt.Printf("Use `paladin incidents show %s` to check the replayed incident.\n", result.ReplayID)
+		fmt.Fprintf(os.Stdout, "Replay started (id: %s, status: %s).\n", result.ReplayID, result.Status)
+		fmt.Fprintf(os.Stdout, "Use `paladin incident show %s` to check the replayed incident.\n", result.ReplayID)
 		return nil
 	},
 }

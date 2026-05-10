@@ -171,6 +171,11 @@ var tenantMigrateCmd = &cobra.Command{
 	Short: "Migrate tenant to a different deployment tier",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		slug := args[0]
+		if !slugRE.MatchString(slug) {
+			return fmt.Errorf("invalid slug %q: must be 2-64 chars, lowercase alphanumeric and hyphens", slug)
+		}
+
 		tier, _ := cmd.Flags().GetString("tier")
 		if tier == "" {
 			return fmt.Errorf("--tier is required (pool, bridge, silo)")
@@ -184,7 +189,7 @@ var tenantMigrateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid auth-url: %w", err)
 		}
-		u.Path = fmt.Sprintf("/api/v1/tenants/%s/migrate", url.PathEscape(args[0]))
+		u.Path = fmt.Sprintf("/api/v1/tenants/%s/migrate", url.PathEscape(slug))
 
 		payload := map[string]string{"tier": tier}
 		data, err := json.Marshal(payload)
@@ -200,7 +205,7 @@ var tenantMigrateCmd = &cobra.Command{
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Printf("Tenant %q migration to %q tier initiated.\n", args[0], tier)
+		fmt.Fprintf(os.Stdout, "Tenant %q migration to %q tier initiated.\n", slug, tier)
 		return nil
 	},
 }
@@ -210,14 +215,22 @@ var tenantDeleteCmd = &cobra.Command{
 	Short: "Permanently delete a tenant (irreversible)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		slug := args[0]
+		if !slugRE.MatchString(slug) {
+			return fmt.Errorf("invalid slug %q: must be 2-64 chars, lowercase alphanumeric and hyphens", slug)
+		}
+
 		yes, _ := cmd.Flags().GetBool("yes")
 		if !yes {
-			fmt.Printf("WARNING: This will permanently delete tenant %q and all its data.\n", args[0])
-			fmt.Print("Type the tenant slug to confirm: ")
+			fmt.Fprintf(os.Stderr, "WARNING: This will permanently delete tenant %q and all its data. Use --yes to skip in scripts.\n", slug)
+			fmt.Fprint(os.Stderr, "Type the tenant slug to confirm: ")
 			r := bufio.NewReader(os.Stdin)
 			confirm, err := readLine(r)
-			if err != nil || confirm != args[0] {
-				return fmt.Errorf("confirmation failed — deletion cancelled")
+			if err != nil {
+				return fmt.Errorf("read confirmation: %w", err)
+			}
+			if confirm != slug {
+				return fmt.Errorf("confirmation mismatch — deletion cancelled")
 			}
 		}
 
@@ -225,7 +238,7 @@ var tenantDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid auth-url: %w", err)
 		}
-		u.Path = fmt.Sprintf("/api/v1/tenants/%s", url.PathEscape(args[0]))
+		u.Path = fmt.Sprintf("/api/v1/tenants/%s", url.PathEscape(slug))
 
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodDelete, u.String(),
 			client.Options{AdminSecret: adminSecret(cmd)}, nil)
@@ -235,7 +248,7 @@ var tenantDeleteCmd = &cobra.Command{
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Printf("Tenant %q deleted.\n", args[0])
+		fmt.Fprintf(os.Stdout, "Tenant %q deleted.\n", slug)
 		return nil
 	},
 }
