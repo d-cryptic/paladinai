@@ -1,5 +1,5 @@
 // Package correlation groups related alerts into incident correlation windows.
-// Strategy: same-tenant alerts with matching label sets (namespace + job + cluster)
+// Strategy: same-tenant alerts with matching label sets (namespace + job + cluster + service)
 // within a 5-minute sliding window are assigned the same CorrelationID.
 //
 // This implements the Stage 2 spec: label-based correlation with 5-min window.
@@ -79,17 +79,24 @@ func (c *Correlator) Correlate(ctx context.Context, env *alert.AlertEnvelope) er
 
 // groupKey builds a stable hash key from the correlation label values.
 // Alerts with the same group key are in the same incident group.
+// Falls back to fingerprint if no correlation labels are present, avoiding
+// collapsing all label-less alerts into one group.
 func (c *Correlator) groupKey(env *alert.AlertEnvelope) string {
-	var parts []string
-	parts = append(parts, "tenant:"+env.TenantID)
-
+	labelParts := make([]string, 0, len(correlationKeys))
 	for _, k := range correlationKeys {
 		if v, ok := env.Labels[k]; ok && v != "" {
-			parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+			labelParts = append(labelParts, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
-	sort.Strings(parts[1:]) // sort label parts, keep tenant first
+	sort.Strings(labelParts)
 
+	if len(labelParts) == 0 {
+		// No correlation labels — fall back to fingerprint so this alert
+		// doesn't merge with all other label-less alerts from the same tenant.
+		labelParts = append(labelParts, "fp="+env.Fingerprint)
+	}
+
+	parts := append([]string{"tenant:" + env.TenantID}, labelParts...)
 	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return "paladin:corr:" + hex.EncodeToString(h[:16])
 }

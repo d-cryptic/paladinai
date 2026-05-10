@@ -95,3 +95,20 @@ func TestCorrelator_CorrelationIDPrefix(t *testing.T) {
 	require.NoError(t, c.Correlate(context.Background(), env))
 	assert.True(t, len(env.CorrelationID) > 5 && env.CorrelationID[:5] == "corr-")
 }
+
+func TestCorrelator_NoLabelsDontCollapse(t *testing.T) {
+	// Two label-less alerts from the same tenant must NOT share a correlation group.
+	// Without the fingerprint fallback, they would both hash to "tenant:T1" only.
+	store := newMemStore()
+	c := correlation.New(store, zap.NewNop())
+	ctx := context.Background()
+
+	env1 := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp1", Labels: nil}
+	env2 := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp2", Labels: nil}
+
+	require.NoError(t, c.Correlate(ctx, env1))
+	require.NoError(t, c.Correlate(ctx, env2))
+
+	assert.NotEqual(t, env1.CorrelationID, env2.CorrelationID,
+		"label-less alerts with different fingerprints should not share a correlation group")
+}

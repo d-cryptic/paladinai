@@ -6,7 +6,9 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -33,10 +35,10 @@ type Publisher interface {
 
 // Pipeline processes raw alerts: dedup → correlate → publish to correlated subject.
 type Pipeline struct {
-	dedup  Deduplicator
-	corr   Correlator
-	pub    Publisher
-	log    *zap.Logger
+	dedup Deduplicator
+	corr  Correlator
+	pub   Publisher
+	log   *zap.Logger
 }
 
 // New creates a Pipeline. All dependencies are required.
@@ -45,9 +47,12 @@ func New(dedup Deduplicator, corr Correlator, pub Publisher, log *zap.Logger) *P
 }
 
 // Process applies dedup + correlation to a single AlertEnvelope and publishes it.
-// Resolved alerts bypass dedup but still get correlated and published.
-// Duplicate alerts are silently dropped (not published).
-// Returns an error only for infrastructure failures — caller should nack or redeliver.
+//
+// Resolved alerts: reset dedup key, skip dedup check, then correlate (look up existing
+// group only — if no group exists, a new one is created) and publish.
+// Duplicate firing alerts: silently dropped.
+// Infrastructure errors: fail open on dedup (don't suppress real alerts), propagate
+// on correlate/publish (caller should nak for redelivery).
 func (p *Pipeline) Process(ctx context.Context, env *alert.AlertEnvelope) error {
 	env.ReceivedAt = time.Now().UTC()
 
@@ -58,20 +63,21 @@ func (p *Pipeline) Process(ctx context.Context, env *alert.AlertEnvelope) error 
 				zap.String("fingerprint", env.Fingerprint),
 				zap.Error(err),
 			)
-			// Non-fatal: still process the resolved alert
+			// Non-fatal — still publish the resolved event
 		}
 	} else {
 		dup, err := p.dedup.IsDuplicate(ctx, env)
 		if err != nil {
+			// Fail open: a Valkey outage must not suppress real alerts.
+			// The caller's dedup window TTL will self-heal once Valkey recovers.
 			p.log.Warn("dedup check failed, failing open",
 				zap.String("fingerprint", env.Fingerprint),
 				zap.Error(err),
 			)
-			// Fail open — don't suppress real alerts on store errors
 		} else if dup {
-			p.log.Debug("alert suppressed (duplicate)",
-				zap.String("fingerprint", env.Fingerprint),
+			p.log.Debug("alert deduplicated",
 				zap.String("tenant", env.TenantID),
+				zap.String("fingerprint", env.Fingerprint),
 			)
 			return nil
 		}
@@ -101,46 +107,57 @@ func (p *Pipeline) Process(ctx context.Context, env *alert.AlertEnvelope) error 
 }
 
 // Run starts a JetStream consumer on paladin.alerts.raw.> and calls Process for each message.
-// It blocks until ctx is cancelled. Uses a push consumer with manual ack.
+// It blocks until ctx is cancelled, returning ctx.Err() on clean shutdown.
+// Each message is processed with a per-message timeout (25s, under AckWait of 30s).
+// Transient errors use exponential nak-delay; fatal unmarshal errors term the message.
 func (p *Pipeline) Run(ctx context.Context, js jetstream.JetStream, consumerName string) error {
 	cons, err := js.CreateOrUpdateConsumer(ctx, "PALADIN_ALERTS", jetstream.ConsumerConfig{
-		Name:           consumerName,
-		Durable:        consumerName,
-		FilterSubject:  "paladin.alerts.raw.>",
-		DeliverPolicy:  jetstream.DeliverNewPolicy,
-		AckPolicy:      jetstream.AckExplicitPolicy,
-		MaxDeliver:     3,
-		AckWait:        30 * time.Second,
+		Name:          consumerName,
+		Durable:       consumerName,
+		FilterSubject: "paladin.alerts.raw.>",
+		DeliverPolicy: jetstream.DeliverNewPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		MaxDeliver:    5,
+		AckWait:       30 * time.Second,
 	})
 	if err != nil {
-		return fmt.Errorf("pipeline consumer create: %w", err)
+		return fmt.Errorf("pipeline consumer create %s: %w", consumerName, err)
 	}
 
-	msgCh := make(chan jetstream.Msg, 64)
 	cc, err := cons.Messages()
 	if err != nil {
-		return fmt.Errorf("pipeline consumer messages: %w", err)
+		return fmt.Errorf("pipeline consumer messages %s: %w", consumerName, err)
 	}
 	defer cc.Stop()
 
+	msgCh := make(chan jetstream.Msg, 64)
 	go func() {
+		defer close(msgCh)
 		for {
 			msg, err := cc.Next()
 			if err != nil {
-				close(msgCh)
+				if !errors.Is(err, jetstream.ErrMsgIteratorClosed) {
+					p.log.Error("consumer iterator error", zap.Error(err))
+				}
 				return
 			}
-			msgCh <- msg
+			select {
+			case msgCh <- msg:
+			case <-ctx.Done():
+				// Return unprocessed message to JetStream for redelivery.
+				_ = msg.Nak()
+				return
+			}
 		}
 	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		case msg, ok := <-msgCh:
 			if !ok {
-				return nil
+				return fmt.Errorf("pipeline: consumer stopped unexpectedly")
 			}
 			p.handleMsg(ctx, msg)
 		}
@@ -150,7 +167,7 @@ func (p *Pipeline) Run(ctx context.Context, js jetstream.JetStream, consumerName
 func (p *Pipeline) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	var env alert.AlertEnvelope
 	if err := json.Unmarshal(msg.Data(), &env); err != nil {
-		p.log.Error("pipeline: invalid message, nacking",
+		p.log.Error("alert unmarshal failed, terming message",
 			zap.String("subject", msg.Subject()),
 			zap.Error(err),
 		)
@@ -158,12 +175,24 @@ func (p *Pipeline) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
-	if err := p.Process(ctx, &env); err != nil {
-		p.log.Error("pipeline: process error, nacking for redelivery",
+	// Bound processing to stay under AckWait.
+	pctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+
+	if err := p.Process(pctx, &env); err != nil {
+		md, _ := msg.Metadata()
+		var delivered uint64
+		if md != nil {
+			delivered = md.NumDelivered
+		}
+		// Exponential backoff capped at 60s.
+		delay := time.Duration(math.Min(float64(time.Duration(1<<delivered)*time.Second), float64(60*time.Second)))
+		p.log.Error("pipeline process error, scheduling redelivery",
 			zap.String("fingerprint", env.Fingerprint),
+			zap.Duration("retry_delay", delay),
 			zap.Error(err),
 		)
-		_ = msg.Nak()
+		_ = msg.NakWithDelay(delay)
 		return
 	}
 
