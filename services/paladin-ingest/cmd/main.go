@@ -73,7 +73,10 @@ func run() error {
 	pub := publisher.New(natsClient, log)
 	ded := dedup.New(dedup.NewValkeyStore(rdb), log)
 	webhooks := handler.NewWebhookHandler(pub, ded, log)
-	health := &handler.HealthHandler{}
+	health := handler.NewHealthHandler("paladin-ingest",
+		handler.NewNATSChecker(natsClient.Conn()),
+		handler.NewValkeyChecker(rdb),
+	)
 
 	// Router
 	r := chi.NewRouter()
