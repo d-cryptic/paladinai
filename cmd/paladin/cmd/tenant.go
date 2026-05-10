@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -165,6 +166,93 @@ func adminSecret(cmd *cobra.Command) string {
 	return f.Value.String()
 }
 
+var tenantMigrateCmd = &cobra.Command{
+	Use:   "migrate <slug>",
+	Short: "Migrate tenant to a different deployment tier",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		slug := args[0]
+		if !slugRE.MatchString(slug) {
+			return fmt.Errorf("invalid slug %q: must be 2-64 chars, lowercase alphanumeric and hyphens", slug)
+		}
+
+		tier, _ := cmd.Flags().GetString("tier")
+		if tier == "" {
+			return fmt.Errorf("--tier is required (pool, bridge, silo)")
+		}
+		validTiers := map[string]bool{"pool": true, "bridge": true, "silo": true}
+		if !validTiers[tier] {
+			return fmt.Errorf("invalid tier %q: must be pool, bridge, or silo", tier)
+		}
+
+		u, err := url.Parse(authURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid auth-url: %w", err)
+		}
+		u.Path = fmt.Sprintf("/api/v1/tenants/%s/migrate", url.PathEscape(slug))
+
+		payload := map[string]string{"tier": tier}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshal payload: %w", err)
+		}
+
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
+			client.Options{AdminSecret: adminSecret(cmd)}, bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+		if status < 200 || status >= 300 {
+			return fmt.Errorf("API error %d: %s", status, string(body))
+		}
+		fmt.Fprintf(os.Stdout, "Tenant %q migration to %q tier initiated.\n", slug, tier)
+		return nil
+	},
+}
+
+var tenantDeleteCmd = &cobra.Command{
+	Use:   "delete <slug>",
+	Short: "Permanently delete a tenant (irreversible)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		slug := args[0]
+		if !slugRE.MatchString(slug) {
+			return fmt.Errorf("invalid slug %q: must be 2-64 chars, lowercase alphanumeric and hyphens", slug)
+		}
+
+		yes, _ := cmd.Flags().GetBool("yes")
+		if !yes {
+			fmt.Fprintf(os.Stderr, "WARNING: This will permanently delete tenant %q and all its data. Use --yes to skip in scripts.\n", slug)
+			fmt.Fprint(os.Stderr, "Type the tenant slug to confirm: ")
+			r := bufio.NewReader(os.Stdin)
+			confirm, err := readLine(r)
+			if err != nil {
+				return fmt.Errorf("read confirmation: %w", err)
+			}
+			if confirm != slug {
+				return fmt.Errorf("confirmation mismatch — deletion cancelled")
+			}
+		}
+
+		u, err := url.Parse(authURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid auth-url: %w", err)
+		}
+		u.Path = fmt.Sprintf("/api/v1/tenants/%s", url.PathEscape(slug))
+
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodDelete, u.String(),
+			client.Options{AdminSecret: adminSecret(cmd)}, nil)
+		if err != nil {
+			return err
+		}
+		if status < 200 || status >= 300 {
+			return fmt.Errorf("API error %d: %s", status, string(body))
+		}
+		fmt.Fprintf(os.Stdout, "Tenant %q deleted.\n", slug)
+		return nil
+	},
+}
+
 func init() {
 	tenantCmd.PersistentFlags().String("auth-url", envStr("PALADIN_AUTH_URL", "http://localhost:9003"), "PaladinAI Auth service URL")
 	tenantCmd.PersistentFlags().String("admin-secret", os.Getenv("PALADIN_ADMIN_SECRET"), "Admin secret for tenant management")
@@ -174,5 +262,11 @@ func init() {
 	_ = tenantCreateCmd.MarkFlagRequired("slug")
 	_ = tenantCreateCmd.MarkFlagRequired("name")
 
-	tenantCmd.AddCommand(tenantListCmd, tenantCreateCmd, tenantSuspendCmd, tenantResumeCmd)
+	tenantMigrateCmd.Flags().String("tier", "", "Target tier: pool, bridge, silo")
+	_ = tenantMigrateCmd.MarkFlagRequired("tier")
+
+	tenantDeleteCmd.Flags().Bool("yes", false, "Skip confirmation prompt (use with caution)")
+
+	tenantCmd.AddCommand(tenantListCmd, tenantCreateCmd, tenantSuspendCmd, tenantResumeCmd,
+		tenantMigrateCmd, tenantDeleteCmd)
 }
