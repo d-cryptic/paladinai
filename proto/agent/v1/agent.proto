@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package paladin.agent.v1;
+
+option go_package = "github.com/paladinai/paladinai/gen/go/agent/v1;agentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// AgentService provides gRPC access to the agent runtime.
+service AgentService {
+  // TriageAlert submits an alert for triage and returns the structured result.
+  rpc TriageAlert(TriageAlertRequest) returns (TriageAlertResponse);
+
+  // GetAgentStatus returns current load and health of the agent pool.
+  rpc GetAgentStatus(GetAgentStatusRequest) returns (GetAgentStatusResponse);
+}
+
+// TriageResult is the structured output from the triage agent.
+message TriageResult {
+  string          confirmed_severity  = 1; // P1, P2, P3, P4
+  string          summary             = 2;
+  string          likely_cause        = 3;
+  repeated string affected_services   = 4;
+  string          recommended_action  = 5;
+  bool            needs_human         = 6;
+  bool            degraded            = 7; // true if LLM returned non-JSON
+}
+
+message TriageAlertRequest {
+  string tenant_id      = 1;
+  string fingerprint    = 2;
+  string correlation_id = 3;
+  string alert_json     = 4; // serialised AlertEnvelope
+}
+
+message TriageAlertResponse {
+  TriageResult result    = 1;
+  string       model_used = 2; // e.g. "qwen/qwen3-8b"
+  google.protobuf.Timestamp triaged_at = 3;
+}
+
+message GetAgentStatusRequest {}
+
+message GetAgentStatusResponse {
+  int32  active_workers   = 1;
+  int32  queue_depth      = 2;
+  int32  processed_total  = 3;
+  bool   healthy          = 4;
+}

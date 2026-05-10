@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package paladin.incident.v1;
+
+option go_package = "github.com/paladinai/paladinai/gen/go/incident/v1;incidentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// IncidentService manages incident lifecycle operations.
+service IncidentService {
+  // CreateIncident creates a new incident from a correlation group.
+  rpc CreateIncident(CreateIncidentRequest) returns (CreateIncidentResponse);
+
+  // GetIncident retrieves an incident by ID.
+  rpc GetIncident(GetIncidentRequest) returns (GetIncidentResponse);
+
+  // UpdateIncident updates incident status or metadata.
+  rpc UpdateIncident(UpdateIncidentRequest) returns (UpdateIncidentResponse);
+
+  // ListIncidents lists incidents for a tenant.
+  rpc ListIncidents(ListIncidentsRequest) returns (ListIncidentsResponse);
+}
+
+// IncidentStatus tracks resolution state.
+enum IncidentStatus {
+  INCIDENT_STATUS_UNSPECIFIED  = 0;
+  INCIDENT_STATUS_OPEN         = 1;
+  INCIDENT_STATUS_ACKNOWLEDGED = 2;
+  INCIDENT_STATUS_RESOLVED     = 3;
+  INCIDENT_STATUS_CLOSED       = 4;
+}
+
+// IncidentSeverity mirrors the alert severity tiers.
+enum IncidentSeverity {
+  INCIDENT_SEVERITY_UNSPECIFIED = 0;
+  INCIDENT_SEVERITY_P1          = 1;
+  INCIDENT_SEVERITY_P2          = 2;
+  INCIDENT_SEVERITY_P3          = 3;
+  INCIDENT_SEVERITY_P4          = 4;
+}
+
+message Incident {
+  string           id             = 1;
+  string           tenant_id      = 2;
+  string           correlation_id = 3;
+  IncidentSeverity severity       = 4;
+  IncidentStatus   status         = 5;
+  string           title          = 6;
+  string           summary        = 7;
+  string           likely_cause   = 8;
+  repeated string  affected_services = 9;
+  bool             needs_human    = 10;
+  string           assigned_to    = 11;
+  google.protobuf.Timestamp created_at  = 12;
+  google.protobuf.Timestamp updated_at  = 13;
+  google.protobuf.Timestamp resolved_at = 14;
+}
+
+message CreateIncidentRequest {
+  string           tenant_id      = 1;
+  string           correlation_id = 2;
+  IncidentSeverity severity       = 3;
+  string           title          = 4;
+  string           summary        = 5;
+  repeated string  alert_ids      = 6;
+}
+
+message CreateIncidentResponse {
+  Incident incident = 1;
+}
+
+message GetIncidentRequest {
+  string tenant_id   = 1;
+  string incident_id = 2;
+}
+
+message GetIncidentResponse {
+  Incident incident = 1;
+}
+
+message UpdateIncidentRequest {
+  string         tenant_id   = 1;
+  string         incident_id = 2;
+  IncidentStatus status      = 3;
+  string         assigned_to = 4;
+  string         summary     = 5; // optional override
+}
+
+message UpdateIncidentResponse {
+  Incident incident = 1;
+}
+
+message ListIncidentsRequest {
+  string         tenant_id = 1;
+  IncidentStatus status    = 2; // UNSPECIFIED = all
+  int32          page_size = 3;
+  string         cursor    = 4;
+}
+
+message ListIncidentsResponse {
+  repeated Incident incidents = 1;
+  string            cursor    = 2;
+  int32             total     = 3;
+}
