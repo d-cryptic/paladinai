@@ -8,7 +8,6 @@ import (
 
 func TestSaveAndLoadConfig(t *testing.T) {
 	dir := t.TempDir()
-	// override configDir by monkeypatching via env
 	t.Setenv("HOME", dir)
 
 	cfg := &PaladinConfig{
@@ -23,7 +22,6 @@ func TestSaveAndLoadConfig(t *testing.T) {
 		t.Fatalf("saveConfig: %v", err)
 	}
 
-	// file must exist and be restricted to owner
 	fi, err := os.Stat(filepath.Join(dir, ".paladin", "config.yaml"))
 	if err != nil {
 		t.Fatalf("config file missing: %v", err)
@@ -70,8 +68,7 @@ func TestLoadConfig_CorruptFile(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".paladin"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// yaml.v3 is lenient; use a value that cannot unmarshal into PaladinConfig struct
-	// (a list at the top level conflicts with the expected mapping type).
+	// yaml.v3 errors when a sequence cannot unmarshal into a struct.
 	if err := os.WriteFile(filepath.Join(dir, ".paladin", "config.yaml"), []byte("- a\n- b\n- c\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -93,4 +90,71 @@ func TestConfigPath(t *testing.T) {
 	if filepath.Base(path) != "config.yaml" {
 		t.Errorf("configPath() base = %q, want config.yaml", filepath.Base(path))
 	}
+}
+
+func TestSaveConfig_EmptyTokenIsOmitted(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	// Write config without a token (simulates env-sourced token not being written)
+	cfg := &PaladinConfig{
+		APIEndpoint:  "http://localhost:8080",
+		OutputFormat: "table",
+		Token:        "", // empty — must not appear in file
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(configPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(string(data), "token:") {
+		t.Errorf("empty token should be omitted from config file, got:\n%s", data)
+	}
+
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if loaded.Token != "" {
+		t.Errorf("loaded Token = %q, want empty", loaded.Token)
+	}
+}
+
+func TestSaveConfig_RoundTrip_NoToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	cfg := &PaladinConfig{
+		APIEndpoint:   "https://api.example.com",
+		AuthEndpoint:  "https://auth.example.com",
+		DefaultTenant: "acme-corp",
+		OutputFormat:  "json",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.APIEndpoint != cfg.APIEndpoint || loaded.AuthEndpoint != cfg.AuthEndpoint ||
+		loaded.DefaultTenant != cfg.DefaultTenant || loaded.OutputFormat != cfg.OutputFormat {
+		t.Errorf("round-trip mismatch: got %+v, want %+v", loaded, cfg)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
