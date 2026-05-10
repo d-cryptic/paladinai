@@ -1,12 +1,16 @@
+// Tests in this file are intentionally NOT parallel because they mutate the
+// package-level client.HTTP global. Run sequentially to avoid races.
 package client_test
 
 import (
 	"bytes"
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,7 +21,7 @@ import (
 )
 
 // setupStub creates a test server and swaps client.HTTP so requests go to it.
-// The returned cleanup restores the original client.
+// Tests MUST remain serial (no t.Parallel) because they mutate client.HTTP.
 func setupStub(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
 	ts := httptest.NewServer(handler)
@@ -78,7 +82,6 @@ func TestGet_EmptyOptionsOmitsHeaders(t *testing.T) {
 
 func TestGet_Non200ReturnsError(t *testing.T) {
 	for _, code := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusInternalServerError} {
-		code := code
 		t.Run(http.StatusText(code), func(t *testing.T) {
 			ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(code)
@@ -87,13 +90,12 @@ func TestGet_Non200ReturnsError(t *testing.T) {
 
 			_, err := client.Get(context.Background(), ts.URL, client.Options{})
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), fmt.Sprintf("%d", code), "error should include HTTP status code")
+			assert.Contains(t, err.Error(), strconv.Itoa(code), "error should include HTTP status code")
 		})
 	}
 }
 
 func TestGet_ContextCancellationReturnsError(t *testing.T) {
-	// Server that blocks until the client cancels.
 	ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	}))
@@ -103,10 +105,17 @@ func TestGet_ContextCancellationReturnsError(t *testing.T) {
 
 	_, err := client.Get(ctx, ts.URL, client.Options{})
 	require.Error(t, err)
+	// net/http wraps context errors inside *url.Error; unwrap to check the cause.
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		assert.True(t, errors.Is(urlErr.Err, context.Canceled),
+			"underlying error should be context.Canceled, got: %v", urlErr.Err)
+	}
 }
 
+// TestGet_BodyIsCappedAtMaxResponseBytes verifies that LimitReader silently
+// truncates oversized responses to exactly MaxResponseBytes and returns no error.
 func TestGet_BodyIsCappedAtMaxResponseBytes(t *testing.T) {
-	// Send MaxResponseBytes+1 worth of data; LimitReader should silently truncate.
 	oversized := strings.Repeat("x", int(client.MaxResponseBytes)+1)
 	ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -114,9 +123,9 @@ func TestGet_BodyIsCappedAtMaxResponseBytes(t *testing.T) {
 	}))
 
 	body, err := client.Get(context.Background(), ts.URL, client.Options{})
-	require.NoError(t, err)
-	assert.LessOrEqual(t, len(body), int(client.MaxResponseBytes),
-		"response body should be capped at MaxResponseBytes")
+	require.NoError(t, err, "truncation should not return an error")
+	assert.Equal(t, int(client.MaxResponseBytes), len(body),
+		"body should be truncated to exactly MaxResponseBytes")
 }
 
 // ── DoJSON ────────────────────────────────────────────────────────────────────
@@ -147,9 +156,24 @@ func TestDoJSON_NilBodyOmitsContentType(t *testing.T) {
 	assert.Empty(t, got.Get("Content-Type"))
 }
 
+// TestDoJSON_BodyRoundTrip asserts that the request body reaches the server intact.
+func TestDoJSON_BodyRoundTrip(t *testing.T) {
+	const payload = `{"name":"paladin","value":42}`
+	var received string
+	ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		received = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	_, _, err := client.DoJSON(context.Background(), http.MethodPost, ts.URL,
+		client.Options{}, strings.NewReader(payload))
+	require.NoError(t, err)
+	assert.Equal(t, payload, received)
+}
+
 func TestDoJSON_ReturnsStatusCode(t *testing.T) {
 	for _, want := range []int{http.StatusOK, http.StatusCreated, http.StatusNoContent, http.StatusNotFound} {
-		want := want
 		t.Run(http.StatusText(want), func(t *testing.T) {
 			ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(want)
@@ -178,7 +202,9 @@ func TestDoJSON_SetsAllHeaders(t *testing.T) {
 	assert.Equal(t, "sec", got.Get("X-Admin-Secret"))
 }
 
-func TestDoJSON_ReturnsBodyOnError(t *testing.T) {
+// TestDoJSON_ReturnsBodyOnNon2xx asserts DoJSON returns body+status on non-2xx
+// without itself erroring — callers inspect the status and decide.
+func TestDoJSON_ReturnsBodyOnNon2xx(t *testing.T) {
 	ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = io.WriteString(w, `{"error":"not found"}`)
@@ -186,7 +212,14 @@ func TestDoJSON_ReturnsBodyOnError(t *testing.T) {
 
 	body, status, err := client.DoJSON(context.Background(), http.MethodGet, ts.URL,
 		client.Options{}, nil)
-	require.NoError(t, err, "DoJSON itself should not error on non-2xx — callers decide")
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, status)
 	assert.Contains(t, string(body), "not found")
+}
+
+// TestGet_TransportErrorReturnsError covers the path where the server is unreachable.
+func TestGet_TransportErrorReturnsError(t *testing.T) {
+	// Port 1 is always refused on loopback.
+	_, err := client.Get(context.Background(), "http://127.0.0.1:1", client.Options{})
+	require.Error(t, err)
 }

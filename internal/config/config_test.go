@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -9,21 +10,28 @@ import (
 	"github.com/paladinai/paladinai/internal/config"
 )
 
-// setenv sets an env var for the test and restores the original value on cleanup.
-func setenv(t *testing.T, key, value string) {
+// clearBaseEnv unsets all LoadBase env vars so tests start from a clean slate.
+func clearBaseEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv(key, value)
-}
-
-// ── LoadBase ──────────────────────────────────────────────────────────────────
-
-func TestLoadBase_DefaultsWhenEnvUnset(t *testing.T) {
-	// Explicitly unset env vars that might be set in CI.
 	for _, k := range []string{"ENV", "LOG_LEVEL", "NATS_URL", "DATABASE_URL",
 		"VALKEY_URL", "QDRANT_URL", "VAULT_ADDR", "VAULT_TOKEN",
 		"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_SERVICE_VERSION"} {
 		t.Setenv(k, "")
 	}
+}
+
+func clearLLMEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"OPENROUTER_API_KEY", "LLM_GATEWAY_URL",
+		"LLM_TIER_A", "LLM_TIER_B", "LLM_TIER_C"} {
+		t.Setenv(k, "")
+	}
+}
+
+// ── LoadBase ──────────────────────────────────────────────────────────────────
+
+func TestLoadBase_DefaultsWhenEnvUnset(t *testing.T) {
+	clearBaseEnv(t)
 
 	b, err := config.LoadBase()
 	require.NoError(t, err)
@@ -41,11 +49,12 @@ func TestLoadBase_DefaultsWhenEnvUnset(t *testing.T) {
 }
 
 func TestLoadBase_EnvVarsOverrideDefaults(t *testing.T) {
-	setenv(t, "ENV", "production")
-	setenv(t, "LOG_LEVEL", "warn")
-	setenv(t, "NATS_URL", "nats://nats.prod:4222")
-	setenv(t, "DATABASE_URL", "postgres://db/prod")
-	setenv(t, "OTEL_SERVICE_VERSION", "v1.2.3")
+	clearBaseEnv(t)
+	t.Setenv("ENV", "production")
+	t.Setenv("LOG_LEVEL", "warn")
+	t.Setenv("NATS_URL", "nats://nats.prod:4222")
+	t.Setenv("DATABASE_URL", "postgres://db/prod")
+	t.Setenv("OTEL_SERVICE_VERSION", "v1.2.3")
 
 	b, err := config.LoadBase()
 	require.NoError(t, err)
@@ -60,7 +69,7 @@ func TestLoadBase_EnvVarsOverrideDefaults(t *testing.T) {
 // ── LoadLLM ───────────────────────────────────────────────────────────────────
 
 func TestLoadLLM_MissingAPIKeyReturnsError(t *testing.T) {
-	t.Setenv("OPENROUTER_API_KEY", "")
+	clearLLMEnv(t)
 
 	_, err := config.LoadLLM()
 	require.Error(t, err)
@@ -68,10 +77,8 @@ func TestLoadLLM_MissingAPIKeyReturnsError(t *testing.T) {
 }
 
 func TestLoadLLM_DefaultTiersWhenUnset(t *testing.T) {
-	setenv(t, "OPENROUTER_API_KEY", "sk-test")
-	for _, k := range []string{"LLM_GATEWAY_URL", "LLM_TIER_A", "LLM_TIER_B", "LLM_TIER_C"} {
-		t.Setenv(k, "")
-	}
+	clearLLMEnv(t)
+	t.Setenv("OPENROUTER_API_KEY", "sk-test")
 
 	llm, err := config.LoadLLM()
 	require.NoError(t, err)
@@ -84,14 +91,16 @@ func TestLoadLLM_DefaultTiersWhenUnset(t *testing.T) {
 }
 
 func TestLoadLLM_EnvVarsOverrideTiers(t *testing.T) {
-	setenv(t, "OPENROUTER_API_KEY", "sk-prod")
-	setenv(t, "LLM_TIER_A", "custom/fast")
-	setenv(t, "LLM_TIER_C", "custom/powerful")
+	clearLLMEnv(t)
+	t.Setenv("OPENROUTER_API_KEY", "sk-prod")
+	t.Setenv("LLM_TIER_A", "custom/fast")
+	t.Setenv("LLM_TIER_C", "custom/powerful")
 
 	llm, err := config.LoadLLM()
 	require.NoError(t, err)
 
 	assert.Equal(t, "custom/fast", llm.TierA)
+	assert.Equal(t, "qwen/qwen3-8b", llm.TierB, "TierB should remain default when not overridden")
 	assert.Equal(t, "custom/powerful", llm.TierC)
 }
 
@@ -108,7 +117,7 @@ func TestLoadServer_UsesDefaultPortWhenEnvUnset(t *testing.T) {
 }
 
 func TestLoadServer_EnvPortOverridesDefault(t *testing.T) {
-	setenv(t, "HTTP_PORT", "9090")
+	t.Setenv("HTTP_PORT", "9090")
 
 	srv, err := config.LoadServer("HTTP_PORT", 8080)
 	require.NoError(t, err)
@@ -117,20 +126,23 @@ func TestLoadServer_EnvPortOverridesDefault(t *testing.T) {
 	assert.Equal(t, 9190, srv.GRPCPort)
 }
 
+// TestLoadServer_InvalidPortFallsBackToDefault documents the current silent-fallback
+// contract. If the production code is ever changed to return an error on bad input,
+// update this test to require.Error.
 func TestLoadServer_InvalidPortFallsBackToDefault(t *testing.T) {
-	setenv(t, "HTTP_PORT", "not-a-number")
+	t.Setenv("HTTP_PORT", "not-a-number")
 
 	srv, err := config.LoadServer("HTTP_PORT", 8080)
 	require.NoError(t, err)
 	assert.Equal(t, 8080, srv.Port)
 }
 
-func TestLoadServer_TimeoutsAreNonZero(t *testing.T) {
+func TestLoadServer_Timeouts(t *testing.T) {
 	srv, err := config.LoadServer("HTTP_PORT", 8080)
 	require.NoError(t, err)
 
-	assert.Positive(t, srv.ReadTimeout)
-	assert.Positive(t, srv.WriteTimeout)
-	assert.Positive(t, srv.IdleTimeout)
-	assert.Positive(t, srv.ShutdownTimeout)
+	assert.Equal(t, 15*time.Second, srv.ReadTimeout)
+	assert.Equal(t, 30*time.Second, srv.WriteTimeout)
+	assert.Equal(t, 60*time.Second, srv.IdleTimeout)
+	assert.Equal(t, 10*time.Second, srv.ShutdownTimeout)
 }
