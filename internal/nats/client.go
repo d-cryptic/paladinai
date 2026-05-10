@@ -74,6 +74,9 @@ func Connect(url string, log *zap.Logger) (*Client, error) {
 // JS returns the raw JetStream context for direct use.
 func (c *Client) JS() jetstream.JetStream { return c.js }
 
+// Conn returns the underlying NATS connection (e.g. for health checks).
+func (c *Client) Conn() *nats.Conn { return c.nc }
+
 // Close drains the connection gracefully.
 func (c *Client) Close() {
 	if err := c.nc.Drain(); err != nil {
