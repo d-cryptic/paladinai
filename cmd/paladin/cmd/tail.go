@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -15,6 +15,14 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
+)
+
+const (
+	wsPongWait   = 60 * time.Second
+	wsPingPeriod = (wsPongWait * 9) / 10
+	wsDialTimeout = 10 * time.Second
+	wsCloseGrace  = 2 * time.Second
+	wsMaxBackoff  = 30 * time.Second
 )
 
 // AlertEvent is the JSON payload pushed by the server over the WebSocket.
@@ -49,27 +57,27 @@ func runTail(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	base := apiURL(cmd)
-	wsURL, err := alertWSURL(base, cmd)
+	wsURL, err := alertWSURL(apiURL(cmd), cmd)
 	if err != nil {
 		return err
 	}
 
+	// Token precedence: --token flag > PALADIN_TOKEN env > config file
 	token := optToken(cmd)
+	if token == "" {
+		token = os.Getenv("PALADIN_TOKEN")
+	}
 	if token == "" {
 		if cfg, _ := loadConfig(); cfg != nil {
 			token = cfg.Token
 		}
-		if t := os.Getenv("PALADIN_TOKEN"); t != "" {
-			token = t
-		}
 	}
 
-	header := make(map[string][]string)
+	header := http.Header{}
+	header.Set("X-Tenant-ID", tenant)
 	if token != "" {
-		header["Authorization"] = []string{"Bearer " + token}
+		header.Set("Authorization", "Bearer "+token)
 	}
-	header["X-Tenant-ID"] = []string{tenant}
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -85,11 +93,9 @@ func runTail(cmd *cobra.Command, _ []string) error {
 
 // connectAndStream connects to the WebSocket URL and writes arriving events to w.
 // It reconnects with exponential backoff on unexpected disconnects.
-func connectAndStream(ctx context.Context, wsURL string, header map[string][]string, w *tabwriter.Writer) error {
+func connectAndStream(ctx context.Context, wsURL string, header http.Header, w *tabwriter.Writer) error {
 	backoff := time.Second
-	const maxBackoff = 30 * time.Second
-
-	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	dialer := websocket.Dialer{HandshakeTimeout: wsDialTimeout}
 
 	for {
 		select {
@@ -109,18 +115,17 @@ func connectAndStream(ctx context.Context, wsURL string, header map[string][]str
 				return nil
 			case <-time.After(backoff):
 			}
-			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
+			backoff = min(backoff*2, wsMaxBackoff)
 			continue
 		}
 
-		// reset backoff on successful connection
-		backoff = time.Second
+		backoff = time.Second // reset on successful connect
 		fmt.Fprintln(os.Stderr, "connected")
 
-		disconnected := streamMessages(ctx, conn, w)
+		reconnect := streamMessages(ctx, conn, w)
 		conn.Close()
 
-		if !disconnected || ctx.Err() != nil {
+		if !reconnect || ctx.Err() != nil {
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "disconnected — retrying in %s\n", backoff)
@@ -129,24 +134,41 @@ func connectAndStream(ctx context.Context, wsURL string, header map[string][]str
 			return nil
 		case <-time.After(backoff):
 		}
-		backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
+		backoff = min(backoff*2, wsMaxBackoff)
 	}
 }
 
-// streamMessages reads events from conn until the context is cancelled or the
-// connection closes unexpectedly. Returns true if a reconnect should be attempted.
+// streamMessages reads events from conn until ctx is cancelled or the connection
+// closes unexpectedly. Returns true if a reconnect should be attempted.
 func streamMessages(ctx context.Context, conn *websocket.Conn, w *tabwriter.Writer) bool {
-	done := make(chan struct{})
+	// Extend read deadline on each pong to detect half-open connections.
+	conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
+
+	// Ping ticker + graceful-close goroutine.
+	ticker := time.NewTicker(wsPingPeriod)
+	defer ticker.Stop()
+
 	go func() {
-		defer close(done)
-		select {
-		case <-ctx.Done():
-			conn.WriteControl(
-				websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-				time.Now().Add(time.Second),
-			)
-		case <-done:
+		for {
+			select {
+			case <-ctx.Done():
+				// Signal the peer we are closing; set a short read deadline so
+				// ReadMessage unblocks quickly rather than waiting for peer ACK.
+				_ = conn.WriteControl(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+					time.Now().Add(wsCloseGrace),
+				)
+				conn.SetReadDeadline(time.Now().Add(wsCloseGrace))
+				return
+			case <-ticker.C:
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsCloseGrace)); err != nil {
+					return
+				}
+			}
 		}
 	}()
 
@@ -183,13 +205,12 @@ func printEvent(w *tabwriter.Writer, ev AlertEvent) {
 	if len(title) > 36 {
 		title = title[:36] + "..."
 	}
-	status := ev.Status
-	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ts, sev, svc, status, title)
+	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ts, sev, svc, ev.Status, title)
 	w.Flush()
 }
 
 // alertWSURL converts the HTTP api base URL into a WebSocket alerts URL and
-// appends query parameters from flags.
+// appends filter query parameters from flags.
 func alertWSURL(apiBase string, cmd *cobra.Command) (string, error) {
 	u, err := url.Parse(apiBase)
 	if err != nil {

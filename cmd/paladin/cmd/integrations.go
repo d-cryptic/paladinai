@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
@@ -232,27 +233,15 @@ func printIntegrationDetail(i map[string]any) {
 
 	// Print tools list if present
 	if tools, ok := i["tools"].([]any); ok && len(tools) > 0 {
-		fmt.Fprintf(w, "Tools:\t")
 		names := make([]string, 0, len(tools))
 		for _, t := range tools {
 			if name, ok := t.(string); ok {
 				names = append(names, name)
 			}
 		}
-		fmt.Fprintf(w, "%s\n", joinStrings(names, ", "))
+		fmt.Fprintf(w, "Tools:\t%s\n", strings.Join(names, ", "))
 	}
 	w.Flush()
-}
-
-func joinStrings(ss []string, sep string) string {
-	result := ""
-	for i, s := range ss {
-		if i > 0 {
-			result += sep
-		}
-		result += s
-	}
-	return result
 }
 
 func init() {
