@@ -22,7 +22,6 @@ import (
 func main() {
 	cfg, err := agentcfg.Load()
 	if err != nil {
-		// Bootstrap logger for fatal startup errors
 		log, _ := zap.NewProduction()
 		log.Fatal("config load failed", zap.Error(err))
 	}
@@ -39,7 +38,7 @@ func main() {
 	// ── LLM client ───────────────────────────────────────────────────────────
 	llmClient, err := llm.New(ctx, llm.Config{
 		BaseURL:    cfg.LLM.GatewayURL,
-		APIKey:     cfg.LLM.OpenRouterKey,
+		APIKey:     llm.Secret(cfg.LLM.OpenRouterKey),
 		ModelTierA: cfg.LLM.TierA,
 		ModelTierB: cfg.LLM.TierB,
 		ModelTierC: cfg.LLM.TierC,
@@ -48,8 +47,13 @@ func main() {
 		log.Fatal("llm client init failed", zap.Error(err))
 	}
 
+	tierBModel, err := llmClient.Model(llm.TierB)
+	if err != nil {
+		log.Fatal("llm tier B not found", zap.Error(err))
+	}
+
 	// ── Triage agent ─────────────────────────────────────────────────────────
-	triageAgent, err := agent.NewTriageAgent(ctx, llmClient.Model(llm.TierB), log)
+	triageAgent, err := agent.NewTriageAgent(ctx, tierBModel, log)
 	if err != nil {
 		log.Fatal("triage agent init failed", zap.Error(err))
 	}
@@ -62,7 +66,7 @@ func main() {
 	defer natsClient.Close()
 
 	// ── Worker ───────────────────────────────────────────────────────────────
-	w := worker.New(triageAgent, cfg.TriageTimeout, log)
+	w := worker.New(triageAgent, natsClient, cfg.TriageTimeout, cfg.AgentWorkers, log)
 
 	log.Info("paladin-agent starting",
 		zap.String("consumer", cfg.NATSConsumerName),

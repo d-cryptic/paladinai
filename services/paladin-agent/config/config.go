@@ -29,11 +29,12 @@ type Agent struct {
 func Load() (*Agent, error) {
 	base, err := config.LoadBase()
 	if err != nil {
-		return nil, fmt.Errorf("agent config: %w", err)
+		return nil, fmt.Errorf("agent config load base: %w", err)
 	}
+
 	llm, err := config.LoadLLM()
 	if err != nil {
-		return nil, fmt.Errorf("agent config: %w", err)
+		return nil, fmt.Errorf("agent config load llm: %w", err)
 	}
 
 	return &Agent{

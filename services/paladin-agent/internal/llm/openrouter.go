@@ -5,6 +5,8 @@ package llm
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
@@ -22,13 +24,21 @@ const (
 	TierC Tier = "C"
 )
 
+// Secret wraps a string so it prints as "[REDACTED]" in logs and JSON.
+type Secret string
+
+func (s Secret) String() string                   { return "[REDACTED]" }
+func (s Secret) MarshalJSON() ([]byte, error)      { return []byte(`"[REDACTED]"`), nil }
+func (s Secret) Reveal() string                    { return string(s) }
+
 // Config holds OpenRouter credentials and model names per tier.
 type Config struct {
-	BaseURL       string // default: https://openrouter.ai/api/v1
-	APIKey        string
-	ModelTierA    string
-	ModelTierB    string
-	ModelTierC    string
+	// BaseURL must be HTTPS. Providing http:// will return an error from New.
+	BaseURL    string
+	APIKey     Secret
+	ModelTierA string
+	ModelTierB string
+	ModelTierC string
 }
 
 // Client wraps per-tier Eino chat models backed by OpenRouter.
@@ -37,8 +47,12 @@ type Client struct {
 }
 
 // New creates an LLM Client with one model per tier.
-// Returns an error if any model fails to initialise (bad config, network issue at startup).
+// Returns an error if the base URL is not HTTPS or any model fails to initialise.
 func New(ctx context.Context, cfg Config) (*Client, error) {
+	if !strings.HasPrefix(cfg.BaseURL, "https://") {
+		return nil, fmt.Errorf("llm: BaseURL must use HTTPS, got %q", cfg.BaseURL)
+	}
+
 	tiers := map[Tier]string{
 		TierA: cfg.ModelTierA,
 		TierB: cfg.ModelTierB,
@@ -49,11 +63,11 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	for tier, modelName := range tiers {
 		m, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
 			BaseURL: cfg.BaseURL,
-			APIKey:  cfg.APIKey,
+			APIKey:  cfg.APIKey.Reveal(),
 			Model:   modelName,
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("llm: init tier %s model %q: %w", tier, modelName, err)
 		}
 		models[tier] = m
 	}
@@ -62,11 +76,11 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 }
 
 // Model returns the ToolCallingChatModel for the given tier.
-// Panics if tier is unknown — callers must use a defined Tier constant.
-func (c *Client) Model(tier Tier) model.ToolCallingChatModel {
+// Returns an error for unknown tiers — callers should Term the message, not crash.
+func (c *Client) Model(tier Tier) (model.ToolCallingChatModel, error) {
 	m, ok := c.models[tier]
 	if !ok {
-		panic("llm: unknown tier " + string(tier))
+		return nil, fmt.Errorf("llm: unknown tier %q", tier)
 	}
-	return m
+	return m, nil
 }
