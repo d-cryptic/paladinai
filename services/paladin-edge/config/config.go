@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	base "github.com/paladinai/paladinai/internal/config"
 )
@@ -22,6 +23,9 @@ type Config struct {
 	// e.g. "http://paladin-hub:8082". When empty, the /api/v1/mcp routes are
 	// registered but return 502 immediately (safe for local dev without hub running).
 	HubURL string
+	// AllowedOrigins is the list of CORS origins for the dashboard SPA.
+	// Defaults to localhost dev ports; override via CORS_ALLOWED_ORIGINS (comma-separated).
+	AllowedOrigins []string
 }
 
 func Load() (Config, error) {
@@ -42,12 +46,34 @@ func Load() (Config, error) {
 		llm = base.LLM{}
 	}
 
+	origins := parseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
+
 	return Config{
-		Base:         b,
-		Server:       srv,
-		LLM:          llm,
-		RateLimitRPS: 60,
-		JWTSecret:    os.Getenv("JWT_SECRET"),
-		HubURL:       os.Getenv("HUB_URL"),
+		Base:           b,
+		Server:         srv,
+		LLM:            llm,
+		RateLimitRPS:   60,
+		JWTSecret:      os.Getenv("JWT_SECRET"),
+		HubURL:         os.Getenv("HUB_URL"),
+		AllowedOrigins: origins,
 	}, nil
+}
+
+// parseCORSOrigins splits a comma-separated list of origins.
+// When raw is empty it returns the safe local-dev defaults.
+func parseCORSOrigins(raw string) []string {
+	if raw == "" {
+		return []string{"http://localhost:3000", "http://localhost:3001"}
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"http://localhost:3000", "http://localhost:3001"}
+	}
+	return out
 }

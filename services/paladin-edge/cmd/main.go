@@ -84,7 +84,7 @@ func run() error {
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"http://localhost:3000", "http://localhost:3001"},
+		AllowedOrigins: conf.AllowedOrigins,
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID", "X-Tenant-ID"},
 	}))

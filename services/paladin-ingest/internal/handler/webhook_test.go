@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,6 +49,35 @@ func (f *fakeDedup) IsDuplicate(_ context.Context, env *alert.AlertEnvelope) (bo
 
 func (f *fakeDedup) Reset(_ context.Context, tenantID, fingerprint string) error {
 	delete(f.seen, tenantID+":"+fingerprint)
+	return nil
+}
+
+// errorDedup always returns an error from IsDuplicate.
+type errorDedup struct{}
+
+func (e *errorDedup) IsDuplicate(_ context.Context, _ *alert.AlertEnvelope) (bool, error) {
+	return false, fmt.Errorf("valkey unavailable")
+}
+func (e *errorDedup) Reset(_ context.Context, _, _ string) error { return nil }
+
+// errorPublisher always returns an error from PublishAlert.
+type errorPublisher struct{}
+
+func (e *errorPublisher) PublishAlert(_ context.Context, _ alert.AlertEnvelope) error {
+	return fmt.Errorf("nats: publish failed")
+}
+
+// countingPublisher succeeds for the first failAfter calls, then always fails.
+type countingPublisher struct {
+	calls     int
+	failAfter int
+}
+
+func (c *countingPublisher) PublishAlert(_ context.Context, _ alert.AlertEnvelope) error {
+	c.calls++
+	if c.calls > c.failAfter {
+		return fmt.Errorf("nats: publish failed (call %d)", c.calls)
+	}
 	return nil
 }
 
@@ -167,6 +197,109 @@ func TestWebhookHandler_Alertmanager_ResolvedClearsDedup(t *testing.T) {
 	assert.Len(t, pub.published, 2, "both firing and resolved should be published")
 }
 
+func TestWebhookHandler_Alertmanager_OversizedPayload(t *testing.T) {
+	wh := handler.NewWebhookHandler(&fakePublisher{}, newFakeDedup(), zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	// Build a JSON body just over 8 MB.
+	bigLabel := make([]byte, 8*1024*1024+1)
+	for i := range bigLabel {
+		bigLabel[i] = 'x'
+	}
+	type amAlert struct {
+		Status string            `json:"status"`
+		Labels map[string]string `json:"labels"`
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"version":  "4",
+		"status":   "firing",
+		"receiver": "paladin",
+		"alerts": []amAlert{{
+			Status: "firing",
+			Labels: map[string]string{"alertname": "BigAlert", "severity": "critical", "padding": string(bigLabel)},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-big", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	// The LimitReader silently truncates at 8 MiB; the truncated JSON is invalid.
+	assert.Equal(t, http.StatusBadRequest, rr.Code, "oversized body should yield 400 after truncated JSON parse failure")
+}
+
+func TestWebhookHandler_Alertmanager_DedupErrorIsNonFatal(t *testing.T) {
+	pub := &fakePublisher{}
+	dedup := &errorDedup{}
+	wh := handler.NewWebhookHandler(pub, dedup, zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "HighCPU", "critical")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-dd", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	// Dedup error is non-fatal: alert is still published and 202 is returned.
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+	require.Len(t, pub.published, 1, "alert should be published even when dedup check errors")
+
+	var body map[string]interface{}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, float64(1), body["failed"], "failed count should reflect dedup error")
+}
+
+func TestWebhookHandler_Alertmanager_PublishFailureCountedAsFailed(t *testing.T) {
+	pub := &errorPublisher{}
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "HighCPU", "critical")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-pub", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	// Even on publish failure we return 202 (Alertmanager retries on non-2xx,
+	// causing duplicates for already-published alerts in a batch).
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+
+	var body map[string]interface{}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, float64(0), body["published"])
+	assert.Equal(t, float64(1), body["failed"])
+}
+
+func TestWebhookHandler_Alertmanager_BatchPartialFailure(t *testing.T) {
+	pub := &countingPublisher{failAfter: 1}
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	// Send 3 alerts: first succeeds, remaining fail.
+	payload := alertmanagerBatch(t, 3, "firing")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-batch", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code, "202 even on partial failure")
+
+	var body map[string]interface{}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, float64(3), body["total"])
+	assert.Equal(t, float64(1), body["published"])
+	assert.Equal(t, float64(2), body["failed"])
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func alertmanagerBody(t *testing.T, status, alertname, severity string) []byte {
@@ -189,6 +322,32 @@ func alertmanagerBody(t *testing.T, status, alertname, severity string) []byte {
 		}},
 	}
 	b, err := json.Marshal(payload)
+	require.NoError(t, err)
+	return b
+}
+
+// alertmanagerBatch builds a payload with n distinct alerts (unique alertnames).
+func alertmanagerBatch(t *testing.T, n int, status string) []byte {
+	t.Helper()
+	type amAlert struct {
+		Status   string            `json:"status"`
+		Labels   map[string]string `json:"labels"`
+		StartsAt time.Time         `json:"startsAt"`
+	}
+	alerts := make([]amAlert, n)
+	for i := range alerts {
+		alerts[i] = amAlert{
+			Status:   status,
+			Labels:   map[string]string{"alertname": fmt.Sprintf("Alert%d", i), "severity": "critical"},
+			StartsAt: time.Now(),
+		}
+	}
+	b, err := json.Marshal(map[string]interface{}{
+		"version":  "4",
+		"status":   status,
+		"receiver": "paladin",
+		"alerts":   alerts,
+	})
 	require.NoError(t, err)
 	return b
 }
