@@ -22,10 +22,8 @@ const (
 	dlqSubjectFmt   = "paladin.alerts.triage.dlq.%s"
 )
 
-// Triager is satisfied by agent.TriageAgent (and test fakes).
-type Triager interface {
-	Triage(ctx context.Context, env *alert.AlertEnvelope) (*agent.TriageResult, error)
-}
+// Triager is satisfied by agent.TriageAgent, agent.CachedTriager, and test fakes.
+type Triager = agent.Triager
 
 // ResultPublisher publishes triage results downstream.
 type ResultPublisher interface {
