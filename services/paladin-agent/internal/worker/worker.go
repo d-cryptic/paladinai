@@ -25,17 +25,26 @@ const (
 // Triager is satisfied by agent.TriageAgent, agent.CachedTriager, and test fakes.
 type Triager = agent.Triager
 
+// RCAAnalyzer is satisfied by agent.RCAAgent and test fakes.
+type RCAAnalyzer = agent.RCAAnalyzer
+
 // ResultPublisher publishes triage results downstream.
 type ResultPublisher interface {
 	Publish(ctx context.Context, subject string, data []byte) (*jetstream.PubAck, error)
 }
 
 // Worker consumes correlated alerts from NATS, triages them, and publishes results.
+//
+// Copy-safety invariant: Worker fields are interfaces, scalars, or pointer types
+// with no embedded sync.Mutex or mutable maps. WithRCA relies on shallow copy.
+// If you add a mutex or map directly to this struct, update WithRCA accordingly.
 type Worker struct {
 	triager       Triager
+	rcaAnalyzer   RCAAnalyzer // optional; nil skips RCA step
 	pub           ResultPublisher
 	log           *zap.Logger
 	triageTimeout time.Duration
+	rcaTimeout    time.Duration // 0 means use triageTimeout
 	concurrency   int
 }
 
@@ -49,8 +58,25 @@ func New(triager Triager, pub ResultPublisher, triageTimeout time.Duration, conc
 		pub:           pub,
 		log:           log,
 		triageTimeout: triageTimeout,
+		rcaTimeout:    2 * triageTimeout, // Tier C is slower; default 2× triage
 		concurrency:   concurrency,
 	}
+}
+
+// WithRCA returns a copy of the Worker with the RCA analyzer wired in.
+// When set, ProcessEnvelope/handleMsg run RCA after triage and publish to
+// paladin.alerts.analyzed.* instead of paladin.alerts.triaged.*.
+func (w *Worker) WithRCA(rca RCAAnalyzer) *Worker {
+	cp := *w
+	cp.rcaAnalyzer = rca
+	return &cp
+}
+
+// WithRCATimeout overrides the default RCA operation timeout.
+func (w *Worker) WithRCATimeout(d time.Duration) *Worker {
+	cp := *w
+	cp.rcaTimeout = d
+	return &cp
 }
 
 // Run starts a bounded pool of workers consuming from paladin.alerts.correlated.>.
@@ -177,8 +203,27 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
-	// Publish triage result downstream before Acking.
-	if err := w.publishResult(ctx, &env, result); err != nil {
+	// Optionally run RCA after triage. On failure, fall back to triage-only publish.
+	var rcaResult *agent.RCAResult
+	if w.rcaAnalyzer != nil {
+		timeout := w.rcaTimeout
+		if timeout <= 0 {
+			timeout = w.triageTimeout
+		}
+		rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
+		rcaResult, err = w.rcaAnalyzer.Analyze(rcaCtx, &env, result)
+		rcaCancel() // cancel immediately; do not defer (timer would run until handleMsg returns)
+		if err != nil {
+			w.log.Warn("worker: rca failed, publishing triage-only result",
+				zap.String("fingerprint", env.Fingerprint),
+				zap.Error(err),
+			)
+			rcaResult = nil // ensure fallback to triaged subject
+		}
+	}
+
+	// Publish downstream before Acking.
+	if err := w.publishCombined(ctx, &env, result, rcaResult); err != nil {
 		w.log.Error("worker: publish result failed, nacking",
 			zap.String("fingerprint", env.Fingerprint),
 			zap.Error(err),
@@ -196,26 +241,42 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		)
 	}
 
-	w.log.Info("worker: triage complete",
+	w.log.Info("worker: pipeline complete",
 		zap.String("fingerprint", env.Fingerprint),
 		zap.String("correlation_id", env.CorrelationID),
 		zap.String("tenant", env.TenantID),
 		zap.String("severity", result.ConfirmedSeverity),
 		zap.Bool("needs_human", result.NeedsHuman),
-		zap.Bool("degraded", result.Degraded),
+		zap.Bool("rca_ran", rcaResult != nil),
 	)
 }
 
-func (w *Worker) publishResult(ctx context.Context, env *alert.AlertEnvelope, result *agent.TriageResult) error {
-	payload, err := json.Marshal(struct {
-		Envelope *alert.AlertEnvelope `json:"envelope"`
-		Triage   *agent.TriageResult  `json:"triage"`
-	}{Envelope: env, Triage: result})
+// publishCombined publishes the triage result, and the optional RCA result when available.
+// When rca is non-nil: publishes to paladin.alerts.analyzed.<tenantID>.<source>
+// When rca is nil:     publishes to paladin.alerts.triaged.<tenantID>.<source>
+func (w *Worker) publishCombined(ctx context.Context, env *alert.AlertEnvelope, triage *agent.TriageResult, rca *agent.RCAResult) error {
+	var payload []byte
+	var subject string
+	var err error
+
+	if rca != nil {
+		payload, err = json.Marshal(struct {
+			Envelope *alert.AlertEnvelope `json:"envelope"`
+			Triage   *agent.TriageResult  `json:"triage"`
+			RCA      *agent.RCAResult     `json:"rca"`
+		}{Envelope: env, Triage: triage, RCA: rca})
+		subject = fmt.Sprintf("paladin.alerts.analyzed.%s.%s", env.TenantID, string(env.Source))
+	} else {
+		payload, err = json.Marshal(struct {
+			Envelope *alert.AlertEnvelope `json:"envelope"`
+			Triage   *agent.TriageResult  `json:"triage"`
+		}{Envelope: env, Triage: triage})
+		subject = fmt.Sprintf("paladin.alerts.triaged.%s.%s", env.TenantID, string(env.Source))
+	}
 	if err != nil {
-		return fmt.Errorf("marshal triage result: %w", err)
+		return fmt.Errorf("marshal result: %w", err)
 	}
 
-	subject := fmt.Sprintf("paladin.alerts.triaged.%s.%s", env.TenantID, string(env.Source))
 	if _, err := w.pub.Publish(ctx, subject, payload); err != nil {
 		return fmt.Errorf("publish to %s: %w", subject, err)
 	}
@@ -237,23 +298,44 @@ func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triag
 
 // nakDelay returns exponential backoff for NATS Nak: 10s, 30s, 2m, 10m, capped at 10m.
 func nakDelay(deliveries uint64) time.Duration {
-	base := 10.0 // seconds
-	max := 10 * 60.0
+	const (
+		base     = 10.0       // seconds
+		maxDelay = 10 * 60.0  // seconds
+	)
 	d := base * math.Pow(3, float64(deliveries))
-	if d > max {
-		d = max
+	if d > maxDelay {
+		d = maxDelay
 	}
 	return time.Duration(d) * time.Second
 }
 
-// ProcessEnvelope runs the triage + publish pipeline for a single envelope.
+// ProcessEnvelope runs the full pipeline (triage, optional RCA) for a single envelope.
 // Exported for tests that bypass the NATS consumer.
 func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) error {
-	result, err := w.triager.Triage(ctx, env)
+	triage, err := w.triager.Triage(ctx, env)
 	if err != nil {
 		return err
 	}
-	return w.publishResult(ctx, env, result)
+
+	var rca *agent.RCAResult
+	if w.rcaAnalyzer != nil {
+		timeout := w.rcaTimeout
+		if timeout <= 0 {
+			timeout = w.triageTimeout
+		}
+		rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
+		rca, err = w.rcaAnalyzer.Analyze(rcaCtx, env, triage)
+		rcaCancel()
+		if err != nil {
+			w.log.Warn("ProcessEnvelope: rca failed, falling back to triage-only",
+				zap.String("fingerprint", env.Fingerprint),
+				zap.Error(err),
+			)
+			rca = nil
+		}
+	}
+
+	return w.publishCombined(ctx, env, triage, rca)
 }
 
 // TriageEnvelope runs only the triage agent on the envelope and returns the result.

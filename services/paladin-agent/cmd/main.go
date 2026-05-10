@@ -58,6 +58,16 @@ func main() {
 		log.Fatal("triage agent init failed", zap.Error(err))
 	}
 
+	// ── RCA agent (Tier C for deeper reasoning) ───────────────────────────────
+	tierCModel, err := llmClient.Model(llm.TierC)
+	if err != nil {
+		log.Fatal("llm tier C not found", zap.Error(err))
+	}
+	rcaAgent, err := agent.NewRCAAgent(ctx, tierCModel, log)
+	if err != nil {
+		log.Fatal("rca agent init failed", zap.Error(err))
+	}
+
 	// ── NATS ─────────────────────────────────────────────────────────────────
 	natsClient, err := internalnats.Connect(cfg.NatsURL, log)
 	if err != nil {
@@ -66,7 +76,9 @@ func main() {
 	defer natsClient.Close()
 
 	// ── Worker ───────────────────────────────────────────────────────────────
-	w := worker.New(triageAgent, natsClient, cfg.TriageTimeout, cfg.AgentWorkers, log)
+	w := worker.New(triageAgent, natsClient, cfg.TriageTimeout, cfg.AgentWorkers, log).
+		WithRCA(rcaAgent).
+		WithRCATimeout(cfg.RCATimeout)
 
 	log.Info("paladin-agent starting",
 		zap.String("consumer", cfg.NATSConsumerName),
