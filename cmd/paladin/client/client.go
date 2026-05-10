@@ -20,8 +20,9 @@ var HTTP = &http.Client{Timeout: DefaultTimeout}
 
 // Options controls authentication and other per-request options.
 type Options struct {
-	TenantID string
-	Token    string
+	TenantID    string
+	Token       string
+	AdminSecret string
 }
 
 func (o Options) applyHeaders(req *http.Request) {
@@ -30,6 +31,9 @@ func (o Options) applyHeaders(req *http.Request) {
 	}
 	if o.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+o.Token)
+	}
+	if o.AdminSecret != "" {
+		req.Header.Set("X-Admin-Secret", o.AdminSecret)
 	}
 }
 

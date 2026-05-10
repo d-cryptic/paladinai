@@ -81,10 +81,12 @@ func printAlertTable(body []byte) error {
 	return w.Flush()
 }
 
+// strField returns the string value for key. Truncates to 32 chars for display.
+// Use a direct type assertion when the full value is needed (e.g. IDs for follow-up commands).
 func strField(m map[string]any, key string) string {
 	v, _ := m[key].(string)
-	if len(v) > 20 {
-		return v[:20]
+	if len(v) > 32 {
+		return v[:32] + "…"
 	}
 	return v
 }

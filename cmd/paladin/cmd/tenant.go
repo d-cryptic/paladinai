@@ -7,11 +7,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"text/tabwriter"
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/spf13/cobra"
 )
+
+var slugRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
 
 var tenantCmd = &cobra.Command{
 	Use:   "tenant",
@@ -22,10 +25,13 @@ var tenantListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all tenants",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		u, _ := url.Parse(authURL(cmd))
+		u, err := url.Parse(authURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid auth-url: %w", err)
+		}
 		u.Path = "/api/v1/tenants"
 
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{Token: adminSecret(cmd)})
+		body, err := client.Get(cmd.Context(), u.String(), client.Options{AdminSecret: adminSecret(cmd)})
 		if err != nil {
 			return err
 		}
@@ -46,14 +52,24 @@ var tenantCreateCmd = &cobra.Command{
 		slug, _ := cmd.Flags().GetString("slug")
 		name, _ := cmd.Flags().GetString("name")
 
-		payload := map[string]any{"slug": slug, "name": name}
-		data, _ := json.Marshal(payload)
+		if !slugRE.MatchString(slug) {
+			return fmt.Errorf("invalid slug %q: must be 2-64 chars, lowercase alphanumeric and hyphens, not starting or ending with a hyphen", slug)
+		}
 
-		u, _ := url.Parse(authURL(cmd))
+		payload := map[string]any{"slug": slug, "name": name}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshal payload: %w", err)
+		}
+
+		u, err := url.Parse(authURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid auth-url: %w", err)
+		}
 		u.Path = "/api/v1/tenants"
 
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{Token: adminSecret(cmd)}, bytes.NewReader(data))
+			client.Options{AdminSecret: adminSecret(cmd)}, bytes.NewReader(data))
 		if err != nil {
 			return err
 		}
@@ -90,18 +106,22 @@ var tenantResumeCmd = &cobra.Command{
 }
 
 func tenantStateAction(cmd *cobra.Command, id, action string) error {
-	u, _ := url.Parse(authURL(cmd))
+	u, err := url.Parse(authURL(cmd))
+	if err != nil {
+		return fmt.Errorf("invalid auth-url: %w", err)
+	}
 	u.Path = fmt.Sprintf("/api/v1/tenants/%s/%s", url.PathEscape(id), action)
 
 	body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-		client.Options{Token: adminSecret(cmd)}, nil)
+		client.Options{AdminSecret: adminSecret(cmd)}, nil)
 	if err != nil {
 		return err
 	}
-	if status != http.StatusOK && status != http.StatusNoContent {
+	if status < 200 || status >= 300 {
 		return fmt.Errorf("API error %d: %s", status, string(body))
 	}
-	fmt.Printf("Tenant %q %sd.\n", id, action)
+	past := map[string]string{"suspend": "suspended", "resume": "resumed"}
+	fmt.Printf("Tenant %q %s.\n", id, past[action])
 	return nil
 }
 
@@ -117,7 +137,7 @@ func printTenantTable(body []byte) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tSLUG\tNAME\tSTATE\tCREATED")
 	for _, t := range response.Data {
-		id := strField(t, "id")
+		id, _ := t["id"].(string)
 		slug := strField(t, "slug")
 		name := strField(t, "name")
 		state := strField(t, "state")

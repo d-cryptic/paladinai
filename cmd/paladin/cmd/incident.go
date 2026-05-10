@@ -28,7 +28,10 @@ var incidentListCmd = &cobra.Command{
 			return err
 		}
 
-		u, _ := url.Parse(apiURL(cmd))
+		u, err := url.Parse(apiURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid api-url: %w", err)
+		}
 		u.Path = "/api/v1/incidents"
 		q := u.Query()
 		if status, _ := cmd.Flags().GetString("status"); status != "" {
@@ -60,7 +63,10 @@ var incidentShowCmd = &cobra.Command{
 			return err
 		}
 
-		u, _ := url.Parse(apiURL(cmd))
+		u, err := url.Parse(apiURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid api-url: %w", err)
+		}
 		u.Path = fmt.Sprintf("/api/v1/incidents/%s", url.PathEscape(args[0]))
 
 		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
@@ -96,9 +102,15 @@ var incidentResolveCmd = &cobra.Command{
 
 		note, _ := cmd.Flags().GetString("note")
 		payload := map[string]any{"resolution_note": note}
-		data, _ := json.Marshal(payload)
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshal payload: %w", err)
+		}
 
-		u, _ := url.Parse(apiURL(cmd))
+		u, err := url.Parse(apiURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid api-url: %w", err)
+		}
 		u.Path = fmt.Sprintf("/api/v1/incidents/%s/resolve", url.PathEscape(args[0]))
 
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
@@ -106,7 +118,7 @@ var incidentResolveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if status != http.StatusOK && status != http.StatusNoContent {
+		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 		fmt.Printf("Incident %q resolved.\n", args[0])
@@ -126,7 +138,8 @@ func printIncidentTable(body []byte) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tTITLE\tSEVERITY\tSTATUS\tAGE")
 	for _, inc := range response.Data {
-		id := strField(inc, "id")
+		// IDs must not be truncated — use raw type assertion
+		id, _ := inc["id"].(string)
 		title := strField(inc, "title")
 		sev := strField(inc, "severity")
 		status := strField(inc, "status")
@@ -153,11 +166,11 @@ func printIncidentDetail(inc map[string]any) {
 		{"resolved_at", "Resolved"},
 	}
 	for _, f := range fields {
-		v := fmt.Sprintf("%v", inc[f.k])
-		if v == "<nil>" {
+		v, ok := inc[f.k]
+		if !ok || v == nil {
 			v = "-"
 		}
-		fmt.Fprintf(w, "%s:\t%s\n", f.label, v)
+		fmt.Fprintf(w, "%s:\t%v\n", f.label, v)
 	}
 	w.Flush()
 }
