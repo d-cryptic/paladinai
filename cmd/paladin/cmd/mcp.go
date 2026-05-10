@@ -97,6 +97,62 @@ var mcpRegisterCmd = &cobra.Command{
 	},
 }
 
+var mcpGetCmd = &cobra.Command{
+	Use:   "get <server-id>",
+	Short: "Get details of a registered MCP server",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tenant, err := requireTenant(cmd)
+		if err != nil {
+			return err
+		}
+		u, err := url.Parse(apiURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid api-url: %w", err)
+		}
+		u.Path = fmt.Sprintf("/api/v1/mcp/servers/%s", url.PathEscape(args[0]))
+
+		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
+		if err != nil {
+			return err
+		}
+
+		outputFmt, _ := cmd.Flags().GetString("output")
+		if outputFmt == "json" {
+			fmt.Fprintln(os.Stdout, string(body))
+			return nil
+		}
+		return printMCPSingle(body)
+	},
+}
+
+var mcpHeartbeatCmd = &cobra.Command{
+	Use:   "heartbeat <server-id>",
+	Short: "Send a heartbeat for a registered MCP server",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tenant, err := requireTenant(cmd)
+		if err != nil {
+			return err
+		}
+		u, err := url.Parse(apiURL(cmd))
+		if err != nil {
+			return fmt.Errorf("invalid api-url: %w", err)
+		}
+		u.Path = fmt.Sprintf("/api/v1/mcp/servers/%s/heartbeat", url.PathEscape(args[0]))
+
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)}, nil)
+		if err != nil {
+			return err
+		}
+		if status != http.StatusOK {
+			return fmt.Errorf("API error %d: %s", status, string(body))
+		}
+		fmt.Printf("Heartbeat sent for server %q.\n", args[0])
+		return nil
+	},
+}
+
 var mcpDeregisterCmd = &cobra.Command{
 	Use:   "deregister <server-id>",
 	Short: "Deregister an MCP server",
@@ -122,6 +178,32 @@ var mcpDeregisterCmd = &cobra.Command{
 		}
 		return fmt.Errorf("API error %d: %s", status, string(body))
 	},
+}
+
+func printMCPSingle(body []byte) error {
+	var response struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		fmt.Fprintln(os.Stdout, string(body))
+		return nil
+	}
+	s := response.Data
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "ID:\t%s\n", strField(s, "id"))
+	fmt.Fprintf(w, "Name:\t%s\n", strField(s, "name"))
+	fmt.Fprintf(w, "Endpoint:\t%s\n", strField(s, "endpoint"))
+	fmt.Fprintf(w, "Healthy:\t%v\n", s["healthy"])
+	if c, ok := s["capabilities"].([]any); ok {
+		parts := make([]string, 0, len(c))
+		for _, v := range c {
+			if str, ok := v.(string); ok {
+				parts = append(parts, str)
+			}
+		}
+		fmt.Fprintf(w, "Capabilities:\t%s\n", strings.Join(parts, ", "))
+	}
+	return w.Flush()
 }
 
 func printMCPTable(body []byte) error {
@@ -168,5 +250,5 @@ func init() {
 	_ = mcpRegisterCmd.MarkFlagRequired("endpoint")
 	_ = mcpRegisterCmd.MarkFlagRequired("capabilities")
 
-	mcpCmd.AddCommand(mcpListCmd, mcpRegisterCmd, mcpDeregisterCmd)
+	mcpCmd.AddCommand(mcpListCmd, mcpGetCmd, mcpRegisterCmd, mcpDeregisterCmd, mcpHeartbeatCmd)
 }
