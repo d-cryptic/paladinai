@@ -2,6 +2,9 @@ package cache
 
 import (
 	"context"
+	"encoding/binary"
+	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -227,11 +230,80 @@ func TestCosineSimilarity(t *testing.T) {
 	}
 }
 
-// TestFloat32SliceToBytes verifies serialisation round-trip.
+// TestFloat32SliceToBytes verifies serialisation round-trip with bit-level accuracy.
 func TestFloat32SliceToBytes(t *testing.T) {
 	v := []float32{1.0, 0.5, -0.25, 0.0}
 	b := float32SliceToBytes(v)
 	if len(b) != len(v)*4 {
 		t.Fatalf("expected %d bytes, got %d", len(v)*4, len(b))
+	}
+	// Verify round-trip: decode little-endian bytes back to float32.
+	for i, expected := range v {
+		bits := binary.LittleEndian.Uint32(b[i*4:])
+		got := math.Float32frombits(bits)
+		if got != expected {
+			t.Errorf("round-trip mismatch at index %d: got %v, want %v", i, got, expected)
+		}
+	}
+}
+
+// TestMemL2_EmptyTenantID verifies that empty tenantID returns an error.
+func TestMemL2_EmptyTenantID(t *testing.T) {
+	l2 := NewMemL2(NewMemEmbedder(4))
+	_, err := l2.Lookup(context.Background(), "", "some query")
+	if err == nil {
+		t.Fatal("expected error for empty tenantID in Lookup")
+	}
+	if err := l2.Store(context.Background(), "", "some query", "k"); err == nil {
+		t.Fatal("expected error for empty tenantID in Store")
+	}
+}
+
+// TestMemL2_ConcurrentStoreAndLookup verifies race freedom.
+func TestMemL2_ConcurrentStoreAndLookup(t *testing.T) {
+	emb := NewMemEmbedder(8)
+	l2 := NewMemL2(emb)
+	ctx := context.Background()
+
+	// Pre-embed "query C" so SimilarTo can be called.
+	if err := l2.Store(ctx, "t1", "query C", "llm:l1:c"); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			l2.Store(ctx, "t1", "concurrent store", "llm:l1:conc") //nolint:errcheck
+		}()
+		go func() {
+			defer wg.Done()
+			l2.Lookup(ctx, "t1", "concurrent lookup") //nolint:errcheck
+		}()
+	}
+	wg.Wait()
+}
+
+// TestMemL2_IdempotentStore verifies re-storing the same l1Key works correctly.
+func TestMemL2_IdempotentStore(t *testing.T) {
+	emb := NewMemEmbedder(4)
+	l2 := NewMemL2(emb)
+	ctx := context.Background()
+
+	const query = "same query stored twice"
+	const l1Key = "llm:l1:idem"
+
+	for i := 0; i < 2; i++ {
+		if err := l2.Store(ctx, "t1", query, l1Key); err != nil {
+			t.Fatalf("Store #%d: %v", i, err)
+		}
+	}
+	got, err := l2.Lookup(ctx, "t1", query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != l1Key {
+		t.Errorf("idempotent store: expected %q, got %q", l1Key, got)
 	}
 }

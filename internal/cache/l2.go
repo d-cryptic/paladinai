@@ -15,9 +15,10 @@ package cache
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,7 +55,9 @@ type L2Cache interface {
 
 // ValkeyL2 uses Valkey Search (Redis-compatible HNSW index) for semantic lookup.
 // One index per tenant: "llm:l2:{tenantID}".
-// Entries are stored as HASH keys under prefix "llm:l2:{tenantID}:{sha256hex}".
+// Entries are stored as HASH keys under prefix "llm:l2:{tenantID}:{l1Key}".
+// The l1_key hash field is stored as TEXT (no indexing); only the embedding
+// is indexed for KNN search.
 type ValkeyL2 struct {
 	rdb       *redis.Client
 	embedder  Embedder
@@ -74,6 +77,9 @@ func NewValkeyL2(rdb *redis.Client, embedder Embedder) *ValkeyL2 {
 // Lookup embeds query, runs a KNN search in the tenant's HNSW index, and
 // returns the L1 key of the nearest match if cosine similarity >= 0.92.
 func (c *ValkeyL2) Lookup(ctx context.Context, tenantID, queryText string) (string, error) {
+	if tenantID == "" {
+		return "", fmt.Errorf("l2 lookup: tenantID must not be empty")
+	}
 	if err := c.ensureIndex(ctx, tenantID); err != nil {
 		return "", fmt.Errorf("l2 ensure index: %w", err)
 	}
@@ -111,12 +117,15 @@ func (c *ValkeyL2) Lookup(ctx context.Context, tenantID, queryText string) (stri
 	if !ok {
 		return "", nil
 	}
-	distance, err := parseFloat(scoreStr)
-	if err != nil || distance > l2MaxDistance {
-		return "", nil // below threshold
+	distance, err := strconv.ParseFloat(scoreStr, 64)
+	if err != nil {
+		return "", fmt.Errorf("l2: unexpected score format %q: %w", scoreStr, err)
+	}
+	if distance > l2MaxDistance {
+		return "", nil // below similarity threshold
 	}
 
-	l1Key, _ := doc.Fields["l1_key"]
+	l1Key := doc.Fields["l1_key"]
 	if l1Key == "" {
 		return "", nil
 	}
@@ -124,7 +133,11 @@ func (c *ValkeyL2) Lookup(ctx context.Context, tenantID, queryText string) (stri
 }
 
 // Store adds an (embedding → l1Key) entry to the tenant's HNSW index.
+// Re-storing the same l1Key overwrites the previous entry (last-write-wins).
 func (c *ValkeyL2) Store(ctx context.Context, tenantID, queryText, l1Key string) error {
+	if tenantID == "" {
+		return fmt.Errorf("l2 store: tenantID must not be empty")
+	}
 	if err := c.ensureIndex(ctx, tenantID); err != nil {
 		return fmt.Errorf("l2 ensure index: %w", err)
 	}
@@ -134,6 +147,7 @@ func (c *ValkeyL2) Store(ctx context.Context, tenantID, queryText, l1Key string)
 		return fmt.Errorf("l2 embed: %w", err)
 	}
 
+	// hashKey uses the full l1Key to avoid collisions (L1 keys are SHA-256 hex).
 	hashKey := l2EntryKey(tenantID, l1Key)
 	pipe := c.rdb.Pipeline()
 	pipe.HSet(ctx, hashKey,
@@ -142,18 +156,20 @@ func (c *ValkeyL2) Store(ctx context.Context, tenantID, queryText, l1Key string)
 		"created_at", time.Now().Unix(),
 	)
 	pipe.Expire(ctx, hashKey, l2TTL)
-	_, err = pipe.Exec(ctx)
-	return err
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("l2 store pipeline: %w", err)
+	}
+	return nil
 }
 
 // ensureIndex creates the HNSW index for tenantID if it doesn't exist yet.
 func (c *ValkeyL2) ensureIndex(ctx context.Context, tenantID string) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if _, seen := c.indexSeen[tenantID]; seen {
-		c.mu.Unlock()
 		return nil
 	}
-	c.mu.Unlock()
 
 	indexName := l2IndexName(tenantID)
 	prefix := l2EntryPrefix(tenantID)
@@ -173,7 +189,8 @@ func (c *ValkeyL2) ensureIndex(ctx context.Context, tenantID string) error {
 		},
 	}, &redis.FieldSchema{
 		FieldName: "l1_key",
-		FieldType: redis.SearchFieldTypeTag,
+		FieldType: redis.SearchFieldTypeText,
+		NoIndex:   true, // stored for retrieval only; KNN searches by vector
 	}, &redis.FieldSchema{
 		FieldName: "created_at",
 		FieldType: redis.SearchFieldTypeNumeric,
@@ -183,9 +200,7 @@ func (c *ValkeyL2) ensureIndex(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("ft.create %s: %w", indexName, err)
 	}
 
-	c.mu.Lock()
 	c.indexSeen[tenantID] = struct{}{}
-	c.mu.Unlock()
 	return nil
 }
 
@@ -197,11 +212,9 @@ func l2EntryPrefix(tenantID string) string {
 	return "llm:l2:" + tenantID + ":"
 }
 
+// l2EntryKey uses the full l1Key to prevent hash key collisions.
+// L1 keys are SHA-256 hex strings, unique by construction.
 func l2EntryKey(tenantID, l1Key string) string {
-	// Stable entry key: prefix + l1Key suffix (already a SHA-256 hex, so short and unique)
-	if len(l1Key) > 16 {
-		return l2EntryPrefix(tenantID) + l1Key[len(l1Key)-16:]
-	}
 	return l2EntryPrefix(tenantID) + l1Key
 }
 
@@ -215,39 +228,21 @@ func float32SliceToBytes(v []float32) []byte {
 	return b
 }
 
-func parseFloat(s string) (float64, error) {
-	var f float64
-	_, err := fmt.Sscanf(s, "%f", &f)
-	return f, err
-}
-
 func isIndexMissingErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, redis.Nil) ||
-		contains(err.Error(), "no such index") ||
-		contains(err.Error(), "Unknown Index name")
+	// Valkey-search error strings tested against Valkey 7.x + RediSearch 2.x.
+	msg := err.Error()
+	return strings.Contains(msg, "no such index") ||
+		strings.Contains(msg, "Unknown Index name")
 }
 
 func isIndexExistsErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	return contains(err.Error(), "Index already exists")
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(err.Error(), "Index already exists")
 }
 
 // --- MemL2 (in-memory test fake) --------------------------------------------
@@ -276,6 +271,9 @@ func NewMemL2(embedder Embedder) *MemL2 {
 
 // Lookup embeds query and finds the most similar stored vector above threshold.
 func (m *MemL2) Lookup(ctx context.Context, tenantID, queryText string) (string, error) {
+	if tenantID == "" {
+		return "", fmt.Errorf("l2 lookup: tenantID must not be empty")
+	}
 	vec, err := m.embedder.Embed(ctx, queryText)
 	if err != nil {
 		return "", fmt.Errorf("mem l2 embed: %w", err)
@@ -307,6 +305,9 @@ func (m *MemL2) Lookup(ctx context.Context, tenantID, queryText string) (string,
 
 // Store adds an (embedding → l1Key) entry for the tenant.
 func (m *MemL2) Store(ctx context.Context, tenantID, queryText, l1Key string) error {
+	if tenantID == "" {
+		return fmt.Errorf("l2 store: tenantID must not be empty")
+	}
 	vec, err := m.embedder.Embed(ctx, queryText)
 	if err != nil {
 		return fmt.Errorf("mem l2 embed: %w", err)
@@ -376,13 +377,16 @@ func (e *MemEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
 	return v, nil
 }
 
-// SimilarTo registers text2 to return the same vector as text1 (simulating semantic similarity).
+// SimilarTo registers text2 to return the same vector as text1 (simulating
+// semantic similarity). Panics if text1 has not been embedded yet.
 func (e *MemEmbedder) SimilarTo(text1, text2 string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if v, ok := e.seen[text1]; ok {
-		e.seen[text2] = v
+	v, ok := e.seen[text1]
+	if !ok {
+		panic("MemEmbedder.SimilarTo: text1 '" + text1 + "' has not been embedded yet")
 	}
+	e.seen[text2] = v
 }
 
 func (e *MemEmbedder) Dim() int { return e.dim }
