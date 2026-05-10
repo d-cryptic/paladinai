@@ -9,8 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/paladinai/paladinai/internal/logger"
@@ -81,6 +79,5 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("graceful shutdown failed", zap.Error(err))
 	}
-	_ = time.Second // ensure time import is used
 	log.Info("paladin-hub stopped")
 }

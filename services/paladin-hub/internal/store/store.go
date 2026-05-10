@@ -33,19 +33,23 @@ type Store interface {
 	Heartbeat(ctx context.Context, tenantID, serverID string, at time.Time) error
 }
 
+// serverKey is a collision-free composite key for the in-memory map.
+// Using a struct eliminates the encoding ambiguity of string concatenation
+// (e.g. tenant "a:b" + server "c" vs tenant "a" + server "b:c").
+type serverKey struct {
+	TenantID string
+	ServerID string
+}
+
 // MemStore is a thread-safe in-memory Store. Used in unit tests and dev mode.
 type MemStore struct {
 	mu      sync.RWMutex
-	servers map[string]*registry.MCPServer // key: tenantID+":"+serverID
+	servers map[serverKey]*registry.MCPServer
 }
 
 // NewMemStore returns an empty MemStore.
 func NewMemStore() *MemStore {
-	return &MemStore{servers: make(map[string]*registry.MCPServer)}
-}
-
-func (m *MemStore) key(tenantID, serverID string) string {
-	return tenantID + ":" + serverID
+	return &MemStore{servers: make(map[serverKey]*registry.MCPServer)}
 }
 
 func (m *MemStore) Upsert(_ context.Context, s *registry.MCPServer) error {
@@ -54,14 +58,14 @@ func (m *MemStore) Upsert(_ context.Context, s *registry.MCPServer) error {
 	cp := *s
 	cp.Capabilities = make([]string, len(s.Capabilities))
 	copy(cp.Capabilities, s.Capabilities)
-	m.servers[m.key(s.TenantID, s.ID)] = &cp
+	m.servers[serverKey{s.TenantID, s.ID}] = &cp
 	return nil
 }
 
 func (m *MemStore) Get(_ context.Context, tenantID, serverID string) (*registry.MCPServer, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	s, ok := m.servers[m.key(tenantID, serverID)]
+	s, ok := m.servers[serverKey{tenantID, serverID}]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -74,9 +78,8 @@ func (m *MemStore) List(_ context.Context, tenantID string) ([]*registry.MCPServ
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*registry.MCPServer
-	prefix := tenantID + ":"
 	for k, s := range m.servers {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+		if k.TenantID == tenantID {
 			cp := *s
 			cp.Capabilities = append([]string{}, s.Capabilities...)
 			result = append(result, &cp)
@@ -88,7 +91,7 @@ func (m *MemStore) List(_ context.Context, tenantID string) ([]*registry.MCPServ
 func (m *MemStore) Delete(_ context.Context, tenantID, serverID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	k := m.key(tenantID, serverID)
+	k := serverKey{tenantID, serverID}
 	if _, ok := m.servers[k]; !ok {
 		return ErrNotFound
 	}
@@ -99,7 +102,7 @@ func (m *MemStore) Delete(_ context.Context, tenantID, serverID string) error {
 func (m *MemStore) Heartbeat(_ context.Context, tenantID, serverID string, at time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s, ok := m.servers[m.key(tenantID, serverID)]
+	s, ok := m.servers[serverKey{tenantID, serverID}]
 	if !ok {
 		return ErrNotFound
 	}
