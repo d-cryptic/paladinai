@@ -1,0 +1,12 @@
+version: v2
+name: buf.build/paladinai/paladinai
+modules:
+  - path: proto
+lint:
+  use:
+    - DEFAULT
+  except:
+    - PACKAGE_VERSION_SUFFIX  # we use /v1 suffix already in package names
+breaking:
+  use:
+    - FILE

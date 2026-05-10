@@ -1,0 +1,15 @@
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  # Go protobuf types
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt:
+      - paths=source_relative
+  # gRPC service stubs
+  - remote: buf.build/grpc/go
+    out: gen/go
+    opt:
+      - paths=source_relative
+      - require_unimplemented_servers=false

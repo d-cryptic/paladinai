@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package paladin.alert.v1;
+
+option go_package = "github.com/paladinai/paladinai/gen/go/alert/v1;alertv1";
+
+import "google/protobuf/timestamp.proto";
+
+// AlertService provides gRPC access to the alert ingestion pipeline.
+service AlertService {
+  // IngestAlert accepts a single alert and returns its assigned IDs.
+  rpc IngestAlert(IngestAlertRequest) returns (IngestAlertResponse);
+
+  // ListAlerts lists active alerts for a tenant with optional filters.
+  rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse);
+
+  // GetAlert returns a single alert by fingerprint.
+  rpc GetAlert(GetAlertRequest) returns (GetAlertResponse);
+}
+
+// Severity maps to PaladinAI's P1-P4 model.
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_P1 = 1;
+  SEVERITY_P2 = 2;
+  SEVERITY_P3 = 3;
+  SEVERITY_P4 = 4;
+}
+
+// Status represents alert lifecycle state.
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_FIRING      = 1;
+  STATUS_RESOLVED    = 2;
+  STATUS_SILENCED    = 3;
+}
+
+// Alert is the canonical alert representation over gRPC.
+message Alert {
+  string id             = 1;
+  string tenant_id      = 2;
+  string fingerprint    = 3;
+  string correlation_id = 4;
+  Severity severity     = 5;
+  Status status         = 6;
+  string title          = 7;
+  string description    = 8;
+  string source         = 9;
+  map<string, string> labels      = 10;
+  map<string, string> annotations = 11;
+  google.protobuf.Timestamp starts_at    = 12;
+  google.protobuf.Timestamp received_at  = 13;
+  google.protobuf.Timestamp ends_at      = 14;
+}
+
+message IngestAlertRequest {
+  string tenant_id   = 1;
+  Alert  alert       = 2;
+}
+
+message IngestAlertResponse {
+  string alert_id        = 1;
+  string fingerprint     = 2;
+  string correlation_id  = 3;
+  bool   deduplicated    = 4;
+}
+
+message ListAlertsRequest {
+  string   tenant_id = 1;
+  Status   status    = 2; // filter by status; UNSPECIFIED = all
+  int32    page_size = 3; // max 100, default 20
+  string   cursor    = 4; // pagination cursor
+}
+
+message ListAlertsResponse {
+  repeated Alert alerts    = 1;
+  string         cursor    = 2; // empty when no more pages
+  int32          total     = 3;
+}
+
+message GetAlertRequest {
+  string tenant_id   = 1;
+  string fingerprint = 2;
+}
+
+message GetAlertResponse {
+  Alert alert = 1;
+}
