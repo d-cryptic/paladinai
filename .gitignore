@@ -1,0 +1,33 @@
+# Secrets — never commit
+.env
+.env.local
+*.pem
+*.key
+*.crt
+
+# Go build artifacts
+bin/
+coverage.out
+coverage.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# devbox
+.devbox/
+
+# Air (hot reload)
+tmp/
+
+# Test binaries
+*.test
+
+# Go workspace cache (use GOMODCACHE env instead)
+vendor/

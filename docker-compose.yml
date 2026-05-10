@@ -1,0 +1,334 @@
+version: "3.9"
+
+# PaladinAI v2 — local infrastructure stack
+# Run: make up
+# Stop: make down
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  paladin:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  valkey_data:
+  qdrant_data:
+  nats_data:
+  falkordb_data:
+  vault_data:
+  hatchet_certs:
+  hatchet_rabbitmq_data:
+
+services:
+  # ─────────────────────────────────────────────────────
+  # NATS JetStream 2.10.x — async messaging backbone
+  # ─────────────────────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    container_name: paladin-nats
+    command:
+      - "-js"
+      - "-m"
+      - "8222"
+      - "--store_dir=/data"
+      - "--cluster_name=paladin"
+      - "--max_payload=8MB"
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring
+    volumes:
+      - nats_data:/data
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # PostgreSQL 17 — primary store + Hatchet backend
+  # ─────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: paladin-postgres
+    environment:
+      POSTGRES_USER: paladin
+      POSTGRES_PASSWORD: paladin
+      POSTGRES_DB: paladin
+      # Hatchet needs its own DB
+      POSTGRES_MULTIPLE_DATABASES: "paladin,hatchet"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paladin -d paladin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # Valkey 8.x — Redis-compatible L1/L2/L3 cache
+  # ─────────────────────────────────────────────────────
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: paladin-valkey
+    command:
+      - "--maxmemory"
+      - "512mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - "60 1"
+      - "--appendonly"
+      - "no"
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # Qdrant 1.16 — vector store (embeddings + tool index)
+  # ─────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.13.6
+    container_name: paladin-qdrant
+    ports:
+      - "6333:6333"   # HTTP
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6333/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # FalkorDB 4.x — service dependency graph (Redis module)
+  # ─────────────────────────────────────────────────────
+  falkordb:
+    image: falkordb/falkordb:v4.4.1
+    container_name: paladin-falkordb
+    ports:
+      - "6380:6379"   # offset to avoid conflict with Valkey
+    volumes:
+      - falkordb_data:/data
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # HashiCorp Vault — secrets + integration credentials
+  # Dev mode: no persistence, token = dev-root-token
+  # ─────────────────────────────────────────────────────
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: paladin-vault
+    command: server -dev -dev-root-token-id=dev-root-token
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://localhost:8200"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # Hatchet — durable workflow engine (P1/P2 incidents)
+  # ─────────────────────────────────────────────────────
+  hatchet-engine:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.60.0
+    container_name: paladin-hatchet-engine
+    command: /hatchet/hatchet-engine --config /hatchet/config
+    environment:
+      DATABASE_URL: "postgresql://paladin:paladin@postgres:5432/hatchet?sslmode=disable"
+      SERVER_GRPC_PORT: "7777"
+      SERVER_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7777"
+      SERVER_GRPC_INSECURE: "true"
+      SERVER_AUTH_COOKIE_SECRETS: "devSecret1 devSecret2"
+      SERVER_AUTH_COOKIE_DOMAIN: "localhost"
+      SERVER_ENCRYPTION_MASTER_KEYS: "devEncKey1"
+      SERVER_ENCRYPTION_JWT_PUBLIC_KEY_PATH: /hatchet/config/auth/rsa_public.pem
+      SERVER_ENCRYPTION_JWT_PRIVATE_KEY_PATH: /hatchet/config/auth/rsa_private.pem
+      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+      SERVER_URL: "http://localhost:8888"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hatchet-rabbitmq:
+        condition: service_healthy
+    networks:
+      - paladin
+    volumes:
+      - hatchet_certs:/hatchet/config
+    logging: *default-logging
+    restart: unless-stopped
+
+  hatchet-api:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.60.0
+    container_name: paladin-hatchet-api
+    command: /hatchet/hatchet-api --config /hatchet/config
+    environment:
+      DATABASE_URL: "postgresql://paladin:paladin@postgres:5432/hatchet?sslmode=disable"
+      SERVER_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7777"
+      SERVER_GRPC_INSECURE: "true"
+      SERVER_AUTH_COOKIE_SECRETS: "devSecret1 devSecret2"
+      SERVER_AUTH_COOKIE_DOMAIN: "localhost"
+      SERVER_ENCRYPTION_MASTER_KEYS: "devEncKey1"
+      SERVER_ENCRYPTION_JWT_PUBLIC_KEY_PATH: /hatchet/config/auth/rsa_public.pem
+      SERVER_ENCRYPTION_JWT_PRIVATE_KEY_PATH: /hatchet/config/auth/rsa_private.pem
+      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+      SERVER_URL: "http://localhost:8888"
+    ports:
+      - "8888:8080"
+    depends_on:
+      hatchet-engine:
+        condition: service_started
+    networks:
+      - paladin
+    volumes:
+      - hatchet_certs:/hatchet/config
+    logging: *default-logging
+    restart: unless-stopped
+
+  hatchet-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: paladin-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: hatchet
+      RABBITMQ_DEFAULT_PASS: hatchet
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - hatchet_rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # OTel Collector — telemetry aggregation
+  # ─────────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.103.0
+    container_name: paladin-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./infra/otel/collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics export
+    networks:
+      - paladin
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # Prometheus — metrics scraping
+  # ─────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: paladin-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - paladin
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # Grafana — dashboards
+  # ─────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: paladin-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - paladin
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────
+  # Mock OpenRouter gateway (used when OPENROUTER_API_KEY absent)
+  # Allows dev/CI without real API calls
+  # ─────────────────────────────────────────────────────
+  mock-llm:
+    image: mockserver/mockserver:5.15.0
+    container_name: paladin-mock-llm
+    ports:
+      - "1080:1080"
+    volumes:
+      - ./infra/mockserver:/config:ro
+    environment:
+      MOCKSERVER_INITIALIZATION_JSON_PATH: /config/llm-expectations.json
+      MOCKSERVER_LOG_LEVEL: WARN
+    networks:
+      - paladin
+    profiles:
+      - mock
+    logging: *default-logging
