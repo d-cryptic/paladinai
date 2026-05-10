@@ -11,23 +11,40 @@ import (
 )
 
 const (
-	// DefaultTimeout is the max time to wait for an API response.
-	DefaultTimeout = 10 * time.Second
-	// MaxResponseBytes limits the response body to 10 MB to prevent OOM.
-	MaxResponseBytes = 10 * 1024 * 1024
+	DefaultTimeout   = 10 * time.Second
+	MaxResponseBytes = 10 * 1024 * 1024 // 10 MB
 )
 
-// HTTP is a configured client that all CLI commands should use.
+// HTTP is a configured client shared by all CLI commands.
 var HTTP = &http.Client{Timeout: DefaultTimeout}
 
-// Get performs a GET request with the given tenant header.
-// Returns the response body or an error. Response body is capped at MaxResponseBytes.
-func Get(ctx context.Context, url, tenantID string) ([]byte, error) {
+// Options controls authentication and other per-request options.
+type Options struct {
+	TenantID    string
+	Token       string
+	AdminSecret string
+}
+
+func (o Options) applyHeaders(req *http.Request) {
+	if o.TenantID != "" {
+		req.Header.Set("X-Tenant-ID", o.TenantID)
+	}
+	if o.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+o.Token)
+	}
+	if o.AdminSecret != "" {
+		req.Header.Set("X-Admin-Secret", o.AdminSecret)
+	}
+}
+
+// Get performs a GET request and returns the response body.
+// Body is capped at MaxResponseBytes to prevent OOM.
+func Get(ctx context.Context, url string, opts Options) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("X-Tenant-ID", tenantID)
+	opts.applyHeaders(req)
 
 	resp, err := HTTP.Do(req)
 	if err != nil {
@@ -45,9 +62,9 @@ func Get(ctx context.Context, url, tenantID string) ([]byte, error) {
 	return body, nil
 }
 
-// DoJSON performs a request with the given method, body, and tenant header.
+// DoJSON performs a request with the given method and body.
 // Returns (response body, status code, error).
-func DoJSON(ctx context.Context, method, url, tenantID string, reqBody io.Reader) ([]byte, int, error) {
+func DoJSON(ctx context.Context, method, url string, opts Options, reqBody io.Reader) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
@@ -55,7 +72,7 @@ func DoJSON(ctx context.Context, method, url, tenantID string, reqBody io.Reader
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("X-Tenant-ID", tenantID)
+	opts.applyHeaders(req)
 
 	resp, err := HTTP.Do(req)
 	if err != nil {
