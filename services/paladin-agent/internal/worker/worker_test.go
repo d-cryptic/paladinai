@@ -17,6 +17,29 @@ import (
 
 // ─── Fakes ───────────────────────────────────────────────────────────────────
 
+type stubRCA struct {
+	mu      sync.Mutex
+	calls   int
+	result  *agent.RCAResult
+	callErr error
+}
+
+func (s *stubRCA) Analyze(_ context.Context, _ *alert.AlertEnvelope, _ *agent.TriageResult) (*agent.RCAResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	if s.callErr != nil {
+		return nil, s.callErr
+	}
+	return s.result, nil
+}
+
+func (s *stubRCA) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
 type stubTriager struct {
 	mu      sync.Mutex
 	calls   []*alert.AlertEnvelope
@@ -160,4 +183,50 @@ func TestWorker_PublishFailurePropagatesError(t *testing.T) {
 
 	err := w.ProcessEnvelope(context.Background(), firingEnv("t1", "fp1"))
 	assert.Error(t, err, "publish failure should propagate so caller can Nak")
+}
+
+// ─── RCA chaining tests ───────────────────────────────────────────────────────
+
+func TestWorkerWithRCA_ChainsRCAAfterTriage(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P2", NeedsHuman: true}}
+	rca := &stubRCA{result: &agent.RCAResult{
+		RootCauseHypothesis: "DB connection pool exhausted",
+		Confidence:          "HIGH",
+		Evidence:            []string{"pg_stat shows 200 waiting"},
+		RunbookKeywords:     []string{"postgres", "pool"},
+	}}
+	pub := &stubPublisher{}
+
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).WithRCA(rca)
+	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("t1", "fp-rca")))
+
+	assert.Equal(t, 1, triager.callCount(), "triage should run once")
+	assert.Equal(t, 1, rca.callCount(), "rca should run once")
+	assert.Equal(t, 1, pub.count(), "one combined publish")
+	assert.Contains(t, pub.lastSubject(), "paladin.alerts.analyzed.", "analyzed subject when RCA runs")
+	assert.Contains(t, pub.lastSubject(), "t1")
+}
+
+func TestWorkerWithRCA_RCAFailureFallsBackToTriagedSubject(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P3"}}
+	rca := &stubRCA{callErr: assert.AnError}
+	pub := &stubPublisher{}
+
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).WithRCA(rca)
+	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("t2", "fp-rca-err")))
+
+	assert.Equal(t, 1, pub.count(), "should still publish on RCA error")
+	assert.Contains(t, pub.lastSubject(), "paladin.alerts.triaged.", "falls back to triaged subject on RCA error")
+}
+
+func TestWorkerWithRCA_TriageErrorSkipsRCA(t *testing.T) {
+	triager := &stubTriager{callErr: assert.AnError}
+	rca := &stubRCA{result: &agent.RCAResult{Confidence: "HIGH"}}
+	pub := &stubPublisher{}
+
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).WithRCA(rca)
+	err := w.ProcessEnvelope(context.Background(), firingEnv("t3", "fp-triage-err"))
+	assert.Error(t, err)
+	assert.Equal(t, 0, rca.callCount(), "RCA must not run if triage failed")
+	assert.Equal(t, 0, pub.count())
 }
