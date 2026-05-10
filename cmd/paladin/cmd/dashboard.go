@@ -49,7 +49,7 @@ func fetchAlerts(cmd *cobra.Command, apiURL, tenant string) ([]tui.Alert, error)
 	q.Set("status", "firing")
 	u.RawQuery = q.Encode()
 
-	body, err := client.Get(cmd.Context(), u.String(), tenant)
+	body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
 	if err != nil {
 		return nil, err
 	}

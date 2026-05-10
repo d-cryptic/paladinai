@@ -27,11 +27,10 @@ var mcpListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		apiURL, _ := cmd.Flags().GetString("api-url")
-		u, _ := url.Parse(apiURL)
+		u, _ := url.Parse(apiURL(cmd))
 		u.Path = "/api/v1/mcp/servers"
 
-		body, err := client.Get(cmd.Context(), u.String(), tenant)
+		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
 		if err != nil {
 			return err
 		}
@@ -74,11 +73,10 @@ var mcpRegisterCmd = &cobra.Command{
 		}
 		data, _ := json.Marshal(payload)
 
-		apiURL, _ := cmd.Flags().GetString("api-url")
-		u, _ := url.Parse(apiURL)
+		u, _ := url.Parse(apiURL(cmd))
 		u.Path = "/api/v1/mcp/servers"
 
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), tenant, bytes.NewReader(data))
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)}, bytes.NewReader(data))
 		if err != nil {
 			return err
 		}
@@ -99,11 +97,10 @@ var mcpDeregisterCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		apiURL, _ := cmd.Flags().GetString("api-url")
-		u, _ := url.Parse(apiURL)
+		u, _ := url.Parse(apiURL(cmd))
 		u.Path = fmt.Sprintf("/api/v1/mcp/servers/%s", url.PathEscape(args[0]))
 
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodDelete, u.String(), tenant, nil)
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodDelete, u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)}, nil)
 		if err != nil {
 			return err
 		}
