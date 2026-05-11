@@ -1,0 +1,132 @@
+package store_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
+)
+
+// ─── FakeWorkingStore ─────────────────────────────────────────────────────────
+
+func TestFakeWorkingStore_SetAndGet_Hit(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+
+	require.NoError(t, ws.Set(context.Background(), "t1", "s1", "key", "val", time.Minute))
+	v, found, err := ws.Get(context.Background(), "t1", "s1", "key")
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "val", v)
+}
+
+func TestFakeWorkingStore_Get_MissingReturnsFalse(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	_, found, err := ws.Get(context.Background(), "t1", "s1", "nope")
+	require.NoError(t, err)
+	assert.False(t, found)
+}
+
+func TestFakeWorkingStore_SetOverwritesExisting(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	ctx := context.Background()
+
+	require.NoError(t, ws.Set(ctx, "t1", "s1", "k", "old", time.Minute))
+	require.NoError(t, ws.Set(ctx, "t1", "s1", "k", "new", time.Minute))
+
+	v, found, err := ws.Get(ctx, "t1", "s1", "k")
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "new", v)
+}
+
+func TestFakeWorkingStore_TenantIsolation(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	ctx := context.Background()
+
+	require.NoError(t, ws.Set(ctx, "tenant-a", "s", "k", "a-val", time.Minute))
+	require.NoError(t, ws.Set(ctx, "tenant-b", "s", "k", "b-val", time.Minute))
+
+	a, foundA, err := ws.Get(ctx, "tenant-a", "s", "k")
+	require.NoError(t, err)
+	assert.True(t, foundA)
+	assert.Equal(t, "a-val", a)
+
+	b, foundB, err := ws.Get(ctx, "tenant-b", "s", "k")
+	require.NoError(t, err)
+	assert.True(t, foundB)
+	assert.Equal(t, "b-val", b)
+}
+
+func TestFakeWorkingStore_SessionIsolation(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	ctx := context.Background()
+
+	require.NoError(t, ws.Set(ctx, "t1", "session-a", "k", "for-a", time.Minute))
+	require.NoError(t, ws.Set(ctx, "t1", "session-b", "k", "for-b", time.Minute))
+
+	a, _, err := ws.Get(ctx, "t1", "session-a", "k")
+	require.NoError(t, err)
+	b, _, err := ws.Get(ctx, "t1", "session-b", "k")
+	require.NoError(t, err)
+	assert.Equal(t, "for-a", a)
+	assert.Equal(t, "for-b", b)
+}
+
+func TestFakeWorkingStore_Scan_MatchesPrefix(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	ctx := context.Background()
+
+	require.NoError(t, ws.Set(ctx, "t1", "s1", "step:1", "one", time.Minute))
+	require.NoError(t, ws.Set(ctx, "t1", "s1", "step:2", "two", time.Minute))
+	require.NoError(t, ws.Set(ctx, "t1", "s1", "other", "skip", time.Minute))
+
+	vals, err := ws.Scan(ctx, "t1", "s1", "step:", 10)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"one", "two"}, vals)
+}
+
+func TestFakeWorkingStore_Scan_RespectsLimit(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	ctx := context.Background()
+
+	for i := range 5 {
+		require.NoError(t, ws.Set(ctx, "t1", "s1", "k:"+string(rune('a'+i)), "v", time.Minute))
+	}
+
+	vals, err := ws.Scan(ctx, "t1", "s1", "k:", 2)
+	require.NoError(t, err)
+	assert.Len(t, vals, 2)
+}
+
+func TestFakeWorkingStore_Scan_ZeroLimitDefaultsTwenty(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	ctx := context.Background()
+
+	require.NoError(t, ws.Set(ctx, "t1", "s1", "x", "v", time.Minute))
+	vals, err := ws.Scan(ctx, "t1", "s1", "", 0) // limit=0 → default 20
+	require.NoError(t, err)
+	assert.Len(t, vals, 1)
+}
+
+func TestFakeWorkingStore_Scan_EmptyWhenNoMatch(t *testing.T) {
+	t.Parallel()
+	ws := store.NewFakeWorkingStore()
+	ctx := context.Background()
+
+	require.NoError(t, ws.Set(ctx, "t1", "s1", "k", "v", time.Minute))
+	vals, err := ws.Scan(ctx, "t1", "s1", "zzz", 10)
+	require.NoError(t, err)
+	assert.Empty(t, vals)
+}
