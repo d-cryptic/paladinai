@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	memoryv1 "github.com/paladinai/paladinai/gen/go/memory/v1"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
 )
 
@@ -129,4 +130,57 @@ func TestFakeWorkingStore_Scan_EmptyWhenNoMatch(t *testing.T) {
 	vals, err := ws.Scan(ctx, "t1", "s1", "zzz", 10)
 	require.NoError(t, err)
 	assert.Empty(t, vals)
+}
+
+// ─── FakeEpisodicStore extra paths ───────────────────────────────────────────
+
+func TestFakeEpisodicStore_Search_ZeroTopKDefaultsTen(t *testing.T) {
+	t.Parallel()
+	s := store.NewFakeEpisodicStore()
+	ctx := context.Background()
+	for i := 0; i < 15; i++ {
+		writeEpisode(t, s, "t1", "inc-"+string(rune('a'+i)), "summary", "P1")
+	}
+	results, err := s.Search(ctx, "t1", "", 0) // 0 → default 10
+	require.NoError(t, err)
+	assert.Len(t, results, 10)
+}
+
+func TestFakeEpisodicStore_Delete_CrossTenantNotDeleted(t *testing.T) {
+	t.Parallel()
+	s := store.NewFakeEpisodicStore()
+	ctx := context.Background()
+	incA := "00000000-0000-0000-0000-000000000001"
+	writeEpisode(t, s, "t1", incA, "episode for t1", "P1")
+	writeEpisode(t, s, "t2", incA, "episode for t2", "P2")
+
+	n, err := s.Delete(ctx, "t1", []string{incA})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, n, "only t1's episode should be deleted")
+
+	// t2's episode should still exist
+	results, err := s.Search(ctx, "t2", "", 10)
+	require.NoError(t, err)
+	assert.Len(t, results, 1, "t2's episode must survive t1's delete")
+}
+
+func TestFakeEpisodicStore_Write_NilRequest_ReturnsError(t *testing.T) {
+	t.Parallel()
+	s := store.NewFakeEpisodicStore()
+	_, err := s.Write(context.Background(), nil)
+	require.Error(t, err)
+}
+
+func TestFakeEpisodicStore_Write_NilLabels_DefaultsToEmpty(t *testing.T) {
+	t.Parallel()
+	s := store.NewFakeEpisodicStore()
+	id, err := s.Write(context.Background(), &memoryv1.WriteEpisodeRequest{
+		TenantID:   "t1",
+		IncidentID: "inc-nil-labels",
+		Summary:    "test",
+		Severity:   "P2",
+		// Labels intentionally nil
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, id)
 }
