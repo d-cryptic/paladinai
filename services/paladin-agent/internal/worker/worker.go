@@ -44,7 +44,8 @@ type ResultPublisher interface {
 // If you add a mutex or map directly to this struct, update WithRCA accordingly.
 type Worker struct {
 	triager       Triager
-	rcaAnalyzer   RCAAnalyzer // optional; nil skips RCA step
+	rcaAnalyzer   RCAAnalyzer               // optional; nil skips RCA step
+	supervisor    *agent.SupervisorPipeline // optional; when set, used in place of direct triager/rca calls
 	pub           ResultPublisher
 	log           *zap.Logger
 	triageTimeout time.Duration
@@ -73,6 +74,16 @@ func New(triager Triager, pub ResultPublisher, triageTimeout time.Duration, conc
 func (w *Worker) WithRCA(rca RCAAnalyzer) *Worker {
 	cp := *w
 	cp.rcaAnalyzer = rca
+	return &cp
+}
+
+// WithSupervisor returns a copy of the Worker with the Stage 3 supervisor pipeline wired in.
+// When set, handleMsg and ProcessEnvelope run the supervisor (classify → route → triage/rca)
+// instead of invoking the triager and RCA analyzer directly. On supervisor failure, the
+// worker falls back to the direct triage path for resilience.
+func (w *Worker) WithSupervisor(sp *agent.SupervisorPipeline) *Worker {
+	cp := *w
+	cp.supervisor = sp
 	return &cp
 }
 
