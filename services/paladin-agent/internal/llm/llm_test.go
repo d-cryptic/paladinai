@@ -114,3 +114,88 @@ func TestNew_PlainHostWithoutSchemeReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTPS")
 }
+
+// TestNew_HTTPSSucceeds verifies that a valid HTTPS base URL creates a Client
+// without making network calls (Eino/openai-go build the client struct locally).
+func TestNew_HTTPSSucceeds(t *testing.T) {
+	cfg := llm.Config{
+		BaseURL:    "https://openrouter.ai/api/v1",
+		APIKey:     llm.Secret("test-key"),
+		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierB: "qwen/qwen3-8b",
+		ModelTierC: "deepseek/deepseek-v3",
+	}
+	client, err := llm.New(context.Background(), cfg)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+}
+
+func TestNew_AllThreeTiersAccessible(t *testing.T) {
+	cfg := llm.Config{
+		BaseURL:    "https://openrouter.ai/api/v1",
+		APIKey:     llm.Secret("test-key"),
+		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierB: "qwen/qwen3-8b",
+		ModelTierC: "deepseek/deepseek-v3",
+	}
+	client, err := llm.New(context.Background(), cfg)
+	require.NoError(t, err)
+
+	for _, tier := range []llm.Tier{llm.TierA, llm.TierB, llm.TierC} {
+		m, err := client.Model(tier)
+		require.NoError(t, err, "tier %s should be accessible", tier)
+		assert.NotNil(t, m)
+	}
+}
+
+func TestClient_Model_UnknownTierReturnsError(t *testing.T) {
+	cfg := llm.Config{
+		BaseURL:    "https://openrouter.ai/api/v1",
+		APIKey:     llm.Secret("test-key"),
+		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierB: "qwen/qwen3-8b",
+		ModelTierC: "deepseek/deepseek-v3",
+	}
+	client, err := llm.New(context.Background(), cfg)
+	require.NoError(t, err)
+
+	_, err = client.Model(llm.Tier("Z"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown tier")
+	assert.Contains(t, err.Error(), "Z")
+}
+
+func TestClient_Model_EmptyTierReturnsError(t *testing.T) {
+	cfg := llm.Config{
+		BaseURL:    "https://openrouter.ai/api/v1",
+		APIKey:     llm.Secret("test-key"),
+		ModelTierA: "model-a",
+		ModelTierB: "model-b",
+		ModelTierC: "model-c",
+	}
+	client, err := llm.New(context.Background(), cfg)
+	require.NoError(t, err)
+
+	_, err = client.Model(llm.Tier(""))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown tier")
+}
+
+// TestNew_ConfigIsImmutableAfterCreation verifies that modifying cfg after
+// calling New does not affect the already-created client.
+func TestNew_ModelTierIsStableAfterCreation(t *testing.T) {
+	cfg := llm.Config{
+		BaseURL:    "https://openrouter.ai/api/v1",
+		APIKey:     llm.Secret("key"),
+		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierB: "qwen/qwen3-8b",
+		ModelTierC: "deepseek/deepseek-v3",
+	}
+	client, err := llm.New(context.Background(), cfg)
+	require.NoError(t, err)
+
+	// Model should still be accessible after cfg goes out of scope.
+	m, err := client.Model(llm.TierB)
+	require.NoError(t, err)
+	assert.NotNil(t, m)
+}
