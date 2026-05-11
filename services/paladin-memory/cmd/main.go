@@ -19,6 +19,7 @@ import (
 
 	memoryv1 "github.com/paladinai/paladinai/gen/go/memory/v1"
 	"github.com/paladinai/paladinai/internal/logger"
+	"github.com/paladinai/paladinai/internal/qdrant"
 	memcfg "github.com/paladinai/paladinai/services/paladin-memory/config"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
@@ -80,6 +81,24 @@ func main() {
 
 	workingTTL := time.Duration(cfg.WorkingTTL) * time.Second
 	h := handler.New(working, episodic, workingTTL, log)
+
+	// Procedural memory (Qdrant) is optional — wired only when QDRANT_URL is set.
+	if cfg.QdrantURL != "" {
+		qc := qdrant.New(cfg.QdrantURL, cfg.QdrantAPIKey, log)
+		if err := qc.EnsureCollection(ctx, qdrant.RunbookCollection, qdrant.EmbeddingDim); err != nil {
+			log.Warn("qdrant ensure collection failed; procedural memory disabled",
+				zap.String("url", cfg.QdrantURL),
+				zap.Error(err),
+			)
+		} else {
+			idx := qdrant.NewIndexer(qc, &qdrant.StubEmbedder{})
+			h.WithProcedural(idx)
+			log.Info("procedural memory enabled (qdrant)",
+				zap.String("url", cfg.QdrantURL),
+				zap.String("collection", qdrant.RunbookCollection),
+			)
+		}
+	}
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

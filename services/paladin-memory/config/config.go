@@ -17,6 +17,11 @@ type Config struct {
 	ValkeyURL string
 	// WorkingTTL is the default TTL applied to working-memory entries (seconds).
 	WorkingTTL int
+	// QdrantURL is the base URL of the Qdrant REST API for procedural memory.
+	// Optional; when empty, procedural search is disabled.
+	QdrantURL string
+	// QdrantAPIKey authenticates against Qdrant when set.
+	QdrantAPIKey string
 }
 
 // Load reads Config from environment variables.
@@ -29,7 +34,9 @@ func Load() (*Config, error) {
 		GRPCAddr:    getEnv("GRPC_ADDR", ":9010"),
 		DatabaseURL: dbURL,
 		ValkeyURL:   getEnv("VALKEY_URL", "redis://localhost:6379"),
-		WorkingTTL:  getEnvInt("WORKING_MEMORY_TTL_SECONDS", 1800),
+		WorkingTTL:   getEnvInt("WORKING_MEMORY_TTL_SECONDS", 1800),
+		QdrantURL:    os.Getenv("QDRANT_URL"),
+		QdrantAPIKey: os.Getenv("QDRANT_API_KEY"),
 	}
 	if c.WorkingTTL <= 0 {
 		return nil, fmt.Errorf("memory: config: WORKING_MEMORY_TTL_SECONDS must be > 0")
