@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/spf13/cobra"
@@ -254,6 +256,48 @@ type check struct {
 	fn   func() error
 }
 
+const infraDialTimeout = 3 * time.Second
+
+// infraDialAddr extracts a dialable host:port from a URL-style string.
+// Uses net/url.Parse so it handles schemes, userinfo, IPv6, and paths correctly.
+// Falls back to localhost:<defaultPort> on empty or un-parseable input.
+func infraDialAddr(raw string, defaultPort int) string {
+	if raw == "" {
+		return fmt.Sprintf("localhost:%d", defaultPort)
+	}
+	u, err := url.Parse(raw)
+	if err == nil && u.Host != "" {
+		// u.Host includes port when present (e.g. "localhost:6379")
+		if _, _, serr := net.SplitHostPort(u.Host); serr == nil {
+			return u.Host
+		}
+		// Host present but no port — append default
+		return fmt.Sprintf("%s:%d", u.Host, defaultPort)
+	}
+	// No scheme or parse failed — treat raw as bare host[:port]
+	if _, _, serr := net.SplitHostPort(raw); serr == nil {
+		return raw
+	}
+	// Bare hostname without port
+	if !strings.Contains(raw, ":") {
+		return fmt.Sprintf("%s:%d", raw, defaultPort)
+	}
+	return raw
+}
+
+// infraTCPCheck returns a check function that dials addr with a 3-second timeout.
+func infraTCPCheck(rawURL string, defaultPort int) func() error {
+	addr := infraDialAddr(rawURL, defaultPort)
+	return func() error {
+		conn, err := net.DialTimeout("tcp", addr, infraDialTimeout)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		return nil
+	}
+}
+
 func runDoctor(cmd *cobra.Command, _ []string) error {
 	cfg, cfgErr := loadConfig()
 	if cfgErr != nil {
@@ -354,6 +398,18 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 				fmt.Printf("      context: %s\n", strings.TrimSpace(string(out)))
 				return nil
 			},
+		},
+		{
+			name: "NATS reachable",
+			fn:   infraTCPCheck(envStr("NATS_URL", "nats://localhost:4222"), 4222),
+		},
+		{
+			name: "Valkey reachable",
+			fn:   infraTCPCheck(envStr("VALKEY_URL", "redis://localhost:6379"), 6379),
+		},
+		{
+			name: "Qdrant reachable",
+			fn:   infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333),
 		},
 	}
 
