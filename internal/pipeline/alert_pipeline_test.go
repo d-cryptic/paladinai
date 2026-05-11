@@ -274,3 +274,34 @@ func TestPipeline_ReceivedAtIsSetOnProcess(t *testing.T) {
 	require.NoError(t, p.Process(context.Background(), env))
 	assert.False(t, env.ReceivedAt.IsZero(), "Process must set ReceivedAt")
 }
+
+func TestPipeline_PostProcessHookFiresOnSuccessfulPublish(t *testing.T) {
+	t.Parallel()
+	_, _, p := newPipeline()
+
+	var called int
+	var seen *alert.AlertEnvelope
+	p.WithPostProcess(func(_ context.Context, env *alert.AlertEnvelope) {
+		called++
+		seen = env
+	})
+
+	env := newTestEnv("t1", "fp1", alert.StatusFiring)
+	require.NoError(t, p.Process(context.Background(), env))
+	assert.Equal(t, 1, called, "post-process hook must fire exactly once on success")
+	require.NotNil(t, seen)
+	assert.Equal(t, "fp1", seen.Fingerprint)
+}
+
+func TestPipeline_PostProcessHookSkippedOnDuplicate(t *testing.T) {
+	t.Parallel()
+	dedup, _, p := newPipeline()
+	dedup.seen["t1:fp1"] = true // pre-populate so the alert is a duplicate
+
+	var called int
+	p.WithPostProcess(func(_ context.Context, _ *alert.AlertEnvelope) { called++ })
+
+	env := newTestEnv("t1", "fp1", alert.StatusFiring)
+	require.NoError(t, p.Process(context.Background(), env))
+	assert.Equal(t, 0, called, "post-process hook must not fire when alert is deduplicated")
+}

@@ -18,6 +18,14 @@ type Orchestrator struct {
 
 	// Workers is the number of concurrent alert processing goroutines.
 	Workers int
+
+	// HatchetURL is the base URL of the Hatchet REST API. The orchestrator triggers
+	// durable triage workflows here after dedup+correlate creates an incident.
+	HatchetURL string
+
+	// HatchetAPIKey authenticates workflow trigger requests. When empty the
+	// orchestrator falls back to a no-op trigger so Hatchet is effectively disabled.
+	HatchetAPIKey string
 }
 
 // Load reads Orchestrator config from environment variables.
@@ -29,8 +37,10 @@ func Load() (*Orchestrator, error) {
 
 	return &Orchestrator{
 		Base:         base,
-		ConsumerName: envStr("ORCHESTRATOR_CONSUMER_NAME", "paladin-orchestrator"),
-		Workers:      envInt("ORCHESTRATOR_WORKERS", 8),
+		ConsumerName:  envStr("ORCHESTRATOR_CONSUMER_NAME", "paladin-orchestrator"),
+		Workers:       envInt("ORCHESTRATOR_WORKERS", 8),
+		HatchetURL:    envStr("HATCHET_URL", "http://localhost:7077"),
+		HatchetAPIKey: envStr("HATCHET_API_KEY", ""),
 	}, nil
 }
 
