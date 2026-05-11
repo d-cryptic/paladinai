@@ -35,6 +35,17 @@ down-clean: ## Stop services and remove all data volumes
 logs: ## Tail all service logs
 	docker compose logs -f
 
+# ─── Docker images for PaladinAI services ───────────────────────────────────
+
+build-images: ## Build Docker images for all PaladinAI services
+	docker compose build $(SERVICES)
+
+up-services: up ## Start infra + all PaladinAI services
+	docker compose up -d $(SERVICES)
+
+logs-services: ## Follow logs from all PaladinAI services
+	docker compose logs -f $(SERVICES)
+
 # ─── Build ───────────────────────────────────────────────────────────────────
 
 build: ## Build all services

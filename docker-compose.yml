@@ -332,3 +332,256 @@ services:
     profiles:
       - mock
     logging: *default-logging
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # PaladinAI Go services (Stage 8)
+  # Each service builds from its own Dockerfile and joins the `paladin`
+  # network so it can reach infra by container hostname.
+  # ═════════════════════════════════════════════════════════════════════════
+
+  paladin-edge:
+    build:
+      context: .
+      dockerfile: services/paladin-edge/Dockerfile
+    image: ghcr.io/paladinai/edge:dev
+    container_name: paladin-edge
+    ports:
+      - "8080:8080"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      PALADIN_EDGE_PORT: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  paladin-ingest:
+    build:
+      context: .
+      dockerfile: services/paladin-ingest/Dockerfile
+    image: ghcr.io/paladinai/ingest:dev
+    container_name: paladin-ingest
+    ports:
+      - "9001:9001"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PALADIN_INGEST_PORT: "9001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9001/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  paladin-auth:
+    build:
+      context: .
+      dockerfile: services/paladin-auth/Dockerfile
+    image: ghcr.io/paladinai/auth:dev
+    container_name: paladin-auth
+    ports:
+      - "9003:9003"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
+      VALKEY_URL: redis://valkey:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PALADIN_AUTH_PORT: "9003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9003/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  paladin-hub:
+    build:
+      context: .
+      dockerfile: services/paladin-hub/Dockerfile
+    image: ghcr.io/paladinai/hub:dev
+    container_name: paladin-hub
+    ports:
+      - "8082:8082"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
+      VALKEY_URL: redis://valkey:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PALADIN_HUB_PORT: "8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  paladin-ws:
+    build:
+      context: .
+      dockerfile: services/paladin-ws/Dockerfile
+    image: ghcr.io/paladinai/ws:dev
+    container_name: paladin-ws
+    ports:
+      - "9004:9004"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PALADIN_WS_PORT: "9004"
+    depends_on:
+      nats:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9004/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  paladin-orchestrator:
+    build:
+      context: .
+      dockerfile: services/paladin-orchestrator/Dockerfile
+    image: ghcr.io/paladinai/orchestrator:dev
+    container_name: paladin-orchestrator
+    ports:
+      - "9005:9005"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PALADIN_ORCHESTRATOR_PORT: "9005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - paladin
+    restart: unless-stopped
+    logging: *default-logging
+
+  paladin-agent:
+    build:
+      context: .
+      dockerfile: services/paladin-agent/Dockerfile
+    image: ghcr.io/paladinai/agent:dev
+    container_name: paladin-agent
+    ports:
+      - "9006:9006"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      QDRANT_URL: http://qdrant:6333
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PALADIN_AGENT_PORT: "9006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - paladin
+    restart: unless-stopped
+    logging: *default-logging
+
+  paladin-memory:
+    build:
+      context: .
+      dockerfile: services/paladin-memory/Dockerfile
+    image: ghcr.io/paladinai/memory:dev
+    container_name: paladin-memory
+    ports:
+      - "9010:9010"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
+      VALKEY_URL: redis://valkey:6379
+      QDRANT_URL: http://qdrant:6333
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PALADIN_MEMORY_PORT: "9010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - paladin
+    restart: unless-stopped
+    logging: *default-logging
