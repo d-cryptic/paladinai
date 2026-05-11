@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
@@ -13,8 +14,19 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
 )
 
+// skipIfNoNetwork skips the test when TCP binding is unavailable (e.g. sandbox).
+func skipIfNoNetwork(t *testing.T) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("network unavailable, skipping: %v", err)
+	}
+	ln.Close()
+}
+
 func newMiniredisStore(t *testing.T) (*store.RedisWorkingStore, *miniredis.Miniredis) {
 	t.Helper()
+	skipIfNoNetwork(t)
 	s := miniredis.RunT(t)
 	c := redis.NewClient(&redis.Options{Addr: s.Addr()})
 	t.Cleanup(func() { _ = c.Close() })
