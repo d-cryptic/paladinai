@@ -113,7 +113,6 @@ func main() {
 			)
 		}
 	}
-
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
 		log.Fatal("grpc listen failed", zap.String("addr", cfg.GRPCAddr), zap.Error(err))

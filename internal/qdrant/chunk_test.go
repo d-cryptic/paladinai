@@ -31,6 +31,7 @@ func TestChunkText_Short(t *testing.T) {
 
 func TestChunkText_Overlap(t *testing.T) {
 	t.Parallel()
+	// 600 words -> chunk0 has 500, chunk1 starts at 450 -> remaining 150 words.
 	words := make([]string, 600)
 	for i := range words {
 		words[i] = "w"
@@ -44,7 +45,7 @@ func TestChunkText_Overlap(t *testing.T) {
 		t.Fatalf("chunk0 words: got %d want 500", got)
 	}
 	if got := len(strings.Fields(chunks[1].Content)); got != 150 {
-		t.Fatalf("chunk1 words: got %d want 150", got)
+		t.Fatalf("chunk1 words: got %d want 150 (50 overlap + 100 remainder)", got)
 	}
 	if chunks[0].ID == chunks[1].ID {
 		t.Fatalf("chunk IDs should be distinct")

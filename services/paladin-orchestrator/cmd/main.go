@@ -60,7 +60,6 @@ func triagePostProcess(router *workflow.SeverityRouter, log *zap.Logger) pipelin
 		}
 	}
 }
-
 // natsPublisher adapts internalnats.Client to pipeline.Publisher.
 type natsPublisher struct{ client *internalnats.Client }
 

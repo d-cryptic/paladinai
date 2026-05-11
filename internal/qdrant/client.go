@@ -44,6 +44,11 @@ type Client struct {
 	log        *zap.Logger
 }
 
+// NewClient is an alias for New for callers that prefer the longer form.
+func NewClient(baseURL, apiKey string, log *zap.Logger) *Client {
+	return New(baseURL, apiKey, log)
+}
+
 // New creates a Qdrant client. baseURL should not contain a trailing slash.
 func New(baseURL, apiKey string, log *zap.Logger) *Client {
 	if log == nil {
@@ -57,6 +62,8 @@ func New(baseURL, apiKey string, log *zap.Logger) *Client {
 	}
 }
 
+// do executes an HTTP request with optional JSON body and decodes the response
+// into out (if non-nil).
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -160,19 +167,4 @@ func (c *Client) Delete(ctx context.Context, collection string, ids []string) er
 	}
 	body := map[string]any{"points": ids}
 	return c.do(ctx, http.MethodPost, "/collections/"+collection+"/points/delete", body, nil)
-}
-
-// NewClient is an alias for New for use in service wiring code.
-func NewClient(baseURL, apiKey string, log *zap.Logger) *Client {
-	return New(baseURL, apiKey, log)
-}
-
-// NoopClient implements PointStore with no-op operations. Used when QDRANT_URL
-// is not configured (local dev without vector search).
-type NoopClient struct{}
-
-func (n *NoopClient) Upsert(_ context.Context, _ string, _ []Point) error { return nil }
-
-func (n *NoopClient) Search(_ context.Context, _ string, _ []float32, _ int) ([]SearchResult, error) {
-	return nil, nil
 }
