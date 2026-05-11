@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,10 +21,20 @@ import (
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 )
 
+func skipIfNoNetwork(t *testing.T) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("network unavailable, skipping httptest-based test: %v", err)
+	}
+	ln.Close()
+}
+
 // setupStub creates a test server and swaps client.HTTP so requests go to it.
 // Tests MUST remain serial (no t.Parallel) because they mutate client.HTTP.
 func setupStub(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
+	skipIfNoNetwork(t)
 	ts := httptest.NewServer(handler)
 	orig := client.HTTP
 	client.HTTP = ts.Client()

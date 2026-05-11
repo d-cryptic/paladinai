@@ -22,7 +22,7 @@ func newMemStore() *memStore {
 	return &memStore{entries: make(map[string]memEntry)}
 }
 
-func (m *memStore) SetNX(_ context.Context, key string, value interface{}, expiration time.Duration) (bool, error) {
+func (m *memStore) SetNX(_ context.Context, key, value string, expiration time.Duration) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -30,11 +30,7 @@ func (m *memStore) SetNX(_ context.Context, key string, value interface{}, expir
 		return false, nil // key exists and not expired → NX fails
 	}
 
-	val := ""
-	if s, ok := value.(string); ok {
-		val = s
-	}
-	m.entries[key] = memEntry{value: val, expiry: time.Now().Add(expiration)}
+	m.entries[key] = memEntry{value: value, expiry: time.Now().Add(expiration)}
 	return true, nil
 }
 
