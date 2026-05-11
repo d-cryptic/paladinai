@@ -59,3 +59,17 @@ func TestNew_RespectsLogLevelEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestMust_ReturnsLogger(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "info")
+	l := Must("must-test-service")
+	require.NotNil(t, l)
+	_ = l.Sync()
+}
+
+func TestNew_EmptyServiceName(t *testing.T) {
+	l, err := New("")
+	require.NoError(t, err)
+	require.NotNil(t, l)
+	_ = l.Sync()
+}
