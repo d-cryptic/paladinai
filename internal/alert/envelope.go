@@ -44,6 +44,7 @@ const (
 	SourceAlertmanager Source = "alertmanager"
 	SourceDatadog      Source = "datadog"
 	SourcePagerDuty    Source = "pagerduty"
+	SourceCloudWatch   Source = "cloudwatch"
 	SourceOTLP         Source = "otlp"
 	SourceCustom       Source = "custom"
 )
