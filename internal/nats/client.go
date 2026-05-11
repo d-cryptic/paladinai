@@ -4,6 +4,7 @@ package nats
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -13,22 +14,38 @@ import (
 
 // StreamName constants — all streams used across PaladinAI services.
 const (
-	StreamAlerts      = "PALADIN_ALERTS"
-	StreamAgentWork   = "PALADIN_AGENT_WORK"
+	StreamAlerts       = "PALADIN_ALERTS"
+	StreamAgentWork    = "PALADIN_AGENT_WORK"
 	StreamRunbookSteps = "PALADIN_RUNBOOK_STEPS"
-	StreamIncidents   = "PALADIN_INCIDENTS"
-	StreamAudit       = "PALADIN_AUDIT"
+	StreamIncidents    = "PALADIN_INCIDENTS"
+	StreamAudit        = "PALADIN_AUDIT"
+	StreamEvents       = "PALADIN_EVENTS" // agent token/event streaming (ephemeral)
+	StreamMemory       = "PALADIN_MEMORY" // memory consolidation triggers
+	StreamDLQ          = "PALADIN_DLQ"    // dead-letter queue
+	StreamEvals        = "PALADIN_EVALS"  // eval replay harness
 )
 
-// Subject patterns
+// Subject patterns.
+//
+// Note: the Stage 2 spec describes alert subjects in the form
+// `alerts.{tenant_id}.{severity}.{source}` but the internal services have
+// always used the `paladin.alerts.*` prefix so that every PaladinAI subject
+// shares a common namespace. We keep the internal prefix here to avoid a
+// breaking change for existing publishers and consumers. The Stage 2 streams
+// added below (events/memory/dlq/evals) use their bare top-level prefixes as
+// the spec dictates.
 const (
-	SubjectAlertsRaw        = "paladin.alerts.raw.>"   // raw inbound from integrations
-	SubjectAlertsDeduped    = "paladin.alerts.deduped.>" // after fingerprint dedup
+	SubjectAlertsRaw        = "paladin.alerts.raw.>"        // raw inbound from integrations
+	SubjectAlertsDeduped    = "paladin.alerts.deduped.>"    // after fingerprint dedup
 	SubjectAlertsCorrelated = "paladin.alerts.correlated.>" // after correlation window
 	SubjectAgentWork        = "paladin.agent.work.>"
 	SubjectRunbookSteps     = "paladin.runbook.steps.>"
 	SubjectIncidents        = "paladin.incidents.>"
 	SubjectAudit            = "paladin.audit.>"
+	SubjectEvents           = "stream.>"               // agent streaming events to paladin-ws
+	SubjectMemory           = "memory.consolidation.>" // weekly memory consolidation
+	SubjectDLQ              = "dlq.>"                  // dead-letter messages
+	SubjectEvals            = "evals.>"                // eval replay harness
 )
 
 // Client wraps nats.Conn + JetStream context.
@@ -95,7 +112,7 @@ func (c *Client) ensureStreams(ctx context.Context) error {
 			MaxAge:      72 * time.Hour, // 3 days
 			MaxMsgs:     5_000_000,
 			Storage:     jetstream.FileStorage,
-			Replicas:    1, // increase to 3 in production
+			Replicas:    1,               // increase to 3 in production
 			Duplicates:  5 * time.Minute, // NATS-level dedup window
 		},
 		{
@@ -138,6 +155,46 @@ func (c *Client) ensureStreams(ctx context.Context) error {
 			Storage:     jetstream.FileStorage,
 			Replicas:    1,
 		},
+		{
+			Name:        StreamEvents,
+			Description: "Agent token/event streaming → paladin-ws → browser (ephemeral)",
+			Subjects:    []string{SubjectEvents},
+			Retention:   jetstream.LimitsPolicy,
+			MaxAge:      1 * time.Hour, // ephemeral; speed over durability
+			MaxMsgs:     1_000_000,
+			Storage:     jetstream.MemoryStorage,
+			Replicas:    1,
+		},
+		{
+			Name:        StreamMemory,
+			Description: "Memory consolidation triggers (weekly background jobs)",
+			Subjects:    []string{SubjectMemory},
+			Retention:   jetstream.LimitsPolicy,
+			MaxAge:      7 * 24 * time.Hour,
+			MaxMsgs:     100_000,
+			Storage:     jetstream.FileStorage,
+			Replicas:    1,
+		},
+		{
+			Name:        StreamDLQ,
+			Description: "Dead-letter queue: messages failing after 3 NAK/redelivery attempts",
+			Subjects:    []string{SubjectDLQ},
+			Retention:   jetstream.LimitsPolicy,
+			MaxAge:      30 * 24 * time.Hour, // 30 days for forensic replay
+			MaxMsgs:     1_000_000,
+			Storage:     jetstream.FileStorage,
+			Replicas:    1,
+		},
+		{
+			Name:        StreamEvals,
+			Description: "Eval replay harness inputs and outputs",
+			Subjects:    []string{SubjectEvals},
+			Retention:   jetstream.LimitsPolicy,
+			MaxAge:      7 * 24 * time.Hour,
+			MaxMsgs:     500_000,
+			Storage:     jetstream.FileStorage,
+			Replicas:    1,
+		},
 	}
 
 	for _, cfg := range streams {
@@ -157,4 +214,27 @@ func (c *Client) Publish(ctx context.Context, subject string, data []byte) (*jet
 		return nil, fmt.Errorf("publish to %s: %w", subject, err)
 	}
 	return ack, nil
+}
+
+// PublishDLQ forwards a failed message to the dead-letter queue.
+//
+// tenant is the originating tenant (used as a routing token); originalSubject
+// is the subject the message was first published on (e.g.
+// "paladin.alerts.correlated.tenant.alertmanager"). Consumers call this after
+// MaxDeliveries NAK/redelivery attempts so failed messages can be inspected
+// or replayed out of band.
+//
+// The resulting DLQ subject is `dlq.{tenant}.{original_subject_escaped}`
+// where dots in the original subject are replaced with underscores so the
+// whole original subject collapses into a single NATS token.
+func (c *Client) PublishDLQ(ctx context.Context, tenant, originalSubject string, data []byte) (*jetstream.PubAck, error) {
+	if tenant == "" {
+		return nil, fmt.Errorf("publish dlq: tenant must not be empty")
+	}
+	if originalSubject == "" {
+		return nil, fmt.Errorf("publish dlq: originalSubject must not be empty")
+	}
+	escaped := strings.ReplaceAll(originalSubject, ".", "_")
+	subject := fmt.Sprintf("dlq.%s.%s", tenant, escaped)
+	return c.Publish(ctx, subject, data)
 }
