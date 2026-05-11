@@ -1,0 +1,33 @@
+name: datadog
+version: "1.0.0"
+description: "Datadog — receive alerts and query metrics/monitors"
+
+receiver:
+  type: webhook
+  path: /v1/ingest/datadog
+
+config_schema:
+  site:
+    type: string
+    default: "datadoghq.com"
+    description: "Datadog site (datadoghq.com, datadoghq.eu, etc.)"
+  metrics_namespace_prefix:
+    type: string
+    required: false
+
+auth:
+  type: api_key
+  fields:
+    - name: api_key
+      secret: true
+      description: "Datadog API key"
+    - name: app_key
+      secret: true
+      description: "Datadog Application key"
+
+tools:
+  - query_metrics
+  - list_monitors
+  - mute_monitor
+
+docs_url: "https://docs.datadoghq.com/api/"

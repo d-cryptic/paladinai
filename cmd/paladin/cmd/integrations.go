@@ -7,10 +7,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
+	"github.com/paladinai/paladinai/internal/integrationpkg"
 	"github.com/spf13/cobra"
 )
 
@@ -19,31 +22,53 @@ var integrationsCmd = &cobra.Command{
 	Short: "Manage PaladinAI integrations (MCP server marketplace)",
 }
 
+// integrationsDir resolves the directory holding integration.yaml definitions.
+// Order: --integrations-dir flag, ./integrations, then <binary>/../integrations.
+func integrationsDir(cmd *cobra.Command) string {
+	if dir, _ := cmd.Flags().GetString("integrations-dir"); dir != "" {
+		return dir
+	}
+	if _, err := os.Stat("integrations"); err == nil {
+		return "integrations"
+	}
+	if exe, err := exec.LookPath(os.Args[0]); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "..", "integrations")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "integrations"
+}
+
 var integrationsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available integrations",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		tenant, err := requireTenant(cmd)
+		all, err := integrationpkg.LoadAll(integrationsDir(cmd))
 		if err != nil {
-			return err
-		}
-		u, err := url.Parse(apiURL(cmd))
-		if err != nil {
-			return fmt.Errorf("invalid api-url: %w", err)
-		}
-		u.Path = "/api/v1/integrations"
-
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
-		if err != nil {
-			return err
+			return fmt.Errorf("load integrations: %w", err)
 		}
 
 		outputFmt, _ := cmd.Flags().GetString("output")
 		if outputFmt == "json" {
-			fmt.Fprintln(os.Stdout, string(body))
+			data, err := json.MarshalIndent(all, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshal json: %w", err)
+			}
+			fmt.Fprintln(os.Stdout, string(data))
 			return nil
 		}
-		return printIntegrationsTable(body)
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tVERSION\tDESCRIPTION\tTOOLS")
+		for _, i := range all {
+			toolsStr := strings.Join(i.Tools, ",")
+			if toolsStr == "" {
+				toolsStr = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", i.Name, i.Version, i.Description, toolsStr)
+		}
+		return w.Flush()
 	},
 }
 
@@ -160,33 +185,22 @@ var integrationsShowCmd = &cobra.Command{
 	Short: "Show details of a specific integration",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		tenant, err := requireTenant(cmd)
+		integ, err := integrationpkg.LoadByName(integrationsDir(cmd), args[0])
 		if err != nil {
-			return err
-		}
-		u, err := url.Parse(apiURL(cmd))
-		if err != nil {
-			return fmt.Errorf("invalid api-url: %w", err)
-		}
-		u.Path = fmt.Sprintf("/api/v1/integrations/%s", url.PathEscape(args[0]))
-
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
-		if err != nil {
-			return err
+			return fmt.Errorf("load integration: %w", err)
 		}
 
 		outputFmt, _ := cmd.Flags().GetString("output")
 		if outputFmt == "json" {
-			fmt.Fprintln(os.Stdout, string(body))
+			data, err := json.MarshalIndent(integ, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshal json: %w", err)
+			}
+			fmt.Fprintln(os.Stdout, string(data))
 			return nil
 		}
 
-		var result map[string]any
-		if err := json.Unmarshal(body, &result); err != nil {
-			fmt.Fprintln(os.Stdout, string(body))
-			return nil
-		}
-		printIntegrationDetail(result)
+		printIntegrationDefinition(integ)
 		return nil
 	},
 }
@@ -213,38 +227,45 @@ func printIntegrationsTable(body []byte) error {
 	return w.Flush()
 }
 
-func printIntegrationDetail(i map[string]any) {
+func printIntegrationDefinition(i *integrationpkg.Integration) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fields := []struct{ k, label string }{
-		{"name", "Name"},
-		{"category", "Category"},
-		{"status", "Status"},
-		{"version", "Version"},
-		{"healthy", "Healthy"},
-		{"docs_url", "Docs"},
+	fmt.Fprintf(w, "Name:\t%s\n", i.Name)
+	fmt.Fprintf(w, "Version:\t%s\n", i.Version)
+	fmt.Fprintf(w, "Description:\t%s\n", i.Description)
+	fmt.Fprintf(w, "Docs:\t%s\n", i.DocsURL)
+	fmt.Fprintf(w, "Receiver:\t%s\n", i.Receiver.Type)
+	if i.Receiver.Path != "" {
+		fmt.Fprintf(w, "  Path:\t%s\n", i.Receiver.Path)
 	}
-	for _, f := range fields {
-		v, ok := i[f.k]
-		if !ok || v == nil {
-			v = "-"
+	if i.Receiver.HMACHeader != "" {
+		fmt.Fprintf(w, "  HMAC Header:\t%s\n", i.Receiver.HMACHeader)
+	}
+	fmt.Fprintf(w, "Auth:\t%s\n", i.Auth.Type)
+	for _, f := range i.Auth.Fields {
+		secret := ""
+		if f.Secret {
+			secret = " (secret)"
 		}
-		fmt.Fprintf(w, "%s:\t%v\n", f.label, v)
+		fmt.Fprintf(w, "  - %s%s\t%s\n", f.Name, secret, f.Description)
 	}
-
-	// Print tools list if present
-	if tools, ok := i["tools"].([]any); ok && len(tools) > 0 {
-		names := make([]string, 0, len(tools))
-		for _, t := range tools {
-			if name, ok := t.(string); ok {
-				names = append(names, name)
+	if len(i.Tools) > 0 {
+		fmt.Fprintf(w, "Tools:\t%s\n", strings.Join(i.Tools, ", "))
+	}
+	if len(i.ConfigSchema) > 0 {
+		fmt.Fprintln(w, "Config schema:")
+		for key, field := range i.ConfigSchema {
+			req := ""
+			if field.Required {
+				req = " (required)"
 			}
+			fmt.Fprintf(w, "  - %s [%s]%s\t%s\n", key, field.Type, req, field.Description)
 		}
-		fmt.Fprintf(w, "Tools:\t%s\n", strings.Join(names, ", "))
 	}
 	w.Flush()
 }
 
 func init() {
+	integrationsCmd.PersistentFlags().String("integrations-dir", "", "Path to integrations/ directory with integration.yaml files")
 	integrationsEnableCmd.Flags().String("config", "", "Path to JSON config file for the integration")
 
 	integrationsCmd.AddCommand(

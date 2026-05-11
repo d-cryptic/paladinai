@@ -1,0 +1,24 @@
+name: kubernetes
+version: "1.0.0"
+description: "Kubernetes — query cluster state during incidents"
+
+receiver:
+  type: none
+
+config_schema:
+  kubeconfig_path:
+    type: string
+    required: false
+    description: "Path to kubeconfig (default: in-cluster)"
+
+auth:
+  type: kubeconfig
+
+tools:
+  - get_pod_logs
+  - describe_pod
+  - list_pods
+  - get_node_status
+  - get_events
+
+docs_url: "https://kubernetes.io/docs/reference/kubectl/"
