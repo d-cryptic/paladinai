@@ -8,12 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	nats "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
+
+// Compile-time assertion: fakeMsg must implement the full jetstream.Msg interface.
+var _ jetstream.Msg = (*fakeMsg)(nil)
 
 // fakeMsg is a minimal implementation of jetstream.Msg for unit testing.
 type fakeMsg struct {
@@ -27,21 +30,21 @@ type fakeMsg struct {
 	metaErr   error
 }
 
-func (f *fakeMsg) Data() []byte                    { return f.data }
-func (f *fakeMsg) Subject() string                 { return f.subject }
-func (f *fakeMsg) Headers() nats.Header            { return nil }
-func (f *fakeMsg) Reply() string                   { return "" }
-func (f *fakeMsg) Ack() error                      { f.acked = true; return nil }
+func (f *fakeMsg) Data() []byte                      { return f.data }
+func (f *fakeMsg) Subject() string                   { return f.subject }
+func (f *fakeMsg) Headers() nats.Header              { return nil }
+func (f *fakeMsg) Reply() string                     { return "" }
+func (f *fakeMsg) Ack() error                        { f.acked = true; return nil }
 func (f *fakeMsg) DoubleAck(_ context.Context) error { f.acked = true; return nil }
-func (f *fakeMsg) Nak() error                      { f.nakCalled = true; return nil }
+func (f *fakeMsg) Nak() error                        { f.nakCalled = true; return nil }
 func (f *fakeMsg) NakWithDelay(d time.Duration) error {
 	f.nakCalled = true
 	f.nakDelay = d
 	return nil
 }
-func (f *fakeMsg) InProgress() error               { return nil }
-func (f *fakeMsg) Term() error                     { f.termed = true; return nil }
-func (f *fakeMsg) TermWithReason(_ string) error   { f.termed = true; return nil }
+func (f *fakeMsg) InProgress() error             { return nil }
+func (f *fakeMsg) Term() error                   { f.termed = true; return nil }
+func (f *fakeMsg) TermWithReason(_ string) error { f.termed = true; return nil }
 func (f *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
 	return f.metadata, f.metaErr
 }
@@ -49,6 +52,7 @@ func (f *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
 // ─── handleMsg tests ──────────────────────────────────────────────────────────
 
 func TestHandleMsg_InvalidJSON_Terms(t *testing.T) {
+	t.Parallel()
 	dedup := &localDedup{}
 	pub := &localPub{}
 	p := New(dedup, localCorr{}, pub, zap.NewNop())
@@ -62,6 +66,7 @@ func TestHandleMsg_InvalidJSON_Terms(t *testing.T) {
 }
 
 func TestHandleMsg_ValidAlert_Acks(t *testing.T) {
+	t.Parallel()
 	dedup := &localDedup{}
 	pub := &localPub{}
 	p := New(dedup, localCorr{}, pub, zap.NewNop())
@@ -84,6 +89,7 @@ func TestHandleMsg_ValidAlert_Acks(t *testing.T) {
 }
 
 func TestHandleMsg_ProcessError_NaksWithDelay(t *testing.T) {
+	t.Parallel()
 	dedup := &localDedup{}
 	pub := &localPub{err: errors.New("publish failed")}
 	p := New(dedup, localCorr{}, pub, zap.NewNop())
@@ -105,14 +111,15 @@ func TestHandleMsg_ProcessError_NaksWithDelay(t *testing.T) {
 
 	assert.True(t, msg.nakCalled, "process failure must nak for redelivery")
 	assert.False(t, msg.termed)
-	assert.Greater(t, msg.nakDelay, time.Duration(0), "nak delay must be positive")
+	// NumDelivered=1 → shift=1 → 1<<1 * Second = 2s.
+	assert.Equal(t, 2*time.Second, msg.nakDelay, "backoff for delivery 1 must be 2s")
 }
 
 // ─── Minimal local fakes (separate from pipeline_test package fakes) ─────────
 
 type localDedup struct{}
 
-func (d *localDedup) IsDuplicate(_ context.Context, env *alert.AlertEnvelope) (bool, error) {
+func (d *localDedup) IsDuplicate(_ context.Context, _ *alert.AlertEnvelope) (bool, error) {
 	return false, nil
 }
 func (d *localDedup) Reset(_ context.Context, _, _ string) error { return nil }

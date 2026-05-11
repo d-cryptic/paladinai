@@ -185,15 +185,24 @@ func (p *Pipeline) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	defer cancel()
 
 	if err := p.Process(pctx, &env); err != nil {
-		md, _ := msg.Metadata()
+		md, mdErr := msg.Metadata()
 		var delivered uint64
-		if md != nil {
+		if mdErr != nil {
+			p.log.Debug("msg metadata unavailable for backoff calc", zap.Error(mdErr))
+		} else if md != nil {
 			delivered = md.NumDelivered
 		}
-		// Exponential backoff capped at 60s.
-		delay := time.Duration(math.Min(float64(time.Duration(1<<delivered)*time.Second), float64(60*time.Second)))
+		// Exponential backoff capped at 60s. Clamp shift to 6 (64s > cap) to
+		// prevent left-shift overflow if NumDelivered ever exceeds 63.
+		shift := delivered
+		if shift > 6 {
+			shift = 6
+		}
+		delay := time.Duration(math.Min(float64(time.Duration(1<<shift)*time.Second), float64(60*time.Second)))
 		p.log.Error("pipeline process error, scheduling redelivery",
 			zap.String("fingerprint", env.Fingerprint),
+			zap.String("tenant", env.TenantID),
+			zap.String("status", string(env.Status)),
 			zap.Duration("retry_delay", delay),
 			zap.Error(err),
 		)

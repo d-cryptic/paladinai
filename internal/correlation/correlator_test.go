@@ -95,7 +95,7 @@ func TestCorrelator_CorrelationIDPrefix(t *testing.T) {
 	c := correlation.New(newMemStore(), zap.NewNop())
 	env := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp1"}
 	require.NoError(t, c.Correlate(context.Background(), env))
-	assert.True(t, len(env.CorrelationID) > 5 && env.CorrelationID[:5] == "corr-")
+	assert.True(t, strings.HasPrefix(env.CorrelationID, "corr-"))
 }
 
 func TestCorrelator_StoreErrorIsReturned(t *testing.T) {

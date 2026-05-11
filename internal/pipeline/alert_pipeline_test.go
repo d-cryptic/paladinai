@@ -17,8 +17,8 @@ import (
 // ─── In-memory fakes ─────────────────────────────────────────────────────────
 
 type memDedup struct {
-	mu      sync.Mutex
-	seen    map[string]bool
+	mu       sync.Mutex
+	seen     map[string]bool
 	dedupErr error
 	resetErr error
 }
