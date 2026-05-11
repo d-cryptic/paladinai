@@ -237,21 +237,35 @@ func TestCorrelator_Gate_FullCoverageAlwaysPasses(t *testing.T) {
 
 func TestCorrelator_Gate_Clamped_AboveOne(t *testing.T) {
 	// WithGate clamps values > 1 to 1.0
-	c := correlation.New(newMemStore(), zap.NewNop()).WithGate(1.5)
 	store := newMemStore()
-	c2 := correlation.New(store, zap.NewNop()).WithGate(1.5)
+	c := correlation.New(store, zap.NewNop()).WithGate(1.5)
 	ctx := context.Background()
 
 	// 3/4 keys should be blocked (treated as gate=1.0)
 	labels := map[string]string{"namespace": "prod", "job": "api", "cluster": "eu-west-1"}
 	env1 := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp1", Labels: labels}
 	env2 := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp2", Labels: labels}
-	_ = c
 
-	require.NoError(t, c2.Correlate(ctx, env1))
-	require.NoError(t, c2.Correlate(ctx, env2))
+	require.NoError(t, c.Correlate(ctx, env1))
+	require.NoError(t, c.Correlate(ctx, env2))
 	assert.NotEqual(t, env1.CorrelationID, env2.CorrelationID,
 		"gate clamped to 1.0: 3/4 coverage must be blocked")
+}
+
+func TestCorrelator_Gate_Clamped_BelowZero(t *testing.T) {
+	// WithGate clamps values < 0 to 0 — all alerts eligible for grouping
+	store := newMemStore()
+	c := correlation.New(store, zap.NewNop()).WithGate(-0.5)
+	ctx := context.Background()
+
+	labels := map[string]string{"namespace": "prod"} // 1/4 keys
+	env1 := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp1", Labels: labels}
+	env2 := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp2", Labels: labels}
+
+	require.NoError(t, c.Correlate(ctx, env1))
+	require.NoError(t, c.Correlate(ctx, env2))
+	assert.Equal(t, env1.CorrelationID, env2.CorrelationID,
+		"gate clamped to 0: any coverage must pass and alerts must merge")
 }
 
 func TestCorrelator_Gate_BoundaryCustomThreshold(t *testing.T) {

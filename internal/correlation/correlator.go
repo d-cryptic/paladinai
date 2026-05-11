@@ -55,11 +55,14 @@ func New(store Store, log *zap.Logger) *Correlator {
 	return &Correlator{store: store, window: CorrelationWindow, gate: DefaultGate, log: log}
 }
 
-// WithGate sets the label-coverage gate threshold. Alerts whose fraction of
-// populated correlationKeys is below gate are isolated to their own group
-// (fingerprint-based key) rather than merged into a label group.
+// WithGate sets the label-coverage gate threshold and returns a new Correlator.
+// Alerts whose fraction of populated correlationKeys is below gate are isolated
+// to their own group (fingerprint-based key) rather than merged into a label group.
 // Values outside [0, 1] are clamped. A gate of 0 means all alerts are eligible
 // for grouping; a gate of 1 requires all correlationKeys to be present.
+//
+// WithGate must be called before any concurrent use of Correlate.
+// Correlator is safe for concurrent use after construction.
 func (c *Correlator) WithGate(gate float64) *Correlator {
 	if gate < 0 {
 		gate = 0
@@ -67,8 +70,9 @@ func (c *Correlator) WithGate(gate float64) *Correlator {
 	if gate > 1 {
 		gate = 1
 	}
-	c.gate = gate
-	return c
+	nc := *c
+	nc.gate = gate
+	return &nc
 }
 
 // Correlate assigns a CorrelationID to the alert.
@@ -103,7 +107,7 @@ func (c *Correlator) Correlate(ctx context.Context, env *alert.AlertEnvelope) er
 	return nil
 }
 
-// labelCoverage returns the fraction of correlationKeys present with non-empty values.
+// labelCoverage returns the fraction of correlationKeys present with non-empty, non-whitespace values.
 // Returns a value in [0, 1]: 0 = none present, 1 = all present.
 func labelCoverage(labels map[string]string) float64 {
 	if len(correlationKeys) == 0 {
@@ -111,7 +115,7 @@ func labelCoverage(labels map[string]string) float64 {
 	}
 	count := 0
 	for _, k := range correlationKeys {
-		if v, ok := labels[k]; ok && v != "" {
+		if v, ok := labels[k]; ok && strings.TrimSpace(v) != "" {
 			count++
 		}
 	}
@@ -143,11 +147,17 @@ func (c *Correlator) groupKey(env *alert.AlertEnvelope) string {
 
 	labelParts := make([]string, 0, len(correlationKeys))
 	for _, k := range correlationKeys {
-		if v, ok := env.Labels[k]; ok && v != "" {
+		if v, ok := env.Labels[k]; ok && strings.TrimSpace(v) != "" {
 			labelParts = append(labelParts, fmt.Sprintf("%s=%s", k, v))
 		}
 	}
 	sort.Strings(labelParts)
+
+	// Fallback: if no labels survived (e.g. gate=0 and alert has no correlation labels),
+	// isolate to fingerprint to prevent all label-less alerts collapsing into one group.
+	if len(labelParts) == 0 {
+		labelParts = append(labelParts, "fp="+env.Fingerprint)
+	}
 
 	parts := append([]string{"tenant:" + env.TenantID}, labelParts...)
 	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
