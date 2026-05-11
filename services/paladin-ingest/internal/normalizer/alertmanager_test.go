@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/services/paladin-ingest/internal/normalizer"
 	"github.com/stretchr/testify/assert"
@@ -21,7 +23,7 @@ func TestNormalizeAlertmanager_SingleAlert(t *testing.T) {
 		"runbook_url": "https://runbook.example.com/high-cpu",
 	})
 
-	envelopes, err := normalizer.NormalizeAlertmanager("tenant-123", payload)
+	envelopes, err := normalizer.NormalizeAlertmanager("tenant-123", payload, zap.NewNop())
 	require.NoError(t, err)
 	require.Len(t, envelopes, 1)
 
@@ -39,7 +41,7 @@ func TestNormalizeAlertmanager_SingleAlert(t *testing.T) {
 
 func TestNormalizeAlertmanager_MultipleAlerts(t *testing.T) {
 	payload := multiAlertPayload(t)
-	envelopes, err := normalizer.NormalizeAlertmanager("t1", payload)
+	envelopes, err := normalizer.NormalizeAlertmanager("t1", payload, zap.NewNop())
 	require.NoError(t, err)
 	assert.Len(t, envelopes, 2)
 }
@@ -48,7 +50,7 @@ func TestNormalizeAlertmanager_ResolvedAlert(t *testing.T) {
 	endsAt := time.Now().Add(time.Minute)
 	payload := alertmanagerPayloadResolved(t, endsAt)
 
-	envelopes, err := normalizer.NormalizeAlertmanager("t1", payload)
+	envelopes, err := normalizer.NormalizeAlertmanager("t1", payload, zap.NewNop())
 	require.NoError(t, err)
 	require.Len(t, envelopes, 1)
 
@@ -63,7 +65,7 @@ func TestNormalizeAlertmanager_UnknownSeverity(t *testing.T) {
 		"severity":  "unrecognised",
 	}, nil)
 
-	envelopes, err := normalizer.NormalizeAlertmanager("t1", payload)
+	envelopes, err := normalizer.NormalizeAlertmanager("t1", payload, zap.NewNop())
 	require.NoError(t, err)
 	assert.Equal(t, alert.SeverityUnknown, envelopes[0].Severity)
 }

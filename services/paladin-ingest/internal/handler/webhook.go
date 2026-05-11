@@ -66,7 +66,7 @@ func (h *WebhookHandler) alertmanager(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	envelopes, err := normalizer.NormalizeAlertmanager(tenantID, json.RawMessage(body))
+	envelopes, err := normalizer.NormalizeAlertmanager(tenantID, json.RawMessage(body), h.log)
 	if err != nil {
 		h.log.Warn("normalise alertmanager payload",
 			zap.String("tenant", tenantID),

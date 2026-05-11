@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
+
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/services/paladin-ingest/internal/sanitizer"
 )
@@ -36,7 +38,7 @@ type AlertmanagerAlert struct {
 
 // NormalizeAlertmanager converts an Alertmanager webhook payload into AlertEnvelopes.
 // One webhook can carry multiple alerts; each becomes a separate envelope.
-func NormalizeAlertmanager(tenantID string, raw json.RawMessage) ([]alert.AlertEnvelope, error) {
+func NormalizeAlertmanager(tenantID string, raw json.RawMessage, log *zap.Logger) ([]alert.AlertEnvelope, error) {
 	var webhook AlertmanagerWebhook
 	if err := json.Unmarshal(raw, &webhook); err != nil {
 		return nil, fmt.Errorf("unmarshal alertmanager payload: %w", err)
@@ -49,8 +51,25 @@ func NormalizeAlertmanager(tenantID string, raw json.RawMessage) ([]alert.AlertE
 		// Merge labels: alert-level overrides group-level, then sanitize.
 		rawLabels := mergeLabels(webhook.CommonLabels, a.Labels)
 		rawAnnotations := mergeLabels(webhook.CommonAnnotations, a.Annotations)
-		labels, _ := sanitizer.SanitizeMap(rawLabels)
-		annotations, _ := sanitizer.SanitizeMap(rawAnnotations)
+		labelResult := sanitizer.SanitizeMap(rawLabels)
+		annotationResult := sanitizer.SanitizeMap(rawAnnotations)
+		labels := labelResult.Values
+		annotations := annotationResult.Values
+
+		if len(labelResult.ChangedKeys) > 0 || len(labelResult.DroppedKeys) > 0 {
+			log.Warn("prompt injection sanitized in alert labels",
+				zap.String("tenant_id", tenantID),
+				zap.Strings("changed_keys", labelResult.ChangedKeys),
+				zap.Strings("dropped_keys", labelResult.DroppedKeys),
+			)
+		}
+		if len(annotationResult.ChangedKeys) > 0 || len(annotationResult.DroppedKeys) > 0 {
+			log.Warn("prompt injection sanitized in alert annotations",
+				zap.String("tenant_id", tenantID),
+				zap.Strings("changed_keys", annotationResult.ChangedKeys),
+				zap.Strings("dropped_keys", annotationResult.DroppedKeys),
+			)
+		}
 
 		fp := alert.ComputeFingerprint(alert.SourceAlertmanager, labels)
 
