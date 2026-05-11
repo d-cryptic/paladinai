@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
+	"github.com/paladinai/paladinai/internal/promptstore"
 	agentcfg "github.com/paladinai/paladinai/services/paladin-agent/config"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/llm"
@@ -48,6 +50,19 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// ── Prompt store (versioned system prompts, 60s hot-reload) ──────────────
+	// DB wiring lands in a follow-up; with nil DB the store serves built-in
+	// defaults so paladin-agent stays functional during rollout.
+	ps, err := promptstore.New(ctx, nil, log)
+	if err != nil {
+		log.Warn("prompt store init failed, using built-in defaults", zap.Error(err))
+	}
+	if ps != nil {
+		ps.RefreshInterval = 60 * time.Second
+		ps.StartRefresh(ctx)
+	}
+	_ = ps // reserved for upcoming agent.WithPromptStore wiring
 
 	// ── LLM client ───────────────────────────────────────────────────────────
 	llmClient, err := llm.New(ctx, llm.Config{
