@@ -19,6 +19,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// natsPublisherAdapter bridges the internal/nats.Client to worker.ResultPublisher.
+type natsPublisherAdapter struct{ client *internalnats.Client }
+
+func (a natsPublisherAdapter) Publish(ctx context.Context, subject string, data []byte) (worker.PublishResult, error) {
+	ack, err := a.client.Publish(ctx, subject, data)
+	if err != nil {
+		return worker.PublishResult{}, err
+	}
+	if ack == nil {
+		return worker.PublishResult{}, nil
+	}
+	return worker.PublishResult{Sequence: ack.Sequence}, nil
+}
+
 func main() {
 	cfg, err := agentcfg.Load()
 	if err != nil {
@@ -76,7 +90,8 @@ func main() {
 	defer natsClient.Close()
 
 	// ── Worker ───────────────────────────────────────────────────────────────
-	w := worker.New(triageAgent, natsClient, cfg.TriageTimeout, cfg.AgentWorkers, log).
+	pub := natsPublisherAdapter{client: natsClient}
+	w := worker.New(triageAgent, pub, cfg.TriageTimeout, cfg.AgentWorkers, log).
 		WithRCA(rcaAgent).
 		WithRCATimeout(cfg.RCATimeout)
 

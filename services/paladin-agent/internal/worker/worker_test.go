@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/worker"
@@ -74,14 +73,14 @@ type publishedMsg struct {
 	data    []byte
 }
 
-func (p *stubPublisher) Publish(_ context.Context, subject string, data []byte) (*jetstream.PubAck, error) {
+func (p *stubPublisher) Publish(_ context.Context, subject string, data []byte) (worker.PublishResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.err != nil {
-		return nil, p.err
+		return worker.PublishResult{}, p.err
 	}
 	p.messages = append(p.messages, publishedMsg{subject: subject, data: data})
-	return &jetstream.PubAck{}, nil
+	return worker.PublishResult{}, nil
 }
 
 func (p *stubPublisher) count() int {
