@@ -39,6 +39,9 @@ type AlertmanagerAlert struct {
 // NormalizeAlertmanager converts an Alertmanager webhook payload into AlertEnvelopes.
 // One webhook can carry multiple alerts; each becomes a separate envelope.
 func NormalizeAlertmanager(tenantID string, raw json.RawMessage, log *zap.Logger) ([]alert.AlertEnvelope, error) {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	var webhook AlertmanagerWebhook
 	if err := json.Unmarshal(raw, &webhook); err != nil {
 		return nil, fmt.Errorf("unmarshal alertmanager payload: %w", err)

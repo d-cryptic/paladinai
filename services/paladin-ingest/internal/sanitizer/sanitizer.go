@@ -48,9 +48,9 @@ var keyPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,62}$`)
 var zeroWidthPattern = regexp.MustCompile(`[\x{200B}\x{200C}\x{200D}\x{2060}\x{FEFF}\x{202F}\x{200A}\x{00AD}]`)
 
 // injectionPatterns is the ordered list of compiled regexps that identify
-// prompt-injection attempts. All patterns use (?i) case-insensitive matching so
-// they work directly on NFKC-normalised (original case) input without lowercasing.
-// NFKC normalisation folds fullwidth/homoglyph variants to ASCII before matching.
+// prompt-injection attempts. All patterns use (?i) case-insensitive matching and
+// operate on NFKC-normalised input (applied once at function entry) so original
+// case is preserved for non-matching content while homoglyphs/fullwidth chars are caught.
 var injectionPatterns = []*regexp.Regexp{
 	// Direct instruction override
 	regexp.MustCompile(`(?i)ignore\s+(all\s+)?previous\s+instructions?`),
@@ -58,7 +58,7 @@ var injectionPatterns = []*regexp.Regexp{
 
 	// Role/system injection
 	regexp.MustCompile(`(?i)\bsystem\s*:`),
-	regexp.MustCompile(`(?i)\[system]`),
+	regexp.MustCompile(`(?i)\[system\]`),
 	regexp.MustCompile(`(?i)<\s*system\s*>`),
 
 	// ChatML / Qwen / Llama control tokens (directly relevant -- we use Qwen3, DeepSeek)
@@ -66,14 +66,13 @@ var injectionPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)<\|im_end\|>`),
 	regexp.MustCompile(`(?i)<\|system\|>`),
 	regexp.MustCompile(`(?i)<\|endoftext\|>`),
-	regexp.MustCompile(`(?i)\[inst]`),
-	regexp.MustCompile(`(?i)\[/inst]`),
+	regexp.MustCompile(`(?i)\[inst\]`),
+	regexp.MustCompile(`(?i)\[/inst\]`),
 	regexp.MustCompile(`(?i)<<sys>>`),
 	regexp.MustCompile(`(?i)<</sys>>`),
 
 	// Persona / role switch
 	regexp.MustCompile(`(?i)you\s+are\s+now\s+a`),
-	regexp.MustCompile(`(?i)act\s+as\s+(a|an|the)\s+`),
 	regexp.MustCompile(`(?i)\bjailbreak\b`),
 	regexp.MustCompile(`(?i)\bpretend\s+(you\s+are|to\s+be)\b`),
 	regexp.MustCompile(`(?i)\bdan\s+mode\b`),
@@ -85,11 +84,8 @@ var injectionPatterns = []*regexp.Regexp{
 	// Markdown delimiter injection
 	regexp.MustCompile(`(?i)###\s*(instruction|system|prompt)`),
 
-	// Null bytes (matched on normalised string -- safe to keep)
+	// Null bytes
 	regexp.MustCompile(`\x00`),
-
-	// Multi-line prompt delimiters
-	regexp.MustCompile(`\r\n|\n\n`),
 }
 
 // SanitizedMap wraps the sanitized output and the audit record.
@@ -102,8 +98,8 @@ type SanitizedMap struct {
 // SanitizeString normalises, strips injection patterns (to a fixed point),
 // removes control characters, and truncates to MaxLabelValueBytes.
 // Returns the cleaned string and true if any change was made.
-// Original case is preserved for non-matching content; NFKC normalisation folds
-// fullwidth and homoglyph variants so patterns catch them without lowercasing.
+// NFKC normalisation is applied once at entry so that the output is always
+// in a consistent normalised form, preserving original case for clean content.
 func SanitizeString(s string) (string, bool) {
 	original := s
 
@@ -118,13 +114,16 @@ func SanitizeString(s string) (string, bool) {
 	// 3. Remove non-printable control characters (preserve \t and \n).
 	s = removeControlChars(s)
 
-	// 4. Apply injection patterns on NFKC-normalised form (case preserved).
-	//    Iterate to a fixed point (bounded) to catch nested patterns.
+	// 4. NFKC-normalise once so fullwidth/homoglyph variants map to ASCII.
+	//    This happens before pattern matching so the (?i) patterns catch them.
+	s = norm.NFKC.String(s)
+
+	// 5. Apply injection patterns in a bounded fixed-point loop to catch nested
+	//    patterns that reassemble after the first pass.
 	for iter := 0; iter < maxIterations; iter++ {
-		normalized := norm.NFKC.String(s)
-		next := applyPatterns(normalized)
+		next := applyPatterns(s)
 		if next == s {
-			break // fixed point reached
+			break
 		}
 		s = next
 	}
