@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/google/uuid"
+	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/services/paladin-ingest/internal/sanitizer"
 )
 
 // AlertmanagerWebhook is the Alertmanager v2 webhook payload shape.
@@ -45,9 +46,11 @@ func NormalizeAlertmanager(tenantID string, raw json.RawMessage) ([]alert.AlertE
 	envelopes := make([]alert.AlertEnvelope, 0, len(webhook.Alerts))
 
 	for _, a := range webhook.Alerts {
-		// Merge labels: alert-level overrides group-level
-		labels := mergeLabels(webhook.CommonLabels, a.Labels)
-		annotations := mergeLabels(webhook.CommonAnnotations, a.Annotations)
+		// Merge labels: alert-level overrides group-level, then sanitize.
+		rawLabels := mergeLabels(webhook.CommonLabels, a.Labels)
+		rawAnnotations := mergeLabels(webhook.CommonAnnotations, a.Annotations)
+		labels, _ := sanitizer.SanitizeMap(rawLabels)
+		annotations, _ := sanitizer.SanitizeMap(rawAnnotations)
 
 		fp := alert.ComputeFingerprint(alert.SourceAlertmanager, labels)
 
