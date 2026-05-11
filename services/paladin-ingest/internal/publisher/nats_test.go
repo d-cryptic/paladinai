@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/services/paladin-ingest/internal/publisher"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// fakeJetStream records the last Publish call and returns a configured response.
+// fakeJetStream records the last Publish call.
+// Each test constructs its own instance — no shared state, safe for t.Parallel.
 type fakeJetStream struct {
 	lastSubject string
 	lastData    []byte
@@ -23,13 +23,13 @@ type fakeJetStream struct {
 	seq         uint64
 }
 
-func (f *fakeJetStream) Publish(_ context.Context, subject string, data []byte) (*jetstream.PubAck, error) {
+func (f *fakeJetStream) Publish(_ context.Context, subject string, data []byte) (publisher.PublishResult, error) {
 	f.lastSubject = subject
 	f.lastData = data
 	if f.returnErr != nil {
-		return nil, f.returnErr
+		return publisher.PublishResult{}, f.returnErr
 	}
-	return &jetstream.PubAck{Stream: "PALADIN_ALERTS", Sequence: f.seq}, nil
+	return publisher.PublishResult{Sequence: f.seq}, nil
 }
 
 func newTestEnvelope(tenantID string) alert.AlertEnvelope {
@@ -46,18 +46,17 @@ func newTestEnvelope(tenantID string) alert.AlertEnvelope {
 func TestPublishAlert_CallsPublishWithCorrectSubject(t *testing.T) {
 	t.Parallel()
 	fake := &fakeJetStream{seq: 1}
-	pub := publisher.NewWithClient(fake, zap.NewNop())
+	pub := publisher.NewFromJS(fake, zap.NewNop())
 
 	env := newTestEnvelope("acme-corp")
 	require.NoError(t, pub.PublishAlert(context.Background(), env))
-
 	assert.Equal(t, "paladin.alerts.raw.acme-corp.alertmanager", fake.lastSubject)
 }
 
-func TestPublishAlert_PayloadIsValidJSON(t *testing.T) {
+func TestPublishAlert_PayloadRoundTrips(t *testing.T) {
 	t.Parallel()
 	fake := &fakeJetStream{seq: 2}
-	pub := publisher.NewWithClient(fake, zap.NewNop())
+	pub := publisher.NewFromJS(fake, zap.NewNop())
 
 	env := newTestEnvelope("acme-corp")
 	require.NoError(t, pub.PublishAlert(context.Background(), env))
@@ -66,42 +65,56 @@ func TestPublishAlert_PayloadIsValidJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(fake.lastData, &decoded))
 	assert.Equal(t, env.TenantID, decoded.TenantID)
 	assert.Equal(t, env.Fingerprint, decoded.Fingerprint)
-}
-
-func TestPublishAlert_PayloadContainsTenantID(t *testing.T) {
-	t.Parallel()
-	fake := &fakeJetStream{seq: 3}
-	pub := publisher.NewWithClient(fake, zap.NewNop())
-
-	env := newTestEnvelope("acme-corp")
-	require.NoError(t, pub.PublishAlert(context.Background(), env))
-
-	assert.Contains(t, string(fake.lastData), "acme-corp")
+	assert.Equal(t, env.Labels, decoded.Labels)
 }
 
 func TestPublishAlert_NATSErrorPropagated(t *testing.T) {
 	t.Parallel()
 	natsErr := errors.New("jetstream: connection refused")
 	fake := &fakeJetStream{returnErr: natsErr}
-	pub := publisher.NewWithClient(fake, zap.NewNop())
+	pub := publisher.NewFromJS(fake, zap.NewNop())
 
-	env := newTestEnvelope("acme-corp")
-	err := pub.PublishAlert(context.Background(), env)
+	err := pub.PublishAlert(context.Background(), newTestEnvelope("acme-corp"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, natsErr)
 	assert.Contains(t, err.Error(), "nats publish")
 }
 
+func TestPublishAlert_InvalidTenantReturnsError(t *testing.T) {
+	t.Parallel()
+	fake := &fakeJetStream{}
+	pub := publisher.NewFromJS(fake, zap.NewNop())
+
+	env := newTestEnvelope("") // empty string fails ValidateTenantID
+	err := pub.PublishAlert(context.Background(), env)
+	require.Error(t, err, "invalid tenant ID must return an error, not panic")
+	assert.Contains(t, err.Error(), "invalid tenant")
+	// Fake must not have been called.
+	assert.Empty(t, fake.lastSubject)
+}
+
+func TestPublishAlert_CancelledContextReturnsError(t *testing.T) {
+	t.Parallel()
+	fake := &fakeJetStream{}
+	pub := publisher.NewFromJS(fake, zap.NewNop())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before publish
+	err := pub.PublishAlert(ctx, newTestEnvelope("acme-corp"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	// Fake must not have been called.
+	assert.Empty(t, fake.lastSubject)
+}
+
 func TestPublishAlert_SubjectVariesByTenant(t *testing.T) {
 	t.Parallel()
-	tenants := []string{"alpha", "beta", "gamma-corp"}
-	for _, tenant := range tenants {
+	for _, tenant := range []string{"alpha", "beta", "gamma-corp"} {
 		t.Run(tenant, func(t *testing.T) {
 			t.Parallel()
 			fake := &fakeJetStream{seq: 1}
-			pub := publisher.NewWithClient(fake, zap.NewNop())
-			env := newTestEnvelope(tenant)
-			require.NoError(t, pub.PublishAlert(context.Background(), env))
+			pub := publisher.NewFromJS(fake, zap.NewNop())
+			require.NoError(t, pub.PublishAlert(context.Background(), newTestEnvelope(tenant)))
 			assert.Contains(t, fake.lastSubject, tenant)
 		})
 	}
@@ -121,7 +134,7 @@ func TestPublishAlert_SubjectVariesBySource(t *testing.T) {
 		t.Run(string(tc.source), func(t *testing.T) {
 			t.Parallel()
 			fake := &fakeJetStream{seq: 1}
-			pub := publisher.NewWithClient(fake, zap.NewNop())
+			pub := publisher.NewFromJS(fake, zap.NewNop())
 			env := newTestEnvelope("acme-corp")
 			env.Source = tc.source
 			require.NoError(t, pub.PublishAlert(context.Background(), env))
