@@ -243,3 +243,27 @@ func TestWorkerWithRCA_NilResultTreatedAsFallback(t *testing.T) {
 	assert.Equal(t, 1, pub.count())
 	assert.Contains(t, pub.lastSubject(), "paladin.alerts.triaged.", "nil RCA result should fall back to triaged subject")
 }
+
+func TestWorkerWithSupervisor_ReturnsCopyWithSupervisor(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P2"}}
+	pub := &stubPublisher{}
+	// WithSupervisor returns a new Worker with the supervisor field set;
+	// nil SupervisorPipeline exercises the copy path without calling Supervisor.Run.
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).WithSupervisor(nil)
+	require.NotNil(t, w, "WithSupervisor should return a non-nil Worker")
+
+	// ProcessEnvelope still uses the direct triager path when called directly.
+	err := w.ProcessEnvelope(context.Background(), firingEnv("t5", "fp-sup"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, triager.callCount())
+}
+
+func TestWorkerConcurrencyDefault_ZeroConcurrency(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P3"}}
+	pub := &stubPublisher{}
+	// Concurrency=0 should default to 4 internally without panicking.
+	w := worker.New(triager, pub, 5*time.Second, 0, zap.NewNop())
+	require.NotNil(t, w)
+	err := w.ProcessEnvelope(context.Background(), firingEnv("t6", "fp-conc"))
+	require.NoError(t, err)
+}
