@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"go.uber.org/zap"
+
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/internal/correlation"
-	"go.uber.org/zap"
 )
 
 // Deduplicator is the interface satisfied by dedup.Deduplicator.
@@ -28,9 +29,13 @@ type Correlator interface {
 	Correlate(ctx context.Context, env *alert.AlertEnvelope) error
 }
 
+// PublishResult is returned by a successful Publisher.Publish call.
+// It is a value type so the Publisher interface does not leak jetstream types.
+type PublishResult struct{ Sequence uint64 }
+
 // Publisher publishes a serialised envelope to a NATS subject.
 type Publisher interface {
-	Publish(ctx context.Context, subject string, data []byte) (*jetstream.PubAck, error)
+	Publish(ctx context.Context, subject string, data []byte) (PublishResult, error)
 }
 
 // Pipeline processes raw alerts: dedup → correlate → publish to correlated subject.
