@@ -189,3 +189,68 @@ func TestHandler_TenantIsolation(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, rr.Code, "tenant-B must not access tenant-A servers")
 }
+
+func TestHandler_List_MissingTenant(t *testing.T) {
+	r, _ := newTestRouter()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/servers", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestHandler_Get_MissingTenant(t *testing.T) {
+	r, _ := newTestRouter()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/servers/test-server", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestHandler_Deregister_MissingTenant(t *testing.T) {
+	r, _ := newTestRouter()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/mcp/servers/test-server", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestHandler_Deregister_NotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/mcp/servers/ghost", nil)
+	req = withTenant(req, "t1")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestHandler_Heartbeat_MissingTenant(t *testing.T) {
+	r, _ := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/servers/test-server/heartbeat", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestHandler_Heartbeat_NotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/servers/ghost/heartbeat", nil)
+	req = withTenant(req, "t1")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestHandler_Register_ResponseContainsMeta(t *testing.T) {
+	r, _ := newTestRouter()
+	registerServer(t, r, "tenant-1", validRegisterReq())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/servers", nil)
+	req = withTenant(req, "tenant-1")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	meta := body["meta"].(map[string]any)
+	assert.Equal(t, float64(1), meta["total"])
+}
