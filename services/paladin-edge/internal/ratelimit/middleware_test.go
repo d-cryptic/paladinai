@@ -19,11 +19,14 @@ import (
 // ─── Fake Limiter ─────────────────────────────────────────────────────────────
 
 type fakeLimiter struct {
+	limit     int
 	allowed   bool
 	remaining int
 	resetAt   time.Time
 	err       error
 }
+
+func (f *fakeLimiter) Limit() int { return f.limit }
 
 func (f *fakeLimiter) Allow(_ context.Context, _ string) (bool, int, time.Time, error) {
 	return f.allowed, f.remaining, f.resetAt, f.err
@@ -48,7 +51,7 @@ func newRequest(tenantID string) *http.Request {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 func TestMiddleware_NoTenantHeader_PassesThrough(t *testing.T) {
-	limiter := &fakeLimiter{allowed: false} // even a denying limiter must not block
+	limiter := &fakeLimiter{limit: 60, allowed: false} // even a denying limiter must not block without header
 	mw := ratelimit.Middleware(limiter, zap.NewNop())
 
 	rr := httptest.NewRecorder()
@@ -60,21 +63,21 @@ func TestMiddleware_NoTenantHeader_PassesThrough(t *testing.T) {
 
 func TestMiddleware_UnderLimit_PassesThrough(t *testing.T) {
 	resetAt := time.Now().Add(30 * time.Second)
-	limiter := &fakeLimiter{allowed: true, remaining: 55, resetAt: resetAt}
+	limiter := &fakeLimiter{limit: 60, allowed: true, remaining: 55, resetAt: resetAt}
 	mw := ratelimit.Middleware(limiter, zap.NewNop())
 
 	rr := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(rr, newRequest("tenant-1"))
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Equal(t, "60", rr.Header().Get("X-RateLimit-Limit"))
+	assert.Equal(t, "60", rr.Header().Get("X-RateLimit-Limit"), "limit header must reflect configured limit")
 	assert.Equal(t, "55", rr.Header().Get("X-RateLimit-Remaining"))
 	assert.Equal(t, strconv.FormatInt(resetAt.Unix(), 10), rr.Header().Get("X-RateLimit-Reset"))
 }
 
 func TestMiddleware_OverLimit_Returns429(t *testing.T) {
 	resetAt := time.Now().Add(45 * time.Second)
-	limiter := &fakeLimiter{allowed: false, remaining: 0, resetAt: resetAt}
+	limiter := &fakeLimiter{limit: 60, allowed: false, remaining: 0, resetAt: resetAt}
 	mw := ratelimit.Middleware(limiter, zap.NewNop())
 
 	rr := httptest.NewRecorder()
@@ -93,7 +96,7 @@ func TestMiddleware_OverLimit_Returns429(t *testing.T) {
 }
 
 func TestMiddleware_OverLimit_NextHandlerNotCalled(t *testing.T) {
-	limiter := &fakeLimiter{allowed: false, remaining: 0, resetAt: time.Now().Add(time.Minute)}
+	limiter := &fakeLimiter{limit: 60, allowed: false, remaining: 0, resetAt: time.Now().Add(time.Minute)}
 	mw := ratelimit.Middleware(limiter, zap.NewNop())
 
 	nextCalled := false
@@ -109,24 +112,22 @@ func TestMiddleware_OverLimit_NextHandlerNotCalled(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, rr.Code)
 }
 
-func TestMiddleware_LimiterError_FailsOpen(t *testing.T) {
-	limiter := &fakeLimiter{err: errors.New("valkey down"), allowed: false}
+func TestMiddleware_LimiterError_LogsAndPassesThrough(t *testing.T) {
+	// ValkeyLimiter.Allow swallows store errors and returns (true, limit, resetAt, nil).
+	// Middleware trusts whatever Allow returns. This test simulates that fail-open
+	// behaviour: err is non-nil but allowed=true, so the request must pass through.
+	limiter := &fakeLimiter{limit: 60, err: errors.New("valkey down"), allowed: true, remaining: 60, resetAt: time.Now().Add(time.Minute)}
 	mw := ratelimit.Middleware(limiter, zap.NewNop())
 
 	rr := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(rr, newRequest("tenant-4"))
 
-	// When limiter returns an error, Allow() fails open (returns true) so Middleware
-	// should still pass the request through.
-	// Note: current Middleware does not change behavior on err; allowed=false means 429
-	// unless ValkeyLimiter's fail-open is the one returning err=nil. Here we're testing
-	// the middleware's err logging path — it logs but does not short-circuit.
-	assert.NotEqual(t, http.StatusInternalServerError, rr.Code, "limiter error must not cause 500")
+	assert.Equal(t, http.StatusOK, rr.Code, "fail-open: request must pass through when limiter returns allowed=true")
 }
 
 func TestMiddleware_RetryAfterIsPositive(t *testing.T) {
 	resetAt := time.Now().Add(90 * time.Second)
-	limiter := &fakeLimiter{allowed: false, remaining: 0, resetAt: resetAt}
+	limiter := &fakeLimiter{limit: 60, allowed: false, remaining: 0, resetAt: resetAt}
 	mw := ratelimit.Middleware(limiter, zap.NewNop())
 
 	rr := httptest.NewRecorder()
@@ -141,7 +142,7 @@ func TestMiddleware_RetryAfterIsPositive(t *testing.T) {
 
 func TestMiddleware_HeadersAlwaysSetBeforeDecision(t *testing.T) {
 	resetAt := time.Now().Add(30 * time.Second)
-	limiter := &fakeLimiter{allowed: false, remaining: 0, resetAt: resetAt}
+	limiter := &fakeLimiter{limit: 60, allowed: false, remaining: 0, resetAt: resetAt}
 	mw := ratelimit.Middleware(limiter, zap.NewNop())
 
 	rr := httptest.NewRecorder()
@@ -151,6 +152,17 @@ func TestMiddleware_HeadersAlwaysSetBeforeDecision(t *testing.T) {
 	assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Limit"))
 	assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Remaining"))
 	assert.NotEmpty(t, rr.Header().Get("X-RateLimit-Reset"))
+}
+
+func TestMiddleware_LimitHeaderReflectsConfiguredLimit(t *testing.T) {
+	// Use a non-default limit to prove the header isn't hardcoded.
+	limiter := &fakeLimiter{limit: 600, allowed: true, remaining: 598, resetAt: time.Now().Add(time.Minute)}
+	mw := ratelimit.Middleware(limiter, zap.NewNop())
+
+	rr := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(rr, newRequest("tenant-premium"))
+
+	assert.Equal(t, "600", rr.Header().Get("X-RateLimit-Limit"), "header must reflect actual configured limit, not hardcoded 60")
 }
 
 // ─── Store error path on Allow ─────────────────────────────────────────────
