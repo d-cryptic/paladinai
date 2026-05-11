@@ -28,9 +28,13 @@ type Triager = agent.Triager
 // RCAAnalyzer is satisfied by agent.RCAAgent and test fakes.
 type RCAAnalyzer = agent.RCAAnalyzer
 
+// PublishResult is returned by a successful ResultPublisher.Publish call.
+// It is a value type so the ResultPublisher interface does not leak jetstream types.
+type PublishResult struct{ Sequence uint64 }
+
 // ResultPublisher publishes triage results downstream.
 type ResultPublisher interface {
-	Publish(ctx context.Context, subject string, data []byte) (*jetstream.PubAck, error)
+	Publish(ctx context.Context, subject string, data []byte) (PublishResult, error)
 }
 
 // Worker consumes correlated alerts from NATS, triages them, and publishes results.
@@ -277,8 +281,8 @@ func (w *Worker) publishCombined(ctx context.Context, env *alert.AlertEnvelope, 
 		return fmt.Errorf("marshal result: %w", err)
 	}
 
-	if _, err := w.pub.Publish(ctx, subject, payload); err != nil {
-		return fmt.Errorf("publish to %s: %w", subject, err)
+	if _, pubErr := w.pub.Publish(ctx, subject, payload); pubErr != nil {
+		return fmt.Errorf("publish to %s: %w", subject, pubErr)
 	}
 	return nil
 }
