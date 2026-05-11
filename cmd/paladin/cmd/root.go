@@ -39,6 +39,11 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(incidentCmd)
 	rootCmd.AddCommand(tenantCmd)
+
+	// Cobra registers the completion command automatically when CompletionOptions
+	// are not explicitly hidden. Call InitDefaultCompletionCmd to ensure it is
+	// always available regardless of execution environment.
+	rootCmd.InitDefaultCompletionCmd()
 }
 
 func envStr(key, fallback string) string {
