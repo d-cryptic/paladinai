@@ -1,0 +1,28 @@
+name: cloudwatch
+version: "1.0.0"
+description: "AWS CloudWatch — receive alarms and query metrics"
+
+receiver:
+  type: webhook
+  path: /v1/ingest/cloudwatch
+
+config_schema:
+  region:
+    type: string
+    default: "us-east-1"
+
+auth:
+  type: aws_credentials
+  fields:
+    - name: aws_access_key_id
+      secret: true
+    - name: aws_secret_access_key
+      secret: true
+    - name: aws_region
+      secret: false
+
+tools:
+  - get_metric_statistics
+  - describe_alarms
+
+docs_url: "https://docs.aws.amazon.com/cloudwatch/"

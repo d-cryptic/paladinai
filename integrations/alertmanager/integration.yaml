@@ -1,0 +1,21 @@
+name: alertmanager
+version: "1.0.0"
+description: "Prometheus Alertmanager — receive firing alerts via webhook"
+
+receiver:
+  type: webhook
+  path: /v1/ingest/alertmanager
+
+config_schema:
+  webhook_url:
+    type: string
+    description: "URL of this PaladinAI instance (for Alertmanager to call)"
+    required: false
+    default: "http://paladin-ingest:9001"
+
+auth:
+  type: none
+
+tools: []
+
+docs_url: "https://prometheus.io/docs/alerting/latest/alertmanager/"

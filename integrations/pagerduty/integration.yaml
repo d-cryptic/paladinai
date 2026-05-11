@@ -1,0 +1,28 @@
+name: pagerduty
+version: "1.0.0"
+description: "PagerDuty — receive incidents and manage on-call schedules"
+
+receiver:
+  type: webhook
+  path: /v1/ingest/pagerduty
+  hmac_header: X-PagerDuty-Signature
+
+config_schema:
+  subdomain:
+    type: string
+    required: false
+    description: "Your PagerDuty subdomain"
+
+auth:
+  type: api_key
+  fields:
+    - name: api_key
+      secret: true
+      description: "PagerDuty API key (v2)"
+
+tools:
+  - get_incident
+  - list_services
+  - create_incident
+
+docs_url: "https://developer.pagerduty.com/api-reference/"
