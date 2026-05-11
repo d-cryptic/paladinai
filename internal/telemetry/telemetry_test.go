@@ -1,4 +1,6 @@
 // White-box tests: package telemetry gives access to noopExporter.
+// Tests must NOT call t.Parallel() — Init mutates global OTel state
+// (otel.SetTracerProvider, otel.SetTextMapPropagator).
 package telemetry
 
 import (
@@ -14,6 +16,7 @@ func TestInit_EmptyEndpoint_NoError(t *testing.T) {
 	p, err := Init(context.Background(), "test-svc", "0.0.1", "", zap.NewNop())
 	require.NoError(t, err)
 	require.NotNil(t, p)
+	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
 }
 
 func TestInit_EmptyEndpoint_ShutdownOK(t *testing.T) {
@@ -24,8 +27,21 @@ func TestInit_EmptyEndpoint_ShutdownOK(t *testing.T) {
 
 func TestInit_EmptyServiceName_NoError(t *testing.T) {
 	// Service name is a semantic-convention attribute — empty is valid at the API level.
-	_, err := Init(context.Background(), "", "dev", "", zap.NewNop())
+	p, err := Init(context.Background(), "", "dev", "", zap.NewNop())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
+}
+
+// TestInit_ProviderShutdownDoesNotPanic asserts that calling Shutdown more than
+// once does not panic (OTel SDK guarantees idempotency, but we verify it doesn't
+// bleed into our Provider wrapper).
+func TestInit_ProviderShutdownDoesNotPanic(t *testing.T) {
+	p, err := Init(context.Background(), "test-svc", "0.0.1", "", zap.NewNop())
+	require.NoError(t, err)
+	require.NoError(t, p.Shutdown(context.Background()))
+	assert.NotPanics(t, func() {
+		_ = p.Shutdown(context.Background())
+	})
 }
 
 // TestNoopExporter_ExportSpans and TestNoopExporter_Shutdown verify that the
@@ -38,12 +54,4 @@ func TestNoopExporter_ExportSpans_NoError(t *testing.T) {
 func TestNoopExporter_Shutdown_NoError(t *testing.T) {
 	n := &noopExporter{}
 	assert.NoError(t, n.Shutdown(context.Background()))
-}
-
-func TestInit_ProviderCanShutdownTwice(t *testing.T) {
-	p, err := Init(context.Background(), "test-svc", "0.0.1", "", zap.NewNop())
-	require.NoError(t, err)
-	require.NoError(t, p.Shutdown(context.Background()))
-	// Second shutdown should not panic — OTel SDK is defined to be idempotent.
-	assert.NoError(t, p.Shutdown(context.Background()))
 }
