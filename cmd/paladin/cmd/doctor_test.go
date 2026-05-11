@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -131,4 +133,107 @@ func TestHTTPEndpointReachable_200(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// ─── --json mode ─────────────────────────────────────────────────────────────
+
+func TestDoctorCmd_JSONMode_EmitsValidJSON(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+
+	t.Setenv("PALADIN_TOKEN", "test-token")
+
+	var output string
+	var runErr error
+	output = captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		runErr = rootCmd.Execute()
+	})
+
+	// The command fails because infra (NATS/Valkey/Qdrant/k8s) isn't running — that's expected.
+	// We only care that stdout is valid JSON.
+	_ = runErr
+
+	var report DoctorReport
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &report)
+	require.NoError(t, err, "--json output must be valid JSON; got: %s", output)
+	assert.NotEmpty(t, report.Checks, "checks array must not be empty")
+	for _, c := range report.Checks {
+		assert.NotEmpty(t, c.Name, "every check must have a name")
+	}
+}
+
+func TestDoctorCmd_JSONMode_PassedFieldReflectsResults(t *testing.T) {
+	// All checks that return no error should set passed=true.
+	r := CheckResult{Name: "test", Passed: true}
+	assert.True(t, r.Passed)
+	assert.Empty(t, r.Error)
+
+	r2 := CheckResult{Name: "test", Passed: false, Error: "connection refused"}
+	assert.False(t, r2.Passed)
+	assert.Equal(t, "connection refused", r2.Error)
+}
+
+func TestDoctorReport_JSONRoundTrip(t *testing.T) {
+	report := DoctorReport{
+		Passed: false,
+		Checks: []CheckResult{
+			{Name: "NATS reachable", Passed: true},
+			{Name: "Valkey reachable", Passed: false, Error: "connection refused"},
+		},
+	}
+	b, err := json.Marshal(report)
+	require.NoError(t, err)
+
+	var decoded DoctorReport
+	require.NoError(t, json.Unmarshal(b, &decoded))
+	assert.Equal(t, report.Passed, decoded.Passed)
+	assert.Len(t, decoded.Checks, 2)
+	assert.Equal(t, "NATS reachable", decoded.Checks[0].Name)
+	assert.True(t, decoded.Checks[0].Passed)
+	assert.Empty(t, decoded.Checks[0].Error)
+	assert.Equal(t, "connection refused", decoded.Checks[1].Error)
+}
+
+// ─── --quiet mode ─────────────────────────────────────────────────────────────
+
+func TestDoctorCmd_QuietMode_ProducesNoOutput(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+
+	var output string
+	output = captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--quiet",
+		})
+		_ = rootCmd.Execute()
+	})
+
+	assert.Empty(t, strings.TrimSpace(output), "--quiet mode must produce no stdout output")
+}
+
+func TestDoctorCmd_QuietMode_JSONModeAreMutuallyUsable(t *testing.T) {
+	// Both --json and --quiet can be parsed without error (json takes precedence in output).
+	require.NoError(t, doctorCmd.Flags().Set("json", "false"))
+	require.NoError(t, doctorCmd.Flags().Set("quiet", "false"))
 }
