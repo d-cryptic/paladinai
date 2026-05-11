@@ -109,3 +109,6 @@ hatchet-token: ## Generate Hatchet API token (run after make up-all)
 
 clean: ## Remove build artifacts
 	rm -rf bin/ coverage.out coverage.html
+
+eval-smoke: ## Run smoke eval suite (no LLM, CI mode)
+	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8
