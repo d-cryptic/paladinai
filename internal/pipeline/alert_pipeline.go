@@ -38,17 +38,32 @@ type Publisher interface {
 	Publish(ctx context.Context, subject string, data []byte) (PublishResult, error)
 }
 
+// PostProcessFunc runs after Process successfully publishes a correlated envelope.
+// It is invoked synchronously inside Process; errors are intentionally not
+// returned — the alert has already been published, so a hook failure must not
+// trigger NATS redelivery.
+type PostProcessFunc func(ctx context.Context, env *alert.AlertEnvelope)
+
 // Pipeline processes raw alerts: dedup → correlate → publish to correlated subject.
 type Pipeline struct {
-	dedup Deduplicator
-	corr  Correlator
-	pub   Publisher
-	log   *zap.Logger
+	dedup       Deduplicator
+	corr        Correlator
+	pub         Publisher
+	log         *zap.Logger
+	postProcess PostProcessFunc
 }
 
 // New creates a Pipeline. All dependencies are required.
 func New(dedup Deduplicator, corr Correlator, pub Publisher, log *zap.Logger) *Pipeline {
 	return &Pipeline{dedup: dedup, corr: corr, pub: pub, log: log}
+}
+
+// WithPostProcess registers a hook fired after each successful publish. It is
+// intended for side effects like triggering durable workflows. A nil hook clears
+// any previously-registered hook. The pipeline is returned for chaining.
+func (p *Pipeline) WithPostProcess(hook PostProcessFunc) *Pipeline {
+	p.postProcess = hook
+	return p
 }
 
 // Process applies dedup + correlation to a single AlertEnvelope and publishes it.
@@ -108,6 +123,10 @@ func (p *Pipeline) Process(ctx context.Context, env *alert.AlertEnvelope) error 
 		zap.String("tenant", env.TenantID),
 		zap.String("status", string(env.Status)),
 	)
+
+	if p.postProcess != nil {
+		p.postProcess(ctx, env)
+	}
 	return nil
 }
 

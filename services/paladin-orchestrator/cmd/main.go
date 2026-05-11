@@ -14,13 +14,47 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
+	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/internal/correlation"
 	"github.com/paladinai/paladinai/internal/dedup"
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/pipeline"
+	"github.com/paladinai/paladinai/internal/workflow"
 	orchestratorcfg "github.com/paladinai/paladinai/services/paladin-orchestrator/config"
 )
+
+// triagePostProcess returns a pipeline post-process hook that fires the durable
+// triage workflow for each successfully published alert. Failures are logged but
+// never bubble up — the alert is already on the wire, so workflow trigger errors
+// must not cause NATS redelivery.
+func triagePostProcess(trigger workflow.Trigger, log *zap.Logger) pipeline.PostProcessFunc {
+	return func(ctx context.Context, env *alert.AlertEnvelope) {
+		// Use correlation ID as the incident ID until the incident service mints
+		// its own identifiers (Stage 6).
+		runID, err := trigger.TriggerTriage(ctx, workflow.TriagePayload{
+			TenantID:      env.TenantID,
+			IncidentID:    env.CorrelationID,
+			Fingerprint:   env.Fingerprint,
+			Severity:      string(env.Severity),
+			CorrelationID: env.CorrelationID,
+			Labels:        env.Labels,
+		})
+		switch {
+		case err != nil:
+			log.Warn("workflow trigger failed (non-fatal)",
+				zap.String("fingerprint", env.Fingerprint),
+				zap.String("tenant", env.TenantID),
+				zap.Error(err),
+			)
+		case runID != "":
+			log.Info("triage workflow triggered",
+				zap.String("run_id", runID),
+				zap.String("correlation_id", env.CorrelationID),
+			)
+		}
+	}
+}
 
 // natsPublisher adapts internalnats.Client to pipeline.Publisher.
 type natsPublisher struct{ client *internalnats.Client }
@@ -82,7 +116,19 @@ func run() error {
 	correlator := correlation.New(correlation.NewValkeyStore(rdb), log)
 	pub := &natsPublisher{client: natsClient}
 
-	pipe := pipeline.New(deduplicator, correlator, pub, log)
+	// ── Workflow trigger (Hatchet) ────────────────────────────────────────────
+	// When HATCHET_API_KEY is unset the orchestrator uses a no-op trigger so
+	// Hatchet is effectively disabled in local/dev environments.
+	var wfTrigger workflow.Trigger = workflow.NoopClient{}
+	if cfg.HatchetAPIKey != "" {
+		wfTrigger = workflow.NewClient(cfg.HatchetURL, cfg.HatchetAPIKey, log)
+		log.Info("hatchet workflows enabled", zap.String("url", cfg.HatchetURL))
+	} else {
+		log.Info("hatchet not configured, using noop workflow trigger")
+	}
+
+	pipe := pipeline.New(deduplicator, correlator, pub, log).
+		WithPostProcess(triagePostProcess(wfTrigger, log))
 
 	log.Info("paladin-orchestrator starting",
 		zap.String("consumer", cfg.ConsumerName),

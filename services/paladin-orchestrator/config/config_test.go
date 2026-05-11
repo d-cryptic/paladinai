@@ -14,6 +14,18 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "paladin-orchestrator", cfg.ConsumerName)
 	assert.Equal(t, 8, cfg.Workers)
 	assert.Equal(t, "nats://localhost:4222", cfg.NatsURL)
+	assert.Equal(t, "http://localhost:7077", cfg.HatchetURL)
+	assert.Equal(t, "", cfg.HatchetAPIKey)
+}
+
+func TestLoad_HatchetEnvOverrides(t *testing.T) {
+	t.Setenv("HATCHET_URL", "http://hatchet.internal:7077")
+	t.Setenv("HATCHET_API_KEY", "secret-key")
+
+	cfg, err := orchestratorcfg.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "http://hatchet.internal:7077", cfg.HatchetURL)
+	assert.Equal(t, "secret-key", cfg.HatchetAPIKey)
 }
 
 func TestLoad_EnvOverrides(t *testing.T) {
