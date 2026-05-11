@@ -60,15 +60,20 @@ func NewClient(baseURL, apiKey string, log *zap.Logger) *Client {
 }
 
 // TriggerTriage fires the "paladin-triage" workflow for an incident and returns
-// the workflow run ID on success. The run ID is best-effort: if Hatchet does not
-// return a parseable body the call still succeeds with an empty run ID.
+// the workflow run ID on success.
 func (c *Client) TriggerTriage(ctx context.Context, payload TriagePayload) (string, error) {
+	return c.triggerWorkflow(ctx, "paladin-triage", payload)
+}
+
+// triggerWorkflow fires a named Hatchet workflow with an arbitrary payload.
+// It is the shared implementation behind TriggerTriage, TriggerP1, TriggerP2.
+func (c *Client) triggerWorkflow(ctx context.Context, workflowName string, payload any) (string, error) {
 	body, err := json.Marshal(map[string]any{"input": payload})
 	if err != nil {
 		return "", fmt.Errorf("workflow: marshal payload: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/v1/workflows/paladin-triage/trigger", c.baseURL)
+	url := fmt.Sprintf("%s/api/v1/workflows/%s/trigger", c.baseURL, workflowName)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("workflow: build request: %w", err)
@@ -90,8 +95,8 @@ func (c *Client) TriggerTriage(ctx context.Context, payload TriagePayload) (stri
 		WorkflowRunID string `json:"workflow_run_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		// Non-fatal: trigger succeeded, we just cannot surface the run ID.
-		c.log.Warn("workflow: could not parse run ID from response", zap.Error(err))
+		c.log.Warn("workflow: could not parse run ID from response",
+			zap.String("workflow", workflowName), zap.Error(err))
 		return "", nil
 	}
 	return result.WorkflowRunID, nil
