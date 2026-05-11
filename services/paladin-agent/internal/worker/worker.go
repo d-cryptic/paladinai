@@ -173,6 +173,15 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
+	if err := alert.ValidateTenantID(env.TenantID); err != nil {
+		w.log.Error("worker: invalid tenant ID, terming",
+			zap.String("subject", msg.Subject()),
+			zap.Error(err),
+		)
+		_ = msg.Term()
+		return
+	}
+
 	// Check delivery count for DLQ routing.
 	md, _ := msg.Metadata()
 	var deliveries uint64
@@ -300,7 +309,7 @@ func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triag
 	}
 }
 
-// nakDelay returns exponential backoff for NATS Nak: 10s, 30s, 2m, 10m, capped at 10m.
+// nakDelay returns exponential backoff for NATS Nak: 10s, 30s, 90s, 270s, capped at 10m.
 func nakDelay(deliveries uint64) time.Duration {
 	const (
 		base     = 10.0       // seconds

@@ -27,6 +27,9 @@ func (a natsPublisherAdapter) Publish(ctx context.Context, subject string, data 
 	if err != nil {
 		return worker.PublishResult{}, err
 	}
+	if ack == nil {
+		return worker.PublishResult{}, nil
+	}
 	return worker.PublishResult{Sequence: ack.Sequence}, nil
 }
 

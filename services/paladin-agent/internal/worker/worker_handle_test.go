@@ -179,6 +179,19 @@ func TestHandleMsg_PanicInTriage_Terms(t *testing.T) {
 	assert.False(t, msg.acked)
 }
 
+func TestHandleMsg_InvalidTenantID_Terms(t *testing.T) {
+	w := newHandleWorker(&agent.TriageResult{ConfirmedSeverity: "P2"}, nil, nil)
+	// Tenant IDs with spaces or special chars are invalid per alert.ValidateTenantID.
+	env := alert.AlertEnvelope{TenantID: "bad tenant!", Fingerprint: "fp", Source: alert.SourceAlertmanager}
+	b, _ := json.Marshal(env)
+	msg := &fakeMsg{payload: b, subject: "paladin.alerts.correlated.bad.alertmanager"}
+
+	w.handleMsg(context.Background(), msg)
+
+	assert.True(t, msg.termed, "invalid tenant ID should term the message")
+	assert.False(t, msg.acked)
+}
+
 func TestHandleMsg_NoMsgMetadata_StillNaks(t *testing.T) {
 	// When Metadata() returns an error, deliveries=0; should still nak with delay.
 	w := newHandleWorker(nil, errors.New("timeout"), nil)
