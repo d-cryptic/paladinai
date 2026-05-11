@@ -2,6 +2,8 @@ package correlation_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/paladinai/paladinai/internal/alert"
@@ -93,7 +95,34 @@ func TestCorrelator_CorrelationIDPrefix(t *testing.T) {
 	c := correlation.New(newMemStore(), zap.NewNop())
 	env := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp1"}
 	require.NoError(t, c.Correlate(context.Background(), env))
-	assert.True(t, len(env.CorrelationID) > 5 && env.CorrelationID[:5] == "corr-")
+	assert.True(t, strings.HasPrefix(env.CorrelationID, "corr-"))
+}
+
+func TestCorrelator_StoreErrorIsReturned(t *testing.T) {
+	storeErr := errors.New("valkey: connection refused")
+	c := correlation.New(&errStore{err: storeErr}, zap.NewNop())
+	env := &alert.AlertEnvelope{TenantID: "t1", Fingerprint: "fp1"}
+
+	err := c.Correlate(context.Background(), env)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, storeErr)
+	assert.Contains(t, err.Error(), "correlate")
+}
+
+func TestCorrelatedSubject_Format(t *testing.T) {
+	t.Parallel()
+	subject := correlation.CorrelatedSubject("acme-corp", "alertmanager")
+	assert.Equal(t, "paladin.alerts.correlated.acme-corp.alertmanager", subject)
+}
+
+func TestCorrelatedSubject_VariesByTenantAndSource(t *testing.T) {
+	t.Parallel()
+	s1 := correlation.CorrelatedSubject("t1", "alertmanager")
+	s2 := correlation.CorrelatedSubject("t2", "alertmanager")
+	s3 := correlation.CorrelatedSubject("t1", "datadog")
+	assert.NotEqual(t, s1, s2)
+	assert.NotEqual(t, s1, s3)
+	assert.True(t, strings.HasPrefix(s1, "paladin.alerts.correlated."))
 }
 
 func TestCorrelator_NoLabelsDontCollapse(t *testing.T) {

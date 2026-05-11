@@ -32,3 +32,10 @@ func (m *memStore) GetOrSet(_ context.Context, key, defaultValue string, ttl tim
 	m.entries[key] = memEntry{value: defaultValue, expiry: time.Now().Add(ttl)}
 	return defaultValue, true, nil
 }
+
+// errStore always returns an error from GetOrSet — used to test error propagation.
+type errStore struct{ err error }
+
+func (e *errStore) GetOrSet(_ context.Context, _, _ string, _ time.Duration) (string, bool, error) {
+	return "", false, e.err
+}

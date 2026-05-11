@@ -2,11 +2,11 @@ package pipeline_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/internal/pipeline"
 	"github.com/stretchr/testify/assert"
@@ -17,8 +17,10 @@ import (
 // ─── In-memory fakes ─────────────────────────────────────────────────────────
 
 type memDedup struct {
-	mu   sync.Mutex
-	seen map[string]bool
+	mu       sync.Mutex
+	seen     map[string]bool
+	dedupErr error
+	resetErr error
 }
 
 func newMemDedup() *memDedup { return &memDedup{seen: make(map[string]bool)} }
@@ -26,6 +28,9 @@ func newMemDedup() *memDedup { return &memDedup{seen: make(map[string]bool)} }
 func (m *memDedup) IsDuplicate(_ context.Context, env *alert.AlertEnvelope) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.dedupErr != nil {
+		return false, m.dedupErr
+	}
 	k := env.TenantID + ":" + env.Fingerprint
 	if m.seen[k] {
 		return true, nil
@@ -37,13 +42,19 @@ func (m *memDedup) IsDuplicate(_ context.Context, env *alert.AlertEnvelope) (boo
 func (m *memDedup) Reset(_ context.Context, tenantID, fingerprint string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.resetErr != nil {
+		return m.resetErr
+	}
 	delete(m.seen, tenantID+":"+fingerprint)
 	return nil
 }
 
-type memCorrelator struct{}
+type memCorrelator struct{ err error }
 
-func (memCorrelator) Correlate(_ context.Context, env *alert.AlertEnvelope) error {
+func (c memCorrelator) Correlate(_ context.Context, env *alert.AlertEnvelope) error {
+	if c.err != nil {
+		return c.err
+	}
 	env.CorrelationID = "corr-test"
 	return nil
 }
@@ -51,6 +62,7 @@ func (memCorrelator) Correlate(_ context.Context, env *alert.AlertEnvelope) erro
 type memPublisher struct {
 	mu       sync.Mutex
 	messages []publishedMsg
+	err      error
 }
 
 type publishedMsg struct {
@@ -58,11 +70,14 @@ type publishedMsg struct {
 	data    []byte
 }
 
-func (p *memPublisher) Publish(_ context.Context, subject string, data []byte) (*jetstream.PubAck, error) {
+func (p *memPublisher) Publish(_ context.Context, subject string, data []byte) (pipeline.PublishResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.err != nil {
+		return pipeline.PublishResult{}, p.err
+	}
 	p.messages = append(p.messages, publishedMsg{subject: subject, data: data})
-	return &jetstream.PubAck{}, nil
+	return pipeline.PublishResult{Sequence: uint64(len(p.messages))}, nil
 }
 
 func (p *memPublisher) count() int {
@@ -97,9 +112,10 @@ func newPipeline() (*memDedup, *memPublisher, *pipeline.Pipeline) {
 	return dedup, pub, p
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+// ─── Tests — happy paths ──────────────────────────────────────────────────────
 
 func TestPipeline_FirstAlertIsPublished(t *testing.T) {
+	t.Parallel()
 	_, pub, p := newPipeline()
 	ctx := context.Background()
 
@@ -111,6 +127,7 @@ func TestPipeline_FirstAlertIsPublished(t *testing.T) {
 }
 
 func TestPipeline_DuplicateAlertIsSuppressed(t *testing.T) {
+	t.Parallel()
 	_, pub, p := newPipeline()
 	ctx := context.Background()
 
@@ -124,6 +141,7 @@ func TestPipeline_DuplicateAlertIsSuppressed(t *testing.T) {
 }
 
 func TestPipeline_ResolvedAlertBypassesDedup(t *testing.T) {
+	t.Parallel()
 	dedup, pub, p := newPipeline()
 	ctx := context.Background()
 
@@ -141,10 +159,11 @@ func TestPipeline_ResolvedAlertBypassesDedup(t *testing.T) {
 	refiring := newTestEnv("t1", "fp1", alert.StatusFiring)
 	require.NoError(t, p.Process(ctx, refiring))
 	assert.Equal(t, 3, pub.count(), "re-fire after resolve should publish")
-	_ = dedup // used implicitly through Pipeline
+	_ = dedup
 }
 
 func TestPipeline_PublishSubjectContainsTenantAndSource(t *testing.T) {
+	t.Parallel()
 	_, pub, p := newPipeline()
 	ctx := context.Background()
 
@@ -159,6 +178,7 @@ func TestPipeline_PublishSubjectContainsTenantAndSource(t *testing.T) {
 }
 
 func TestPipeline_DifferentTenantsAreIndependent(t *testing.T) {
+	t.Parallel()
 	_, pub, p := newPipeline()
 	ctx := context.Background()
 
@@ -172,6 +192,7 @@ func TestPipeline_DifferentTenantsAreIndependent(t *testing.T) {
 }
 
 func TestPipeline_CorrelationIDIsAssigned(t *testing.T) {
+	t.Parallel()
 	_, _, p := newPipeline()
 	ctx := context.Background()
 
@@ -179,4 +200,77 @@ func TestPipeline_CorrelationIDIsAssigned(t *testing.T) {
 	require.NoError(t, p.Process(ctx, env))
 
 	assert.NotEmpty(t, env.CorrelationID)
+}
+
+// ─── Tests — error paths ──────────────────────────────────────────────────────
+
+func TestPipeline_DedupErrorFailsOpen(t *testing.T) {
+	t.Parallel()
+	// Dedup returns an error — pipeline must NOT suppress the alert (fail open).
+	dedup := newMemDedup()
+	dedup.dedupErr = errors.New("valkey unavailable")
+	pub := &memPublisher{}
+	p := pipeline.New(dedup, memCorrelator{}, pub, zap.NewNop())
+
+	env := newTestEnv("t1", "fp1", alert.StatusFiring)
+	err := p.Process(context.Background(), env)
+
+	require.NoError(t, err, "dedup error must not be propagated — pipeline fails open")
+	assert.Equal(t, 1, pub.count(), "alert must still be published when dedup fails")
+}
+
+func TestPipeline_CorrelateErrorIsReturned(t *testing.T) {
+	t.Parallel()
+	corrErr := errors.New("correlator: store timeout")
+	dedup := newMemDedup()
+	pub := &memPublisher{}
+	p := pipeline.New(dedup, memCorrelator{err: corrErr}, pub, zap.NewNop())
+
+	env := newTestEnv("t1", "fp1", alert.StatusFiring)
+	err := p.Process(context.Background(), env)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, corrErr)
+	assert.Contains(t, err.Error(), "pipeline correlate")
+	assert.Equal(t, 0, pub.count(), "publish must not be called if correlation fails")
+}
+
+func TestPipeline_PublishErrorIsReturned(t *testing.T) {
+	t.Parallel()
+	pubErr := errors.New("jetstream: stream not found")
+	dedup := newMemDedup()
+	pub := &memPublisher{err: pubErr}
+	p := pipeline.New(dedup, memCorrelator{}, pub, zap.NewNop())
+
+	env := newTestEnv("t1", "fp1", alert.StatusFiring)
+	err := p.Process(context.Background(), env)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pubErr)
+	assert.Contains(t, err.Error(), "pipeline publish to")
+}
+
+func TestPipeline_ResolvedResetErrorIsNonFatal(t *testing.T) {
+	t.Parallel()
+	// Reset fails — should log and continue publishing the resolved event.
+	dedup := newMemDedup()
+	dedup.resetErr = errors.New("valkey: connection refused")
+	pub := &memPublisher{}
+	p := pipeline.New(dedup, memCorrelator{}, pub, zap.NewNop())
+
+	resolved := newTestEnv("t1", "fp1", alert.StatusResolved)
+	err := p.Process(context.Background(), resolved)
+
+	require.NoError(t, err, "Reset error must not propagate — it is non-fatal")
+	assert.Equal(t, 1, pub.count(), "resolved alert must still be published after Reset failure")
+}
+
+func TestPipeline_ReceivedAtIsSetOnProcess(t *testing.T) {
+	t.Parallel()
+	_, _, p := newPipeline()
+
+	env := newTestEnv("t1", "fp1", alert.StatusFiring)
+	env.ReceivedAt = time.Time{} // zero out
+	require.NoError(t, p.Process(context.Background(), env))
+	assert.False(t, env.ReceivedAt.IsZero(), "Process must set ReceivedAt")
 }
