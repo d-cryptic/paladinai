@@ -6,19 +6,32 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/alert"
 	inats "github.com/paladinai/paladinai/internal/nats"
 	"go.uber.org/zap"
 )
 
+// jetStreamPublisher is the minimum surface of inats.Client used here.
+// Extracted so unit tests can inject a fake without a real NATS server.
+type jetStreamPublisher interface {
+	Publish(ctx context.Context, subject string, data []byte) (*jetstream.PubAck, error)
+}
+
 // NATSPublisher publishes AlertEnvelopes to NATS JetStream.
 type NATSPublisher struct {
-	client *inats.Client
+	client jetStreamPublisher
 	log    *zap.Logger
 }
 
-// New creates a NATSPublisher.
+// New creates a NATSPublisher backed by a real inats.Client.
 func New(client *inats.Client, log *zap.Logger) *NATSPublisher {
+	return &NATSPublisher{client: client, log: log}
+}
+
+// NewWithClient creates a NATSPublisher with an explicit jetStreamPublisher.
+// Intended for tests; production code should use New.
+func NewWithClient(client jetStreamPublisher, log *zap.Logger) *NATSPublisher {
 	return &NATSPublisher{client: client, log: log}
 }
 
