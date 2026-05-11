@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/registry"
 )
@@ -15,14 +16,30 @@ import (
 // Prevents duplicate DDL when multiple paladin-hub replicas start simultaneously.
 const mcpServersLockID = int64(0x706c6474686562) // "pldtheb" in hex
 
+// Pool is the minimal database interface used by PostgresStore.
+// Satisfied by *pgxpool.Pool; extracted so unit tests can inject fakes without
+// a real Postgres connection.
+type Pool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // PostgresStore is a production Store backed by PostgreSQL via pgx/v5.
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool Pool
 }
 
 // NewPostgresStore wraps an existing connection pool.
 // Call MigrateUp before first use to ensure the table exists.
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
+}
+
+// newPostgresStoreFromPool wraps any Pool implementation.
+// Used in unit tests to inject in-memory fakes without a real Postgres connection.
+func newPostgresStoreFromPool(pool Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 

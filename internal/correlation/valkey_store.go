@@ -8,13 +8,27 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// RedisClient is the minimal interface over go-redis used by ValkeyStore.
+// Satisfied by *redis.Client; extracted so unit tests can inject fakes without
+// a real Redis/Valkey server.
+type RedisClient interface {
+	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
+	Get(ctx context.Context, key string) *redis.StringCmd
+}
+
 // ValkeyStore adapts go-redis to the correlation Store interface.
 type ValkeyStore struct {
-	rdb *redis.Client
+	rdb RedisClient
 }
 
 // NewValkeyStore wraps a go-redis Client for use as a correlation Store.
 func NewValkeyStore(rdb *redis.Client) *ValkeyStore {
+	return &ValkeyStore{rdb: rdb}
+}
+
+// NewValkeyStoreFromClient wraps any RedisClient implementation.
+// Used in unit tests to inject in-memory fakes without a real server.
+func NewValkeyStoreFromClient(rdb RedisClient) *ValkeyStore {
 	return &ValkeyStore{rdb: rdb}
 }
 
