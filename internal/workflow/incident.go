@@ -69,14 +69,14 @@ const (
 
 // RunbookStep describes one step in a runbook plan.
 type RunbookStep struct {
-	StepID          string            `json:"step_id"`
-	Name            string            `json:"name"`
-	Type            StepType          `json:"type"`
-	Tool            string            `json:"tool,omitempty"`   // MCP tool name
-	Args            map[string]string `json:"args,omitempty"`
-	RequiresApproval bool             `json:"requires_approval"`
-	VerifyCondition  string           `json:"verify_condition,omitempty"`
-	Timeout         time.Duration     `json:"timeout,omitempty"`
+	StepID           string            `json:"step_id"`
+	Name             string            `json:"name"`
+	Type             StepType          `json:"type"`
+	Tool             string            `json:"tool,omitempty"` // MCP tool name
+	Args             map[string]string `json:"args,omitempty"`
+	RequiresApproval bool              `json:"requires_approval"`
+	VerifyCondition  string            `json:"verify_condition,omitempty"`
+	Timeout          time.Duration     `json:"timeout,omitempty"`
 }
 
 // RunbookPlan is the ordered sequence of steps produced by SelectRunbook.
@@ -102,8 +102,8 @@ type StepResult struct {
 // ExternalID is set to IncidentID so Hatchet deduplicates concurrent triggers
 // for the same incident.
 type P1Payload struct {
-	TenantID   string `json:"tenant_id"`
-	IncidentID string `json:"incident_id"`
+	TenantID    string `json:"tenant_id"`
+	IncidentID  string `json:"incident_id"`
 	Fingerprint string `json:"fingerprint"`
 	// ExternalID deduplicates concurrent triggers for the same incident.
 	ExternalID string `json:"external_id"` // = IncidentID
@@ -111,10 +111,10 @@ type P1Payload struct {
 
 // P2Payload is the input to the P2IncidentWorkflow.
 type P2Payload struct {
-	TenantID   string `json:"tenant_id"`
-	IncidentID string `json:"incident_id"`
+	TenantID    string `json:"tenant_id"`
+	IncidentID  string `json:"incident_id"`
 	Fingerprint string `json:"fingerprint"`
-	ExternalID string `json:"external_id"` // = IncidentID
+	ExternalID  string `json:"external_id"` // = IncidentID
 }
 
 // ─── Extended trigger client ──────────────────────────────────────────────────

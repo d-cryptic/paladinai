@@ -36,20 +36,20 @@ const (
 
 // Alert is the canonical alert representation over gRPC.
 type Alert struct {
-	Id             string            `json:"id,omitempty"`
-	TenantId       string            `json:"tenant_id,omitempty"`
-	Fingerprint    string            `json:"fingerprint,omitempty"`
-	CorrelationId  string            `json:"correlation_id,omitempty"`
-	Severity       Severity          `json:"severity,omitempty"`
-	Status         Status            `json:"status,omitempty"`
-	Title          string            `json:"title,omitempty"`
-	Description    string            `json:"description,omitempty"`
-	Source         string            `json:"source,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Annotations    map[string]string `json:"annotations,omitempty"`
-	StartsAt       *timestamppb.Timestamp `json:"starts_at,omitempty"`
-	ReceivedAt     *timestamppb.Timestamp `json:"received_at,omitempty"`
-	EndsAt         *timestamppb.Timestamp `json:"ends_at,omitempty"`
+	Id            string                 `json:"id,omitempty"`
+	TenantId      string                 `json:"tenant_id,omitempty"`
+	Fingerprint   string                 `json:"fingerprint,omitempty"`
+	CorrelationId string                 `json:"correlation_id,omitempty"`
+	Severity      Severity               `json:"severity,omitempty"`
+	Status        Status                 `json:"status,omitempty"`
+	Title         string                 `json:"title,omitempty"`
+	Description   string                 `json:"description,omitempty"`
+	Source        string                 `json:"source,omitempty"`
+	Labels        map[string]string      `json:"labels,omitempty"`
+	Annotations   map[string]string      `json:"annotations,omitempty"`
+	StartsAt      *timestamppb.Timestamp `json:"starts_at,omitempty"`
+	ReceivedAt    *timestamppb.Timestamp `json:"received_at,omitempty"`
+	EndsAt        *timestamppb.Timestamp `json:"ends_at,omitempty"`
 }
 
 type IngestAlertRequest struct {

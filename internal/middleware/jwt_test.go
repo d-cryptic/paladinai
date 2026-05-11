@@ -142,8 +142,8 @@ func TestJWTMiddleware_CaseInsensitiveBearer(t *testing.T) {
 
 	// Negative: scheme variants that must NOT be accepted.
 	for _, hdr := range []string{
-		"Bearer" + tok,  // no space between scheme and token
-		"Bear " + tok,   // wrong scheme name
+		"Bearer" + tok, // no space between scheme and token
+		"Bear " + tok,  // wrong scheme name
 	} {
 		hdr := hdr
 		t.Run("invalid_"+hdr[:5], func(t *testing.T) {

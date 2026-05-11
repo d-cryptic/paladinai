@@ -37,17 +37,17 @@ const (
 
 // Incident is the canonical incident representation.
 type Incident struct {
-	Id               string           `json:"id,omitempty"`
-	TenantId         string           `json:"tenant_id,omitempty"`
-	CorrelationId    string           `json:"correlation_id,omitempty"`
-	Severity         IncidentSeverity `json:"severity,omitempty"`
-	Status           IncidentStatus   `json:"status,omitempty"`
-	Title            string           `json:"title,omitempty"`
-	Summary          string           `json:"summary,omitempty"`
-	LikelyCause      string           `json:"likely_cause,omitempty"`
-	AffectedServices []string         `json:"affected_services,omitempty"`
-	NeedsHuman       bool             `json:"needs_human,omitempty"`
-	AssignedTo       string           `json:"assigned_to,omitempty"`
+	Id               string                 `json:"id,omitempty"`
+	TenantId         string                 `json:"tenant_id,omitempty"`
+	CorrelationId    string                 `json:"correlation_id,omitempty"`
+	Severity         IncidentSeverity       `json:"severity,omitempty"`
+	Status           IncidentStatus         `json:"status,omitempty"`
+	Title            string                 `json:"title,omitempty"`
+	Summary          string                 `json:"summary,omitempty"`
+	LikelyCause      string                 `json:"likely_cause,omitempty"`
+	AffectedServices []string               `json:"affected_services,omitempty"`
+	NeedsHuman       bool                   `json:"needs_human,omitempty"`
+	AssignedTo       string                 `json:"assigned_to,omitempty"`
 	CreatedAt        *timestamppb.Timestamp `json:"created_at,omitempty"`
 	UpdatedAt        *timestamppb.Timestamp `json:"updated_at,omitempty"`
 	ResolvedAt       *timestamppb.Timestamp `json:"resolved_at,omitempty"`

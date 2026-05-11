@@ -37,17 +37,17 @@ type fakeMsg struct {
 }
 
 func (f *fakeMsg) Data() []byte                              { return f.payload }
-func (f *fakeMsg) Subject() string                          { return f.subject }
-func (f *fakeMsg) Reply() string                            { return "" }
+func (f *fakeMsg) Subject() string                           { return f.subject }
+func (f *fakeMsg) Reply() string                             { return "" }
 func (f *fakeMsg) Headers() nats.Header                      { return nil }
-func (f *fakeMsg) Ack() error                               { f.acked = true; return nil }
-func (f *fakeMsg) Nak() error                               { f.nakCalled = true; return nil }
-func (f *fakeMsg) NakWithDelay(d time.Duration) error       { f.nakCalled = true; f.nakDelay = d; return nil }
-func (f *fakeMsg) Term() error                              { f.termed = true; return nil }
-func (f *fakeMsg) TermWithReason(_ string) error            { f.termed = true; return nil }
-func (f *fakeMsg) InProgress() error                        { return nil }
+func (f *fakeMsg) Ack() error                                { f.acked = true; return nil }
+func (f *fakeMsg) Nak() error                                { f.nakCalled = true; return nil }
+func (f *fakeMsg) NakWithDelay(d time.Duration) error        { f.nakCalled = true; f.nakDelay = d; return nil }
+func (f *fakeMsg) Term() error                               { f.termed = true; return nil }
+func (f *fakeMsg) TermWithReason(_ string) error             { f.termed = true; return nil }
+func (f *fakeMsg) InProgress() error                         { return nil }
 func (f *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) { return f.meta, f.metaErr }
-func (f *fakeMsg) DoubleAck(_ context.Context) error        { f.acked = true; return nil }
+func (f *fakeMsg) DoubleAck(_ context.Context) error         { f.acked = true; return nil }
 
 // ─── fakeTriager ─────────────────────────────────────────────────────────────
 

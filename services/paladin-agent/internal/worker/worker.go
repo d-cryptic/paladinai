@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	maxDeliveries   = 5
-	dlqSubjectFmt   = "paladin.alerts.triage.dlq.%s"
+	maxDeliveries = 5
+	dlqSubjectFmt = "paladin.alerts.triage.dlq.%s"
 )
 
 // Triager is satisfied by agent.TriageAgent, agent.CachedTriager, and test fakes.
@@ -323,8 +323,8 @@ func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triag
 // nakDelay returns exponential backoff for NATS Nak: 10s, 30s, 90s, 270s, capped at 10m.
 func nakDelay(deliveries uint64) time.Duration {
 	const (
-		base     = 10.0       // seconds
-		maxDelay = 10 * 60.0  // seconds
+		base     = 10.0      // seconds
+		maxDelay = 10 * 60.0 // seconds
 	)
 	d := base * math.Pow(3, float64(deliveries))
 	if d > maxDelay {

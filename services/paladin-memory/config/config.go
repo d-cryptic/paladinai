@@ -31,9 +31,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("memory: config: DATABASE_URL is required")
 	}
 	c := &Config{
-		GRPCAddr:    getEnv("GRPC_ADDR", ":9010"),
-		DatabaseURL: dbURL,
-		ValkeyURL:   getEnv("VALKEY_URL", "redis://localhost:6379"),
+		GRPCAddr:     getEnv("GRPC_ADDR", ":9010"),
+		DatabaseURL:  dbURL,
+		ValkeyURL:    getEnv("VALKEY_URL", "redis://localhost:6379"),
 		WorkingTTL:   getEnvInt("WORKING_MEMORY_TTL_SECONDS", 1800),
 		QdrantURL:    os.Getenv("QDRANT_URL"),
 		QdrantAPIKey: os.Getenv("QDRANT_API_KEY"),

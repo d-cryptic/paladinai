@@ -21,11 +21,11 @@ var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 type Severity string
 
 const (
-	SeverityP1       Severity = "P1"
-	SeverityP2       Severity = "P2"
-	SeverityP3       Severity = "P3"
-	SeverityP4       Severity = "P4"
-	SeverityUnknown  Severity = "UNKNOWN"
+	SeverityP1      Severity = "P1"
+	SeverityP2      Severity = "P2"
+	SeverityP3      Severity = "P3"
+	SeverityP4      Severity = "P4"
+	SeverityUnknown Severity = "UNKNOWN"
 )
 
 // Status represents the lifecycle state of an alert.
@@ -54,16 +54,16 @@ const (
 // Fields are deliberately flat for fast serialisation and NATS filtering.
 type AlertEnvelope struct {
 	// Identity
-	ID          string    `json:"id"`           // UUID v7 assigned by paladin-ingest
-	Fingerprint string    `json:"fingerprint"`  // deterministic hash for dedup
-	TenantID    string    `json:"tenant_id"`    // set by paladin-auth, never from LLM context
-	CorrelationID string  `json:"correlation_id,omitempty"` // set by correlator
+	ID            string `json:"id"`                       // UUID v7 assigned by paladin-ingest
+	Fingerprint   string `json:"fingerprint"`              // deterministic hash for dedup
+	TenantID      string `json:"tenant_id"`                // set by paladin-auth, never from LLM context
+	CorrelationID string `json:"correlation_id,omitempty"` // set by correlator
 
 	// Classification
-	Severity  Severity `json:"severity"`
-	Status    Status   `json:"status"`
-	Category  string   `json:"category,omitempty"` // infrastructure, application, security ...
-	Source    Source   `json:"source"`
+	Severity Severity `json:"severity"`
+	Status   Status   `json:"status"`
+	Category string   `json:"category,omitempty"` // infrastructure, application, security ...
+	Source   Source   `json:"source"`
 
 	// Content
 	Title       string            `json:"title"`

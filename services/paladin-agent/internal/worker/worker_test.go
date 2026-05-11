@@ -149,11 +149,11 @@ func TestWorker_P1AlertNeedsHuman(t *testing.T) {
 	w := newWorker(triager, pub)
 
 	env := &alert.AlertEnvelope{
-		TenantID:  "t1",
+		TenantID:    "t1",
 		Fingerprint: "fp-p1",
-		Severity:  alert.SeverityP1,
-		Status:    alert.StatusFiring,
-		Source:    alert.SourceAlertmanager,
+		Severity:    alert.SeverityP1,
+		Status:      alert.StatusFiring,
+		Source:      alert.SourceAlertmanager,
 	}
 	result, err := w.TriageEnvelope(context.Background(), env)
 	require.NoError(t, err)

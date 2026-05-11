@@ -32,7 +32,7 @@ type TriageAlertRequest struct {
 }
 
 type TriageAlertResponse struct {
-	Result    *TriageResult `json:"result,omitempty"`
+	Result    *TriageResult          `json:"result,omitempty"`
 	ModelUsed string                 `json:"model_used,omitempty"`
 	TriagedAt *timestamppb.Timestamp `json:"triaged_at,omitempty"`
 }

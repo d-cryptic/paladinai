@@ -85,10 +85,10 @@ func pagerDutyBody(t *testing.T) []byte {
 	t.Helper()
 	payload := map[string]any{
 		"messages": []map[string]any{{
-			"event":   "trigger",
-			"id":      "pd-inc-001",
-			"service": map[string]string{"name": "payments-api"},
-			"urgency": "high",
+			"event":      "trigger",
+			"id":         "pd-inc-001",
+			"service":    map[string]string{"name": "payments-api"},
+			"urgency":    "high",
 			"created_on": time.Now().UTC().Format(time.RFC3339),
 			"log_entries": []map[string]any{{
 				"type": "notify_log_entry",

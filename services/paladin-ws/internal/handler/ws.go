@@ -100,7 +100,7 @@ func (wh *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // WriteControl is the sole ws API safe to call from other goroutines.
 func (wh *WSHandler) pump(ctx context.Context, conn *websocket.Conn, c *hub.Client) {
 	conn.SetReadLimit(maxMsgSize)
-	conn.SetReadDeadline(time.Now().Add(pongWait))    //nolint:errcheck
+	conn.SetReadDeadline(time.Now().Add(pongWait)) //nolint:errcheck
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(pongWait))
 	})

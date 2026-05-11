@@ -41,11 +41,11 @@ Rules:
 var validSeverities = map[string]bool{"P1": true, "P2": true, "P3": true, "P4": true}
 
 const (
-	maxSummaryLen    = 200
-	maxCauseLen      = 400
-	maxActionLen     = 200
-	maxServiceLen    = 64
-	maxServiceCount  = 20
+	maxSummaryLen   = 200
+	maxCauseLen     = 400
+	maxActionLen    = 200
+	maxServiceLen   = 64
+	maxServiceCount = 20
 )
 
 // TriageResult is the structured output produced by the triage agent.

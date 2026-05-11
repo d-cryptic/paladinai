@@ -72,8 +72,8 @@ set PALADIN_TOKEN instead to avoid filesystem writes.`,
 		}
 
 		var resp struct {
-			Token    string `json:"token"`
-			TenantID string `json:"tenant_id"`
+			Token     string `json:"token"`
+			TenantID  string `json:"tenant_id"`
 			ExpiresAt string `json:"expires_at"`
 		}
 		if err := json.Unmarshal(body, &resp); err != nil {
@@ -179,10 +179,10 @@ var authStatusCmd = &cobra.Command{
 		}
 
 		var me struct {
-			Email     string `json:"email"`
-			TenantID  string `json:"tenant_id"`
+			Email     string   `json:"email"`
+			TenantID  string   `json:"tenant_id"`
 			Roles     []string `json:"roles"`
-			ExpiresAt string `json:"expires_at"`
+			ExpiresAt string   `json:"expires_at"`
 		}
 		if err := json.Unmarshal(body, &me); err != nil {
 			fmt.Fprintf(os.Stdout, "Status:  authenticated (could not parse details)\n")

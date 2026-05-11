@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultL1TTL    = 30 * time.Minute
+	defaultL1TTL      = 30 * time.Minute
 	cacheWriteTimeout = 2 * time.Second
 )
 

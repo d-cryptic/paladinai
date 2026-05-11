@@ -45,9 +45,9 @@ type Store interface {
 
 // MemStore is a thread-safe in-memory Store used for tests and local dev.
 type MemStore struct {
-	mu      sync.RWMutex
-	byID    map[string]*Tenant
-	bySlug  map[string]*Tenant
+	mu     sync.RWMutex
+	byID   map[string]*Tenant
+	bySlug map[string]*Tenant
 }
 
 func NewMemStore() *MemStore {
