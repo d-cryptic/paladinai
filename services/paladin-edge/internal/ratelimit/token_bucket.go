@@ -23,6 +23,8 @@ type Store interface {
 // Limiter is the rate-limiting interface consumed by HTTP middleware.
 type Limiter interface {
 	Allow(ctx context.Context, tenantID string) (allowed bool, remaining int, resetAt time.Time, err error)
+	// Limit returns the configured maximum requests per window for header reporting.
+	Limit() int
 }
 
 // ValkeyLimiter is a fixed-window rate limiter backed by Valkey.
@@ -47,6 +49,9 @@ func NewValkeyLimiter(rdb *redis.Client, limit int, log *zap.Logger) *ValkeyLimi
 func NewTestLimiter(store Store, limit int) *ValkeyLimiter {
 	return &ValkeyLimiter{store: store, limit: limit, window: time.Minute, log: zap.NewNop()}
 }
+
+// Limit returns the configured max requests per window (used for X-RateLimit-Limit header).
+func (l *ValkeyLimiter) Limit() int { return l.limit }
 
 func (l *ValkeyLimiter) Allow(ctx context.Context, tenantID string) (bool, int, time.Time, error) {
 	key := fmt.Sprintf("paladin:ratelimit:%s", tenantID)
@@ -102,7 +107,7 @@ func Middleware(limiter Limiter, log *zap.Logger) func(http.Handler) http.Handle
 				log.Error("rate limiter error", zap.Error(err))
 			}
 
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(60))
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limiter.Limit()))
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
 
