@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,9 +16,19 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-edge/internal/proxy"
 )
 
+func skipIfNoNetwork(t *testing.T) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("network unavailable, skipping httptest-based test: %v", err)
+	}
+	ln.Close()
+}
+
 // newFakeBackend returns a test server that records the last received request.
 func newFakeBackend(t *testing.T, handler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
 	t.Helper()
+	skipIfNoNetwork(t)
 	ts := httptest.NewServer(http.HandlerFunc(handler))
 	t.Cleanup(ts.Close)
 	return ts

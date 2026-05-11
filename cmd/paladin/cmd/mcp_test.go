@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,10 +16,20 @@ import (
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 )
 
+func skipIfNoNetwork(t *testing.T) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("network unavailable, skipping httptest-based test: %v", err)
+	}
+	ln.Close()
+}
+
 // newHubStub is a minimal fake paladin-hub for CLI command tests.
 // It validates the X-Tenant-ID header so we can verify the CLI forwards it.
 func newHubStub(t *testing.T) *httptest.Server {
 	t.Helper()
+	skipIfNoNetwork(t)
 	mux := http.NewServeMux()
 
 	// requireTenantHeader returns false and writes 400 when header is missing.
