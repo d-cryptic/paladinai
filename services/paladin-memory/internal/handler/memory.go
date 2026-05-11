@@ -9,8 +9,15 @@ import (
 	"go.uber.org/zap"
 
 	memoryv1 "github.com/paladinai/paladinai/gen/go/memory/v1"
+	"github.com/paladinai/paladinai/internal/qdrant"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
 )
+
+// ProceduralSearcher is the subset of qdrant.Indexer methods the handler needs.
+// Defined as an interface to keep the handler testable without Qdrant.
+type ProceduralSearcher interface {
+	Search(ctx context.Context, query, tenantID string, topK int) ([]qdrant.RunbookChunk, error)
+}
 
 // MemoryHandler implements memoryv1.MemoryServiceServer.
 type MemoryHandler struct {
@@ -18,6 +25,7 @@ type MemoryHandler struct {
 
 	working    store.WorkingStore
 	episodic   store.EpisodicStore
+	procedural ProceduralSearcher
 	workingTTL time.Duration
 	log        *zap.Logger
 }
@@ -34,6 +42,13 @@ func New(working store.WorkingStore, episodic store.EpisodicStore, workingTTL ti
 		workingTTL: workingTTL,
 		log:        log,
 	}
+}
+
+// WithProcedural attaches a procedural-memory searcher (Qdrant). Returns the
+// receiver for chaining.
+func (h *MemoryHandler) WithProcedural(p ProceduralSearcher) *MemoryHandler {
+	h.procedural = p
+	return h
 }
 
 // SearchMemory fans out to each requested memory tier and merges results.
@@ -85,8 +100,25 @@ func (h *MemoryHandler) SearchMemory(ctx context.Context, req *memoryv1.SearchMe
 					Source:  "episodic",
 				})
 			}
+		case memoryv1.MemoryTypeProcedural:
+			if h.procedural == nil {
+				h.log.Debug("search: procedural memory not configured")
+				continue
+			}
+			chunks, err := h.procedural.Search(ctx, req.Query, req.TenantID, topK)
+			if err != nil {
+				return nil, fmt.Errorf("memory: search procedural: %w", err)
+			}
+			for _, ch := range chunks {
+				resp.Results = append(resp.Results, &memoryv1.MemoryResult{
+					Type:    memoryv1.MemoryTypeProcedural,
+					Content: ch.Content,
+					Score:   1.0,
+					Source:  ch.Source,
+				})
+			}
 		default:
-			// Semantic / procedural tiers land in later stages — skip silently.
+			// Semantic tier lands in a later stage — skip silently.
 			h.log.Debug("search: memory type not implemented", zap.Int("type", int(mt)))
 		}
 	}
