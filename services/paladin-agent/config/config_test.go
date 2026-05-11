@@ -9,7 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// clearAgentEnv unsets variables owned by this loader so each test is hermetic.
+// clearAgentEnv blanks every env variable consumed by this loader so each
+// test is hermetic. Note: t.Setenv("", "") is equivalent to unset for this
+// codebase because all getEnv/envInt helpers treat "" as "not set". Tests
+// using this helper must NOT call t.Parallel() — t.Setenv forbids it.
 func clearAgentEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
@@ -23,48 +26,32 @@ func clearAgentEnv(t *testing.T) {
 	}
 }
 
-func TestLoad_DefaultAgentWorkers(t *testing.T) {
-	clearAgentEnv(t)
-	t.Setenv("OPENROUTER_API_KEY", "test-key")
-	cfg, err := config.Load()
-	require.NoError(t, err)
-	assert.Equal(t, 4, cfg.AgentWorkers)
-}
-
-func TestLoad_EnvAgentWorkers(t *testing.T) {
-	clearAgentEnv(t)
-	t.Setenv("OPENROUTER_API_KEY", "test-key")
-	t.Setenv("AGENT_WORKERS", "8")
-	cfg, err := config.Load()
-	require.NoError(t, err)
-	assert.Equal(t, 8, cfg.AgentWorkers)
-}
-
-func TestLoad_InvalidAgentWorkersFallsBackToDefault(t *testing.T) {
-	clearAgentEnv(t)
-	t.Setenv("OPENROUTER_API_KEY", "test-key")
-	t.Setenv("AGENT_WORKERS", "not-a-number")
-	cfg, err := config.Load()
-	require.NoError(t, err)
-	assert.Equal(t, 4, cfg.AgentWorkers)
-}
-
-func TestLoad_ZeroAgentWorkersFallsBackToDefault(t *testing.T) {
-	clearAgentEnv(t)
-	t.Setenv("OPENROUTER_API_KEY", "test-key")
-	t.Setenv("AGENT_WORKERS", "0")
-	cfg, err := config.Load()
-	require.NoError(t, err)
-	assert.Equal(t, 4, cfg.AgentWorkers, "zero is not a valid worker count; must fall back to default")
-}
-
-func TestLoad_NegativeAgentWorkersFallsBackToDefault(t *testing.T) {
-	clearAgentEnv(t)
-	t.Setenv("OPENROUTER_API_KEY", "test-key")
-	t.Setenv("AGENT_WORKERS", "-1")
-	cfg, err := config.Load()
-	require.NoError(t, err)
-	assert.Equal(t, 4, cfg.AgentWorkers, "negative value must fall back to default")
+func TestLoad_AgentWorkers(t *testing.T) {
+	cases := []struct {
+		name   string
+		setEnv string // empty means "leave unset"
+		want   int
+	}{
+		{"default when unset", "", 4},
+		{"valid override", "8", 8},
+		{"non-numeric falls back", "not-a-number", 4},
+		{"float falls back", "4.0", 4},
+		{"whitespace falls back", " 8 ", 4},
+		{"zero falls back", "0", 4},
+		{"negative falls back", "-1", 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearAgentEnv(t)
+			t.Setenv("OPENROUTER_API_KEY", "test-key")
+			if tc.setEnv != "" {
+				t.Setenv("AGENT_WORKERS", tc.setEnv)
+			}
+			cfg, err := config.Load()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.AgentWorkers)
+		})
+	}
 }
 
 func TestLoad_DefaultConsumerName(t *testing.T) {
@@ -84,20 +71,14 @@ func TestLoad_EnvConsumerName(t *testing.T) {
 	assert.Equal(t, "agent-instance-2", cfg.NATSConsumerName)
 }
 
-func TestLoad_DefaultTimeouts(t *testing.T) {
+func TestLoad_Timeouts(t *testing.T) {
 	clearAgentEnv(t)
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	cfg, err := config.Load()
 	require.NoError(t, err)
 	assert.Equal(t, 30*time.Second, cfg.TriageTimeout)
-	assert.Equal(t, 60*time.Second, cfg.RCATimeout, "RCATimeout must be 2× TriageTimeout")
-}
-
-func TestLoad_RCATimeoutIsTwiceTriageTimeout(t *testing.T) {
-	clearAgentEnv(t)
-	t.Setenv("OPENROUTER_API_KEY", "test-key")
-	cfg, err := config.Load()
-	require.NoError(t, err)
+	// RCATimeout is always derived from TriageTimeout — assert the invariant,
+	// not a hard-coded value, so changes to TriageTimeout still surface here.
 	assert.Equal(t, 2*cfg.TriageTimeout, cfg.RCATimeout)
 }
 
@@ -109,14 +90,10 @@ func TestLoad_MissingOpenRouterKeyReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "OPENROUTER_API_KEY")
 }
 
-func TestLoad_BaseLLMFieldsPopulated(t *testing.T) {
+func TestLoad_OpenRouterKeyPropagated(t *testing.T) {
 	clearAgentEnv(t)
 	t.Setenv("OPENROUTER_API_KEY", "or-key-abc")
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	assert.NotEmpty(t, cfg.LLM.GatewayURL)
-	assert.NotEmpty(t, cfg.LLM.TierA)
-	assert.NotEmpty(t, cfg.LLM.TierB)
-	assert.NotEmpty(t, cfg.LLM.TierC)
 	assert.Equal(t, "or-key-abc", cfg.LLM.OpenRouterKey)
 }

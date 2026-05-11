@@ -3,6 +3,7 @@ package llm_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/llm"
@@ -27,6 +28,11 @@ func TestSecret_MarshalJSON_IsRedacted(t *testing.T) {
 	b, err := json.Marshal(s)
 	require.NoError(t, err)
 	assert.Equal(t, `"[REDACTED]"`, string(b))
+
+	// Pointer form must also redact (guards against accidental pointer-receiver conversion).
+	b2, err := json.Marshal(&s)
+	require.NoError(t, err)
+	assert.Equal(t, `"[REDACTED]"`, string(b2))
 }
 
 func TestSecret_MarshalJSON_InStruct_IsRedacted(t *testing.T) {
@@ -45,6 +51,15 @@ func TestSecret_EmptyString_StillRedacted(t *testing.T) {
 	assert.Equal(t, "", s.Reveal())
 }
 
+// TestSecret_FmtVerbs ensures all common format verbs redact the value.
+// A missed verb would leak credentials into zap-structured logs.
+func TestSecret_FmtVerbs_Redacted(t *testing.T) {
+	s := llm.Secret("leak-me")
+	assert.Equal(t, "[REDACTED]", fmt.Sprintf("%s", s))
+	assert.Equal(t, "[REDACTED]", fmt.Sprintf("%v", s))
+	assert.NotContains(t, fmt.Sprintf("%+v", struct{ K llm.Secret }{s}), "leak-me")
+}
+
 // ── Tier constants ────────────────────────────────────────────────────────────
 
 func TestTier_ConstantValues(t *testing.T) {
@@ -54,12 +69,9 @@ func TestTier_ConstantValues(t *testing.T) {
 }
 
 func TestTier_Distinct(t *testing.T) {
-	tiers := []llm.Tier{llm.TierA, llm.TierB, llm.TierC}
-	seen := make(map[llm.Tier]bool, len(tiers))
-	for _, tier := range tiers {
-		assert.False(t, seen[tier], "duplicate tier value: %q", tier)
-		seen[tier] = true
-	}
+	assert.NotEqual(t, llm.TierA, llm.TierB)
+	assert.NotEqual(t, llm.TierB, llm.TierC)
+	assert.NotEqual(t, llm.TierA, llm.TierC)
 }
 
 // ── New — URL validation (no network required) ────────────────────────────────
