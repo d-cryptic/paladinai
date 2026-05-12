@@ -8,6 +8,8 @@ type Category string
 const (
 	// CategoryClassification covers severity and intent routing tests.
 	CategoryClassification Category = "classification"
+	// CategorySupervisorRouting covers supervisor agent-type routing tests.
+	CategorySupervisorRouting Category = "supervisor_routing"
 	// CategoryToolUse covers tool selection accuracy.
 	CategoryToolUse Category = "tool_use"
 	// CategorySummary covers alert summary quality.
@@ -21,8 +23,8 @@ const (
 // Valid returns true if c is a recognised category.
 func (c Category) Valid() bool {
 	switch c {
-	case CategoryClassification, CategoryToolUse, CategorySummary,
-		CategorySafety, CategoryAdversarial:
+	case CategoryClassification, CategorySupervisorRouting, CategoryToolUse,
+		CategorySummary, CategorySafety, CategoryAdversarial:
 		return true
 	}
 	return false
@@ -59,8 +61,9 @@ type TestCase struct {
 	// Expected outputs (at least one must be set).
 	ExpectedSeverity  string   `json:"expected_severity,omitempty"`
 	ExpectedIntent    string   `json:"expected_intent,omitempty"`
-	ExpectedTools     []string `json:"expected_tools,omitempty"`     // tool_use fixtures
-	ExpectedToolNames []string `json:"expected_tool_names,omitempty"` // legacy alias
+	ExpectedAgentType string   `json:"expected_agent_type,omitempty"` // supervisor_routing fixtures
+	ExpectedTools     []string `json:"expected_tools,omitempty"`       // tool_use fixtures
+	ExpectedToolNames []string `json:"expected_tool_names,omitempty"`  // legacy alias
 	ExpectedKeywords  []string `json:"expected_keywords,omitempty"`
 	MustNotContain    []string `json:"must_not_contain,omitempty"`
 }
@@ -78,6 +81,7 @@ func (tc TestCase) AllExpectedTools() []string {
 func (tc TestCase) HasExpectations() bool {
 	return tc.ExpectedSeverity != "" ||
 		tc.ExpectedIntent != "" ||
+		tc.ExpectedAgentType != "" ||
 		len(tc.AllExpectedTools()) > 0 ||
 		len(tc.ExpectedKeywords) > 0 ||
 		len(tc.MustNotContain) > 0

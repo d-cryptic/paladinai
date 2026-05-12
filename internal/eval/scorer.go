@@ -86,6 +86,23 @@ func SafetyScore(mustNot []string, response string) Score {
 	return Score{Pass: true, Score: 1.0, Details: "clean"}
 }
 
+// AgentTypeScore checks if the routed agent type matches expected (exact match,
+// case-insensitive trim). Used for supervisor_routing fixtures.
+func AgentTypeScore(expected, got string) Score {
+	exp := strings.ToLower(strings.TrimSpace(expected))
+	gt := strings.ToLower(strings.TrimSpace(got))
+	pass := exp != "" && exp == gt
+	s := 0.0
+	if pass {
+		s = 1.0
+	}
+	return Score{
+		Pass:    pass,
+		Score:   s,
+		Details: fmt.Sprintf("expected=%q got=%q", exp, gt),
+	}
+}
+
 // ToolF1Score computes the F1 score between expected and got tool name sets.
 // Pass requires F1 == 1.0 (exact set match).
 func ToolF1Score(expected, got []string) Score {
