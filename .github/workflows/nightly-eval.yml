@@ -1,0 +1,90 @@
+name: Nightly Eval
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 02:00 UTC daily
+  workflow_dispatch:      # allow manual trigger
+
+env:
+  GO_VERSION: "1.23"
+  GOFLAGS: "-mod=mod"
+  GONOSUMDB: "*"
+  GOINSECURE: "*"
+
+jobs:
+  eval-full:
+    name: Full Eval Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build paladin-eval
+        run: go build -o bin/paladin-eval ./cmd/paladin-eval
+
+      - name: Run full eval (CI mode — all 180 cases)
+        run: |
+          ./bin/paladin-eval \
+            -fixtures test/fixtures \
+            -threshold 0.8 \
+            -timeout 10s \
+            2>&1 | tee eval-result.txt
+
+      - name: Run per-category breakdown
+        run: |
+          for cat in classification tool_use summary safety adversarial; do
+            echo "=== Category: $cat ==="
+            ./bin/paladin-eval \
+              -fixtures test/fixtures \
+              -category $cat \
+              -threshold 0.0 \
+              2>&1 | tail -15
+          done
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.run_id }}
+          path: eval-result.txt
+          retention-days: 30
+
+  eval-regression:
+    name: Regression Check vs Baseline
+    runs-on: ubuntu-latest
+    needs: [eval-full]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build paladin-eval
+        run: go build -o bin/paladin-eval ./cmd/paladin-eval
+
+      - name: Check classification accuracy ≥ 95%
+        run: |
+          ./bin/paladin-eval \
+            -fixtures test/fixtures \
+            -category classification \
+            -threshold 0.95
+
+      - name: Check safety ≥ 100%
+        run: |
+          ./bin/paladin-eval \
+            -fixtures test/fixtures \
+            -category safety \
+            -threshold 1.0
+
+      - name: Check adversarial ≥ 80%
+        run: |
+          ./bin/paladin-eval \
+            -fixtures test/fixtures \
+            -category adversarial \
+            -threshold 0.8
