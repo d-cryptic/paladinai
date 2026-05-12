@@ -78,6 +78,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("hub proxy: %w", err)
 	}
+	runbookProxy, err := buildProxy(conf.HubURL, "/api/v1/runbooks", log)
+	if err != nil {
+		return fmt.Errorf("runbook proxy: %w", err)
+	}
 	ingestProxy, err := buildProxy(conf.IngestURL, "/api/v1/ingest", log)
 	if err != nil {
 		return fmt.Errorf("ingest proxy: %w", err)
@@ -127,6 +131,10 @@ func run() error {
 			// MCP server registry — proxied to paladin-hub.
 			// /api/v1/mcp/* → paladin-hub /api/v1/*  (prefix stripped in Director)
 			r.Mount("/mcp", hubProxy)
+
+			// Runbook import/search — proxied to paladin-hub.
+			// /api/v1/runbooks/* → paladin-hub /api/v1/runbooks/*
+			r.Mount("/runbooks", runbookProxy)
 
 			// Alert ingest — proxied to paladin-ingest.
 			// /api/v1/ingest/* → paladin-ingest /api/v1/ingest/*
