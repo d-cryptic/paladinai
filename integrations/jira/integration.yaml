@@ -1,0 +1,40 @@
+name: jira
+version: "1.0.0"
+description: "Jira — create and link incident tickets, search runbooks in Confluence"
+
+receiver:
+  type: none
+
+config_schema:
+  base_url:
+    type: string
+    required: true
+    description: "Jira Cloud or Server URL (e.g. https://acme.atlassian.net)"
+  email:
+    type: string
+    required: true
+    description: "Jira user email for API token auth"
+  api_token:
+    type: string
+    required: true
+    secret: true
+    description: "Jira API token (Atlassian account settings)"
+  project_key:
+    type: string
+    required: false
+    description: "Default Jira project key for incident tickets (e.g. OPS)"
+
+auth:
+  type: basic
+  env_var: JIRA_API_TOKEN
+
+tools:
+  - create_issue
+  - get_issue
+  - update_issue
+  - search_issues
+  - add_comment
+  - get_project
+  - list_projects
+
+docs_url: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/"
