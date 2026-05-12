@@ -56,6 +56,7 @@ type Deployment struct {
 
 // DependsOnEdge is the structural dependency edge between two services.
 type DependsOnEdge struct {
+	TenantID      string  `json:"tenant_id"`
 	FromServiceID string  `json:"from_service_id"`
 	ToServiceID   string  `json:"to_service_id"`
 	Protocol      string  `json:"protocol"` // "http" | "grpc" | "kafka" | "db"
