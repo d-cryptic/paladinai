@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -247,13 +248,31 @@ var doctorCmd = &cobra.Command{
   ok  Authenticated    -- token is valid and non-expired
   ok  Tenant           -- tenant is configured
   ok  Agent            -- paladin-agent service is reachable
-  ok  Integrations     -- registered MCP servers pass health checks`,
+  ok  Integrations     -- registered MCP servers pass health checks
+
+Flags:
+  --json   Emit machine-readable JSON (for CI pipelines)
+  --quiet  Print nothing; exit code only (0=all pass, 1=some fail)`,
 	RunE: runDoctor,
 }
 
 type check struct {
 	name string
 	fn   func() error
+}
+
+// CheckResult holds the outcome of a single doctor check.
+// Used for --json output.
+type CheckResult struct {
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+	Error  string `json:"error,omitempty"`
+}
+
+// DoctorReport is the top-level JSON emitted by paladin doctor --json.
+type DoctorReport struct {
+	Passed bool          `json:"passed"`
+	Checks []CheckResult `json:"checks"`
 }
 
 const infraDialTimeout = 3 * time.Second
@@ -299,8 +318,11 @@ func infraTCPCheck(rawURL string, defaultPort int) func() error {
 }
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	quietMode, _ := cmd.Flags().GetBool("quiet")
+
 	cfg, cfgErr := loadConfig()
-	if cfgErr != nil {
+	if cfgErr != nil && !quietMode && !jsonMode {
 		fmt.Fprintf(os.Stderr, "WARNING: could not read config: %v\n", cfgErr)
 	}
 
@@ -395,7 +417,9 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 					}
 					return fmt.Errorf("kubectl current-context: %w", err)
 				}
-				fmt.Printf("      context: %s\n", strings.TrimSpace(string(out)))
+				if !quietMode && !jsonMode {
+					fmt.Printf("      context: %s\n", strings.TrimSpace(string(out)))
+				}
 				return nil
 			},
 		},
@@ -413,29 +437,52 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		},
 	}
 
-	fmt.Println("paladin doctor")
-	fmt.Println(strings.Repeat("-", 50))
-	fmt.Printf("  API:   %s\n", apiBase)
-	fmt.Printf("  Auth:  %s\n", authBase)
-	fmt.Printf("  OS:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Println()
-
+	// Run all checks and collect results.
+	results := make([]CheckResult, 0, len(checks))
 	allPassed := true
 	for _, c := range checks {
 		err := c.fn()
+		r := CheckResult{Name: c.name, Passed: err == nil}
 		if err != nil {
-			fmt.Printf("  x %-35s %v\n", c.name, err)
+			r.Error = err.Error()
 			allPassed = false
+		}
+		results = append(results, r)
+	}
+
+	switch {
+	case jsonMode:
+		report := DoctorReport{Passed: allPassed, Checks: results}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			return fmt.Errorf("encode json: %w", err)
+		}
+	case quietMode:
+		// intentionally silent — exit code communicates status
+	default:
+		fmt.Println("paladin doctor")
+		fmt.Println(strings.Repeat("-", 50))
+		fmt.Printf("  API:   %s\n", apiBase)
+		fmt.Printf("  Auth:  %s\n", authBase)
+		fmt.Printf("  OS:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Println()
+		for _, r := range results {
+			if r.Passed {
+				fmt.Printf("  ok %-35s\n", r.Name)
+			} else {
+				fmt.Printf("  x %-35s %s\n", r.Name, r.Error)
+			}
+		}
+		fmt.Println()
+		if allPassed {
+			fmt.Println("All checks passed. PaladinAI is ready.")
 		} else {
-			fmt.Printf("  ok %-35s\n", c.name)
+			fmt.Println("Some checks failed. Run 'paladin init' to fix configuration.")
 		}
 	}
 
-	fmt.Println()
-	if allPassed {
-		fmt.Println("All checks passed. PaladinAI is ready.")
-	} else {
-		fmt.Println("Some checks failed. Run 'paladin init' to fix configuration.")
+	if !allPassed {
 		return fmt.Errorf("doctor: one or more checks failed")
 	}
 	return nil
@@ -444,4 +491,6 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(doctorCmd)
+	doctorCmd.Flags().Bool("json", false, "Emit machine-readable JSON output (for CI)")
+	doctorCmd.Flags().Bool("quiet", false, "Suppress output; communicate status via exit code only")
 }
