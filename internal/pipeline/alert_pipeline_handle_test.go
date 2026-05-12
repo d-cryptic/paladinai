@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,34 +20,79 @@ import (
 var _ jetstream.Msg = (*fakeMsg)(nil)
 
 // fakeMsg is a minimal implementation of jetstream.Msg for unit testing.
+// Mutating fields are guarded so the Run test (which observes them from a
+// separate goroutine) is race-free under -race.
 type fakeMsg struct {
-	data      []byte
-	subject   string
+	data     []byte
+	subject  string
+	metadata *jetstream.MsgMetadata
+	metaErr  error
+
+	mu        sync.Mutex
 	acked     bool
 	termed    bool
 	nakDelay  time.Duration
 	nakCalled bool
-	metadata  *jetstream.MsgMetadata
-	metaErr   error
 }
 
-func (f *fakeMsg) Data() []byte                      { return f.data }
-func (f *fakeMsg) Subject() string                   { return f.subject }
-func (f *fakeMsg) Headers() nats.Header              { return nil }
-func (f *fakeMsg) Reply() string                     { return "" }
-func (f *fakeMsg) Ack() error                        { f.acked = true; return nil }
-func (f *fakeMsg) DoubleAck(_ context.Context) error { f.acked = true; return nil }
-func (f *fakeMsg) Nak() error                        { f.nakCalled = true; return nil }
-func (f *fakeMsg) NakWithDelay(d time.Duration) error {
-	f.nakCalled = true
-	f.nakDelay = d
+func (f *fakeMsg) Data() []byte         { return f.data }
+func (f *fakeMsg) Subject() string      { return f.subject }
+func (f *fakeMsg) Headers() nats.Header { return nil }
+func (f *fakeMsg) Reply() string        { return "" }
+func (f *fakeMsg) Ack() error {
+	f.mu.Lock()
+	f.acked = true
+	f.mu.Unlock()
 	return nil
 }
-func (f *fakeMsg) InProgress() error             { return nil }
-func (f *fakeMsg) Term() error                   { f.termed = true; return nil }
-func (f *fakeMsg) TermWithReason(_ string) error { f.termed = true; return nil }
+func (f *fakeMsg) DoubleAck(_ context.Context) error { return f.Ack() }
+func (f *fakeMsg) Nak() error {
+	f.mu.Lock()
+	f.nakCalled = true
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeMsg) NakWithDelay(d time.Duration) error {
+	f.mu.Lock()
+	f.nakCalled = true
+	f.nakDelay = d
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeMsg) InProgress() error { return nil }
+func (f *fakeMsg) Term() error {
+	f.mu.Lock()
+	f.termed = true
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeMsg) TermWithReason(_ string) error { return f.Term() }
 func (f *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
 	return f.metadata, f.metaErr
+}
+
+func (f *fakeMsg) isAcked() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.acked
+}
+
+func (f *fakeMsg) isTermed() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.termed
+}
+
+func (f *fakeMsg) isNakCalled() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.nakCalled
+}
+
+func (f *fakeMsg) nakDelayObserved() time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.nakDelay
 }
 
 // ─── handleMsg tests ──────────────────────────────────────────────────────────
@@ -60,8 +106,8 @@ func TestHandleMsg_InvalidJSON_Terms(t *testing.T) {
 	msg := &fakeMsg{data: []byte("not json"), subject: "paladin.alerts.raw.t1.alertmanager"}
 	p.handleMsg(context.Background(), msg)
 
-	assert.True(t, msg.termed, "invalid JSON must term the message (not nak — would loop)")
-	assert.False(t, msg.acked)
+	assert.True(t, msg.isTermed(), "invalid JSON must term the message (not nak — would loop)")
+	assert.False(t, msg.isAcked())
 	assert.Equal(t, 0, pub.count)
 }
 
@@ -83,8 +129,8 @@ func TestHandleMsg_ValidAlert_Acks(t *testing.T) {
 	msg := &fakeMsg{data: data}
 	p.handleMsg(context.Background(), msg)
 
-	assert.True(t, msg.acked, "successfully processed message must be acked")
-	assert.False(t, msg.termed)
+	assert.True(t, msg.isAcked(), "successfully processed message must be acked")
+	assert.False(t, msg.isTermed())
 	assert.Equal(t, 1, pub.count)
 }
 
@@ -109,10 +155,10 @@ func TestHandleMsg_ProcessError_NaksWithDelay(t *testing.T) {
 	}
 	p.handleMsg(context.Background(), msg)
 
-	assert.True(t, msg.nakCalled, "process failure must nak for redelivery")
-	assert.False(t, msg.termed)
+	assert.True(t, msg.isNakCalled(), "process failure must nak for redelivery")
+	assert.False(t, msg.isTermed())
 	// NumDelivered=1 → shift=1 → 1<<1 * Second = 2s.
-	assert.Equal(t, 2*time.Second, msg.nakDelay, "backoff for delivery 1 must be 2s")
+	assert.Equal(t, 2*time.Second, msg.nakDelayObserved(), "backoff for delivery 1 must be 2s")
 }
 
 func TestHandleMsg_MetadataError_StillNaksWithDelay(t *testing.T) {
@@ -136,10 +182,10 @@ func TestHandleMsg_MetadataError_StillNaksWithDelay(t *testing.T) {
 	}
 	p.handleMsg(context.Background(), msg)
 
-	assert.True(t, msg.nakCalled, "process failure with metadata error must still nak")
-	assert.False(t, msg.termed)
+	assert.True(t, msg.isNakCalled(), "process failure with metadata error must still nak")
+	assert.False(t, msg.isTermed())
 	// NumDelivered=0 → shift=0 → 1<<0 * Second = 1s.
-	assert.Equal(t, time.Second, msg.nakDelay)
+	assert.Equal(t, time.Second, msg.nakDelayObserved())
 }
 
 func TestHandleMsg_HighDeliveryCount_ClampsShift(t *testing.T) {
@@ -163,8 +209,8 @@ func TestHandleMsg_HighDeliveryCount_ClampsShift(t *testing.T) {
 	}
 	p.handleMsg(context.Background(), msg)
 
-	assert.True(t, msg.nakCalled)
-	assert.Equal(t, 60*time.Second, msg.nakDelay, "shift clamped at 6 → 64s > 60s cap → 60s")
+	assert.True(t, msg.isNakCalled())
+	assert.Equal(t, 60*time.Second, msg.nakDelayObserved(), "shift clamped at 6 → 64s > 60s cap → 60s")
 }
 
 // ─── Minimal local fakes (separate from pipeline_test package fakes) ─────────

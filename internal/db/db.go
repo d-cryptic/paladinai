@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -40,24 +41,11 @@ func Connect(ctx context.Context, dsn string, log *zap.Logger) (*pgxpool.Pool, e
 	cfg.ConnConfig.RuntimeParams["lock_timeout"] = "2000"      // 2 s
 
 	cfg.BeforeAcquire = func(ctx context.Context, conn *pgx.Conn) bool {
-		tenantID, _ := ctx.Value(tenantIDKey{}).(string)
-		_, err := conn.Exec(ctx,
-			"SELECT set_config('app.tenant_id', $1, false)", tenantID)
-		if err != nil {
-			log.Warn("db: BeforeAcquire set_config failed", zap.Error(err))
-			return false
-		}
-		return true
+		return beforeAcquire(ctx, conn, log)
 	}
 
 	cfg.AfterRelease = func(conn *pgx.Conn) bool {
-		_, err := conn.Exec(context.Background(),
-			"SELECT set_config('app.tenant_id', '', false)")
-		if err != nil {
-			log.Warn("db: AfterRelease reset failed", zap.Error(err))
-			return false
-		}
-		return true
+		return afterRelease(conn, log)
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -77,3 +65,34 @@ func WithTenantID(ctx context.Context, tenantID string) context.Context {
 }
 
 type tenantIDKey struct{}
+
+// connExecer is the narrow subset of *pgx.Conn used by the tenant-injection
+// hooks. Keeping the surface minimal makes the hook bodies unit-testable
+// without spinning up a real Postgres connection.
+type connExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// beforeAcquire injects the tenant ID into the session before the connection
+// is handed to the caller. A failed SET CONFIG aborts acquisition so the
+// caller never sees a connection with a stale or missing tenant.
+func beforeAcquire(ctx context.Context, conn connExecer, log *zap.Logger) bool {
+	tenantID, _ := ctx.Value(tenantIDKey{}).(string)
+	if _, err := conn.Exec(ctx,
+		"SELECT set_config('app.tenant_id', $1, false)", tenantID); err != nil {
+		log.Warn("db: BeforeAcquire set_config failed", zap.Error(err))
+		return false
+	}
+	return true
+}
+
+// afterRelease clears the tenant ID after the caller returns the connection
+// to the pool so the next borrower starts from a clean session.
+func afterRelease(conn connExecer, log *zap.Logger) bool {
+	if _, err := conn.Exec(context.Background(),
+		"SELECT set_config('app.tenant_id', '', false)"); err != nil {
+		log.Warn("db: AfterRelease reset failed", zap.Error(err))
+		return false
+	}
+	return true
+}
