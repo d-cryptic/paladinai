@@ -124,7 +124,7 @@ func main() {
 	// ── Triage agent ─────────────────────────────────────────────────────────
 	// When ANTHROPIC_API_KEY is set, use the native Anthropic API with automatic
 	// prompt cache injection (Stage 9). Otherwise fall back to OpenRouter/Eino path.
-	var triager agent.Triager
+	var triageAgent agent.Triager
 	if cfg.AnthropicAPIKey != "" {
 		ac, acErr := anthropic.New(anthropic.Config{
 			APIKey: cfg.AnthropicAPIKey,
@@ -133,19 +133,18 @@ func main() {
 		if acErr != nil {
 			log.Fatal("anthropic client init failed", zap.Error(acErr))
 		}
-		triager = agent.NewAnthropicTriager(ac, log)
+		triageAgent = agent.NewAnthropicTriager(ac, log)
 		log.Info("triage: using Anthropic native API with prompt cache injection",
 			zap.String("model", cfg.AnthropicModel),
 		)
 	} else {
-		triageAgent, taErr := agent.NewTriageAgent(ctx, tierBModel, log)
+		ta, taErr := agent.NewTriageAgent(ctx, tierBModel, log)
 		if taErr != nil {
 			log.Fatal("triage agent init failed", zap.Error(taErr))
 		}
-		triager = triageAgent
+		triageAgent = ta
 		log.Info("triage: using OpenRouter/Eino path")
 	}
-	triageAgent := triager
 
 	// ── RCA agent (Tier C for deeper reasoning) ───────────────────────────────
 	tierCModel, err := llmClient.Model(llm.TierC)

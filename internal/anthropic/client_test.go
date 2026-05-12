@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,9 +20,8 @@ func stubServer(t *testing.T, statusCode int, body string) (*httptest.Server, *[
 	t.Helper()
 	var captured []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		captured = make([]byte, r.ContentLength)
-		//nolint:errcheck
-		r.Body.Read(captured)
+		b, _ := io.ReadAll(r.Body)
+		captured = b
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(statusCode)
 		//nolint:errcheck
