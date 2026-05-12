@@ -12,6 +12,15 @@ type PointStore interface {
 	Search(ctx context.Context, collection string, vector []float32, topK int) ([]SearchResult, error)
 }
 
+// NoopClient is a PointStore implementation that discards all writes and returns
+// empty results. Used when QDRANT_URL is not configured.
+type NoopClient struct{}
+
+func (NoopClient) Upsert(_ context.Context, _ string, _ []Point) error { return nil }
+func (NoopClient) Search(_ context.Context, _ string, _ []float32, _ int) ([]SearchResult, error) {
+	return nil, nil
+}
+
 // Indexer ingests runbook documents into Qdrant and serves semantic search.
 type Indexer struct {
 	client   PointStore

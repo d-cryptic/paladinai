@@ -42,7 +42,8 @@ func TestIndexer_Index_Upserts(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{}
 	idx := NewIndexer(store, &StubEmbedder{})
-	text := strings.Repeat("word ", 700)
+
+	text := strings.Repeat("word ", 700) // 700 words -> 2 chunks
 	n, err := idx.Index(context.Background(), "src", "t", "tenant", text, []string{"db"})
 	if err != nil {
 		t.Fatalf("Index: %v", err)

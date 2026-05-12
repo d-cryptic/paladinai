@@ -23,8 +23,10 @@ func skipIfNoNetwork(t *testing.T) {
 func TestClient_EnsureCollection(t *testing.T) {
 	t.Parallel()
 	skipIfNoNetwork(t)
+
 	var gotMethod, gotPath, gotAPIKey string
 	var gotBody map[string]any
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
@@ -35,6 +37,7 @@ func TestClient_EnsureCollection(t *testing.T) {
 		_, _ = w.Write([]byte(`{"result": true, "status": "ok"}`))
 	}))
 	defer srv.Close()
+
 	c := New(srv.URL, "secret", nil)
 	if err := c.EnsureCollection(context.Background(), "rb", 8); err != nil {
 		t.Fatalf("EnsureCollection: %v", err)
@@ -60,6 +63,7 @@ func TestClient_EnsureCollection(t *testing.T) {
 func TestClient_Upsert(t *testing.T) {
 	t.Parallel()
 	skipIfNoNetwork(t)
+
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -68,6 +72,7 @@ func TestClient_Upsert(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer srv.Close()
+
 	c := New(srv.URL, "", nil)
 	pts := []Point{{ID: "id1", Vector: []float32{1, 2}, Payload: map[string]any{"k": "v"}}}
 	if err := c.Upsert(context.Background(), "rb", pts); err != nil {
@@ -90,6 +95,7 @@ func TestClient_Upsert_Empty(t *testing.T) {
 func TestClient_Search(t *testing.T) {
 	t.Parallel()
 	skipIfNoNetwork(t)
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/points/search") {
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -98,6 +104,7 @@ func TestClient_Search(t *testing.T) {
 		_, _ = w.Write([]byte(`{"result":[{"id":"a","score":0.9,"payload":{"content":"x"}},{"id":"b","score":0.5,"payload":{"content":"y"}}]}`))
 	}))
 	defer srv.Close()
+
 	c := New(srv.URL, "", nil)
 	res, err := c.Search(context.Background(), "rb", []float32{0.1, 0.2}, 5)
 	if err != nil {
@@ -117,6 +124,7 @@ func TestClient_Search(t *testing.T) {
 func TestClient_Delete(t *testing.T) {
 	t.Parallel()
 	skipIfNoNetwork(t)
+
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -125,6 +133,7 @@ func TestClient_Delete(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer srv.Close()
+
 	c := New(srv.URL, "", nil)
 	if err := c.Delete(context.Background(), "rb", []string{"x", "y"}); err != nil {
 		t.Fatalf("Delete: %v", err)
@@ -138,11 +147,13 @@ func TestClient_Delete(t *testing.T) {
 func TestClient_ErrorStatus(t *testing.T) {
 	t.Parallel()
 	skipIfNoNetwork(t)
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"status":"err"}`))
 	}))
 	defer srv.Close()
+
 	c := New(srv.URL, "", nil)
 	if err := c.EnsureCollection(context.Background(), "rb", 8); err == nil {
 		t.Fatalf("expected error on 400 status")
