@@ -61,6 +61,7 @@ func triagePostProcess(router *workflow.SeverityRouter, log *zap.Logger) pipelin
 		}
 	}
 }
+
 // natsPublisher adapts internalnats.Client to pipeline.Publisher.
 type natsPublisher struct{ client *internalnats.Client }
 
@@ -142,8 +143,22 @@ func run() error {
 		orchPort = "9008"
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := rdb.Ping(pingCtx).Err(); err != nil {
+			http.Error(w, "valkey unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !natsClient.Conn().IsConnected() {
+			http.Error(w, "nats disconnected", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 	httpSrv := &http.Server{
 		Addr:         ":" + orchPort,
 		Handler:      mux,
@@ -151,6 +166,14 @@ func run() error {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+	// Always shut down the HTTP server when run() exits, regardless of cause.
+	defer func() {
+		sdCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(sdCtx); err != nil {
+			log.Error("HTTP shutdown error", zap.Error(err))
+		}
+	}()
 	go func() {
 		log.Info("paladin-orchestrator HTTP listening", zap.String("port", orchPort))
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -169,12 +192,6 @@ func run() error {
 			return nil
 		}
 		return fmt.Errorf("pipeline: %w", err)
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		log.Error("HTTP shutdown error", zap.Error(err))
 	}
 
 	log.Info("paladin-orchestrator stopped")
