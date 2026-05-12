@@ -126,9 +126,13 @@ func newHubStub(t *testing.T) *httptest.Server {
 // runMCP executes paladin mcp subcommand args and captures stdout.
 // It resets rootCmd args after execution to avoid state leaking between tests.
 // NOTE: this function is not goroutine-safe; do not call t.Parallel() in tests
-// that use it.
+// that use it. rootCmdMu is held for the duration to prevent concurrent
+// rootCmd mutations from other tests.
 func runMCP(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	rootCmdMu.Lock()
+	defer rootCmdMu.Unlock()
+
 	// Swap os.Stdout for a pipe so we can capture output.
 	// Drain in a goroutine to avoid deadlock if output exceeds pipe buffer.
 	r, w, err := os.Pipe()
@@ -149,6 +153,9 @@ func runMCP(t *testing.T, args ...string) (string, error) {
 	t.Cleanup(func() { rootCmd.SetArgs(nil) })
 
 	runErr := rootCmd.Execute()
+
+	// Reset persistent flags that bleed across Execute() calls.
+	_ = rootCmd.PersistentFlags().Set("output", "table")
 
 	w.Close()
 	<-done // wait for drain goroutine to finish

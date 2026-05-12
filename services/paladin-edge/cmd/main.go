@@ -82,6 +82,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("runbook proxy: %w", err)
 	}
+	incidentProxy, err := buildProxy(conf.AgentURL, "/api/v1/incidents", log)
+	if err != nil {
+		return fmt.Errorf("incident proxy: %w", err)
+	}
 	ingestProxy, err := buildProxy(conf.IngestURL, "/api/v1/ingest", log)
 	if err != nil {
 		return fmt.Errorf("ingest proxy: %w", err)
@@ -139,6 +143,10 @@ func run() error {
 			// Alert ingest — proxied to paladin-ingest.
 			// /api/v1/ingest/* → paladin-ingest /api/v1/ingest/*
 			r.Mount("/ingest", ingestProxy)
+
+			// Incident management — proxied to paladin-agent HTTP API.
+			// /api/v1/incidents/* → paladin-agent /api/v1/incidents/*
+			r.Mount("/incidents", incidentProxy)
 		})
 	})
 

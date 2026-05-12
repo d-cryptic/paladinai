@@ -30,6 +30,8 @@ type Config struct {
 	// MemoryURL is the base URL of paladin-memory (HTTP side, if any).
 	// Currently paladin-memory only exposes gRPC; this is reserved for future HTTP API.
 	MemoryURL string
+	// AgentURL is the base URL of paladin-agent HTTP API (incidents, replay).
+	AgentURL string
 	// AllowedOrigins is the list of CORS origins for the dashboard SPA.
 	// Defaults to localhost dev ports; override via CORS_ALLOWED_ORIGINS (comma-separated).
 	AllowedOrigins []string
@@ -65,6 +67,7 @@ func Load() (Config, error) {
 		IngestURL:      os.Getenv("INGEST_URL"),
 		AuthURL:        os.Getenv("AUTH_URL"),
 		MemoryURL:      os.Getenv("MEMORY_URL"),
+		AgentURL:       os.Getenv("AGENT_URL"),
 		AllowedOrigins: origins,
 	}, nil
 }
