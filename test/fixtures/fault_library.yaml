@@ -1,0 +1,161 @@
+# fault_library.yaml — Stage 10 §6: Predefined fault scenarios for RCA eval generation.
+# Each fault drives synthetic test case generation in cmd/eval-gen/fault_scenarios.go.
+faults:
+  - id: db_connection_pool_exhaustion
+    category: database
+    description: "Connection pool hits max_connections, new requests queue then timeout"
+    signals:
+      metrics:
+        - name: pg_stat_database_numbackends
+          pattern: step_increase
+          magnitude: 1.0
+        - name: http_request_duration_p99
+          pattern: step_increase
+          magnitude: 3.0
+      logs:
+        - template: "FATAL: remaining connection slots reserved for replication"
+          frequency: high
+        - template: "connection to server {host} failed: FATAL: too many connections"
+          frequency: high
+      k8s_events: []
+    root_cause: db_connection_pool_exhaustion
+    blast_radius_services: ["payments", "checkout", "user-api"]
+    correct_remediations:
+      - increase_pool_size
+      - restart_connection_manager
+      - scale_read_replicas
+
+  - id: oom_kill
+    category: memory
+    description: "Container OOM killed by kernel, CrashLoopBackOff follows"
+    signals:
+      metrics:
+        - name: container_memory_usage_bytes
+          pattern: sawtooth
+        - name: kube_pod_container_status_restarts_total
+          pattern: counter_increase
+      logs:
+        - template: "Killed process {pid} ({process}) total-vm:{vm}kB, anon-rss:{rss}kB"
+          source: kernel
+      k8s_events:
+        - reason: OOMKilling
+          message: "Memory limit exceeded for container {container}"
+    root_cause: oom_kill
+    blast_radius_services: ["{service}"]
+    correct_remediations:
+      - increase_memory_limit
+      - investigate_memory_leak
+      - enable_heap_profiling
+
+  - id: slow_query_from_missing_index
+    category: database
+    description: "Table scan due to missing index causes high DB CPU and downstream latency"
+    signals:
+      metrics:
+        - name: pg_stat_statements_mean_exec_time
+          pattern: step_increase
+          magnitude: 10.0
+        - name: process_cpu_seconds_total
+          pattern: step_increase
+          source: postgres
+      logs:
+        - template: "duration: {ms}ms  statement: SELECT * FROM orders WHERE tenant_id = $1"
+          frequency: high
+      k8s_events: []
+    root_cause: missing_database_index
+    blast_radius_services: ["orders", "reporting"]
+    correct_remediations:
+      - create_index_on_tenant_id
+      - analyze_slow_query_log
+
+  - id: network_partition
+    category: network
+    description: "Network policy misconfiguration drops traffic between service mesh segments"
+    signals:
+      metrics:
+        - name: envoy_cluster_upstream_rq_timeout
+          pattern: step_increase
+        - name: envoy_cluster_upstream_cx_connect_fail
+          pattern: step_increase
+      logs:
+        - template: "upstream connect error or disconnect/reset before headers. reset reason: connection timeout"
+          frequency: high
+      k8s_events:
+        - reason: NetworkPolicyViolation
+          message: "Dropped packet from {src} to {dst}: no matching policy"
+    root_cause: network_partition
+    blast_radius_services: ["{src_service}", "{dst_service}"]
+    correct_remediations:
+      - review_network_policies
+      - rollback_network_policy_change
+
+  - id: cpu_spike_bad_deployment
+    category: compute
+    description: "New deployment introduces CPU-intensive hot loop, triggers HPA then throttling"
+    signals:
+      metrics:
+        - name: container_cpu_usage_seconds_total
+          pattern: step_increase
+          magnitude: 4.0
+        - name: kube_deployment_status_replicas
+          pattern: step_increase
+      logs:
+        - template: "CPU throttling detected for container {container}"
+          frequency: medium
+      k8s_events:
+        - reason: SuccessfulRescale
+          message: "Scaled up deployment {deployment} from {old} to {new} replicas"
+    root_cause: cpu_intensive_code_regression
+    blast_radius_services: ["{service}"]
+    correct_remediations:
+      - rollback_deployment
+      - profile_cpu_hotspot
+
+  - id: disk_pressure
+    category: storage
+    description: "Node disk fills causing pod evictions and log write failures"
+    signals:
+      metrics:
+        - name: node_filesystem_avail_bytes
+          pattern: linear_decrease
+          magnitude: 1.0
+        - name: kube_node_status_condition
+          pattern: step_change
+      logs:
+        - template: "No space left on device"
+          source: kubelet
+          frequency: high
+        - template: "Failed to create directory {path}: no space left on device"
+          frequency: medium
+      k8s_events:
+        - reason: Evicting
+          message: "The node was low on resource: ephemeral-storage"
+    root_cause: node_disk_pressure
+    blast_radius_services: ["all-pods-on-node"]
+    correct_remediations:
+      - clear_old_container_images
+      - expand_persistent_volume
+      - cordon_and_drain_node
+
+  - id: certificate_expiry
+    category: tls
+    description: "TLS certificate expired causes HTTPS connection failures across services"
+    signals:
+      metrics:
+        - name: x509_cert_expiry
+          pattern: threshold_breach
+          magnitude: 0.0
+        - name: http_requests_total
+          pattern: error_spike
+          label_filter: "status=~\"5..\""
+      logs:
+        - template: "x509: certificate has expired or is not yet valid"
+          frequency: high
+        - template: "tls: failed to verify certificate: x509: certificate signed by unknown authority"
+          frequency: medium
+      k8s_events: []
+    root_cause: tls_certificate_expired
+    blast_radius_services: ["all-external-facing"]
+    correct_remediations:
+      - rotate_certificate
+      - enable_cert_manager_auto_renewal
