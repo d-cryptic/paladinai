@@ -72,11 +72,19 @@ func run() error {
 	rateLimiter := ratelimit.NewValkeyLimiter(rdb, conf.RateLimitRPS, log)
 	health := &handler.HealthHandler{}
 
-	// Build the hub proxy. When HUB_URL is empty we still register the routes
-	// so that the router is complete; they return 502 until the hub is configured.
+	// Build backend proxies. When a URL is empty, routes return 502 so the
+	// router is always complete (avoids 404 confusion in dev).
 	hubProxy, err := buildProxy(conf.HubURL, "/api/v1/mcp", log)
 	if err != nil {
 		return fmt.Errorf("hub proxy: %w", err)
+	}
+	ingestProxy, err := buildProxy(conf.IngestURL, "/api/v1/ingest", log)
+	if err != nil {
+		return fmt.Errorf("ingest proxy: %w", err)
+	}
+	authProxy, err := buildProxy(conf.AuthURL, "/api/v1/auth", log)
+	if err != nil {
+		return fmt.Errorf("auth proxy: %w", err)
 	}
 
 	r := chi.NewRouter()
@@ -104,6 +112,13 @@ func run() error {
 			})
 		})
 
+		// Auth routes — unauthenticated (auth manages its own admin secret).
+		// /api/v1/auth/* → paladin-auth /api/v1/*
+		r.Group(func(r chi.Router) {
+			r.Use(chimiddleware.Timeout(30 * time.Second))
+			r.Mount("/auth", authProxy)
+		})
+
 		// JWT-protected routes. Timeout is intentionally omitted here so that
 		// long-lived proxy responses (SSE, streaming JSON-RPC) are not cut short.
 		r.Group(func(r chi.Router) {
@@ -112,6 +127,10 @@ func run() error {
 			// MCP server registry — proxied to paladin-hub.
 			// /api/v1/mcp/* → paladin-hub /api/v1/*  (prefix stripped in Director)
 			r.Mount("/mcp", hubProxy)
+
+			// Alert ingest — proxied to paladin-ingest.
+			// /api/v1/ingest/* → paladin-ingest /api/v1/ingest/*
+			r.Mount("/ingest", ingestProxy)
 		})
 	})
 
