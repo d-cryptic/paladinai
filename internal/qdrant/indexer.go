@@ -21,15 +21,23 @@ func (NoopClient) Search(_ context.Context, _ string, _ []float32, _ int) ([]Sea
 	return nil, nil
 }
 
-// Indexer ingests runbook documents into Qdrant and serves semantic search.
+// Indexer ingests documents into Qdrant and serves semantic search.
 type Indexer struct {
-	client   PointStore
-	embedder Embedder
+	client     PointStore
+	embedder   Embedder
+	collection string
 }
 
-// NewIndexer constructs an Indexer.
+// NewIndexer constructs an Indexer targeting RunbookCollection by default.
 func NewIndexer(client PointStore, embedder Embedder) *Indexer {
-	return &Indexer{client: client, embedder: embedder}
+	return &Indexer{client: client, embedder: embedder, collection: RunbookCollection}
+}
+
+// WithCollection returns a new Indexer targeting the given collection name.
+func (idx *Indexer) WithCollection(name string) *Indexer {
+	c := *idx
+	c.collection = name
+	return &c
 }
 
 // Index chunks the document, embeds each chunk, and upserts them into the
@@ -47,7 +55,7 @@ func (idx *Indexer) Index(ctx context.Context, source, title, tenantID, text str
 		}
 		points = append(points, chunk.ToPoint(vec))
 	}
-	if err := idx.client.Upsert(ctx, RunbookCollection, points); err != nil {
+	if err := idx.client.Upsert(ctx, idx.collection, points); err != nil {
 		return 0, fmt.Errorf("indexer: upsert: %w", err)
 	}
 	return len(points), nil
@@ -60,7 +68,7 @@ func (idx *Indexer) Search(ctx context.Context, query, tenantID string, topK int
 	if err != nil {
 		return nil, fmt.Errorf("indexer: embed query: %w", err)
 	}
-	results, err := idx.client.Search(ctx, RunbookCollection, vec, topK)
+	results, err := idx.client.Search(ctx, idx.collection, vec, topK)
 	if err != nil {
 		return nil, fmt.Errorf("indexer: search: %w", err)
 	}

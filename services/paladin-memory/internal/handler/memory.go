@@ -13,11 +13,14 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
 )
 
-// ProceduralSearcher is the subset of qdrant.Indexer methods the handler needs.
-// Defined as an interface to keep the handler testable without Qdrant.
-type ProceduralSearcher interface {
+// ChunkSearcher is the common interface for Qdrant-backed memory tiers.
+// Both procedural (runbooks) and semantic (fact chunks) implement this.
+type ChunkSearcher interface {
 	Search(ctx context.Context, query, tenantID string, topK int) ([]qdrant.RunbookChunk, error)
 }
+
+// ProceduralSearcher is an alias kept for backward compatibility.
+type ProceduralSearcher = ChunkSearcher
 
 // MemoryHandler implements memoryv1.MemoryServiceServer.
 type MemoryHandler struct {
@@ -25,7 +28,8 @@ type MemoryHandler struct {
 
 	working    store.WorkingStore
 	episodic   store.EpisodicStore
-	procedural ProceduralSearcher
+	procedural ChunkSearcher
+	semantic   ChunkSearcher // optional; nil = tier not configured
 	workingTTL time.Duration
 	log        *zap.Logger
 }
@@ -44,10 +48,15 @@ func New(working store.WorkingStore, episodic store.EpisodicStore, workingTTL ti
 	}
 }
 
-// WithProcedural attaches a procedural-memory searcher (Qdrant). Returns the
-// receiver for chaining.
-func (h *MemoryHandler) WithProcedural(p ProceduralSearcher) *MemoryHandler {
+// WithProcedural attaches a procedural-memory searcher (Qdrant runbooks).
+func (h *MemoryHandler) WithProcedural(p ChunkSearcher) *MemoryHandler {
 	h.procedural = p
+	return h
+}
+
+// WithSemantic attaches a semantic-memory searcher (Qdrant fact chunks).
+func (h *MemoryHandler) WithSemantic(s ChunkSearcher) *MemoryHandler {
+	h.semantic = s
 	return h
 }
 
@@ -117,9 +126,25 @@ func (h *MemoryHandler) SearchMemory(ctx context.Context, req *memoryv1.SearchMe
 					Source:  ch.Source,
 				})
 			}
+		case memoryv1.MemoryTypeSemantic:
+			if h.semantic == nil {
+				h.log.Debug("search: semantic memory not configured")
+				continue
+			}
+			chunks, err := h.semantic.Search(ctx, req.Query, req.TenantID, topK)
+			if err != nil {
+				return nil, fmt.Errorf("memory: search semantic: %w", err)
+			}
+			for _, ch := range chunks {
+				resp.Results = append(resp.Results, &memoryv1.MemoryResult{
+					Type:    memoryv1.MemoryTypeSemantic,
+					Content: ch.Content,
+					Score:   1.0,
+					Source:  ch.Source,
+				})
+			}
 		default:
-			// Semantic tier lands in a later stage — skip silently.
-			h.log.Debug("search: memory type not implemented", zap.Int("type", int(mt)))
+			h.log.Debug("search: unknown memory type", zap.Int("type", int(mt)))
 		}
 	}
 	return resp, nil

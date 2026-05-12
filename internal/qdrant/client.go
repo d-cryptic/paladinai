@@ -19,7 +19,9 @@ import (
 const (
 	// RunbookCollection is the default Qdrant collection name for runbook chunks.
 	RunbookCollection = "paladin_runbooks"
-	defaultTimeout    = 10 * time.Second
+	// SemanticCollection is the Qdrant collection name for semantic fact chunks.
+	SemanticCollection = "paladin_semantic_facts"
+	defaultTimeout     = 10 * time.Second
 )
 
 // Point represents a Qdrant vector point.

@@ -82,34 +82,50 @@ func main() {
 	workingTTL := time.Duration(cfg.WorkingTTL) * time.Second
 	h := handler.New(working, episodic, workingTTL, log)
 
-	// Procedural memory (Qdrant) is optional — wired only when QDRANT_URL is set.
+	// Procedural + semantic memory (Qdrant) — optional, wired when QDRANT_URL is set.
 	if cfg.QdrantURL != "" {
 		qc := qdrant.New(cfg.QdrantURL, cfg.QdrantAPIKey, log)
+
+		// Use real HTTP embedder when OPENROUTER_API_KEY is set; otherwise stub.
+		var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
+		if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
+			gatewayURL := os.Getenv("LLM_GATEWAY_URL")
+			if gatewayURL == "" {
+				gatewayURL = "https://openrouter.ai/api/v1"
+			}
+			embedModel := os.Getenv("EMBED_MODEL")
+			if embedModel == "" {
+				embedModel = "BAAI/bge-m3"
+			}
+			embedder = qdrant.NewHTTPEmbedder(gatewayURL, apiKey, embedModel, qdrant.EmbeddingDim)
+			log.Info("using HTTP embedder", zap.String("model", embedModel))
+		}
+
+		baseIdx := qdrant.NewIndexer(qc, embedder)
+
 		if err := qc.EnsureCollection(ctx, qdrant.RunbookCollection, qdrant.EmbeddingDim); err != nil {
-			log.Warn("qdrant ensure collection failed; procedural memory disabled",
-				zap.String("url", cfg.QdrantURL),
+			log.Warn("qdrant: procedural collection unavailable",
+				zap.String("collection", qdrant.RunbookCollection),
 				zap.Error(err),
 			)
 		} else {
-			// Use real HTTP embedder when OPENROUTER_API_KEY is set; otherwise stub.
-			var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
-			if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-				gatewayURL := os.Getenv("LLM_GATEWAY_URL")
-				if gatewayURL == "" {
-					gatewayURL = "https://openrouter.ai/api/v1"
-				}
-				embedModel := os.Getenv("EMBED_MODEL")
-				if embedModel == "" {
-					embedModel = "BAAI/bge-m3"
-				}
-				embedder = qdrant.NewHTTPEmbedder(gatewayURL, apiKey, embedModel, qdrant.EmbeddingDim)
-				log.Info("using HTTP embedder", zap.String("model", embedModel))
-			}
-			idx := qdrant.NewIndexer(qc, embedder)
-			h.WithProcedural(idx)
+			h.WithProcedural(baseIdx)
 			log.Info("procedural memory enabled (qdrant)",
 				zap.String("url", cfg.QdrantURL),
 				zap.String("collection", qdrant.RunbookCollection),
+			)
+		}
+
+		if err := qc.EnsureCollection(ctx, qdrant.SemanticCollection, qdrant.EmbeddingDim); err != nil {
+			log.Warn("qdrant: semantic collection unavailable",
+				zap.String("collection", qdrant.SemanticCollection),
+				zap.Error(err),
+			)
+		} else {
+			h.WithSemantic(baseIdx.WithCollection(qdrant.SemanticCollection))
+			log.Info("semantic memory enabled (qdrant)",
+				zap.String("url", cfg.QdrantURL),
+				zap.String("collection", qdrant.SemanticCollection),
 			)
 		}
 	}

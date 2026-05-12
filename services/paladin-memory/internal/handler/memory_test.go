@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -235,7 +236,7 @@ func TestSearchMemory_ProceduralNilSearcher_SkipsGracefully(t *testing.T) {
 	assert.Empty(t, resp.Results)
 }
 
-func TestSearchMemory_SemanticType_SkippedSilently(t *testing.T) {
+func TestSearchMemory_SemanticType_SkippedWhenNotConfigured(t *testing.T) {
 	t.Parallel()
 	h, _, _ := newHandler()
 	resp, err := h.SearchMemory(context.Background(), &memoryv1.SearchMemoryRequest{
@@ -245,6 +246,43 @@ func TestSearchMemory_SemanticType_SkippedSilently(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, resp.Results)
+}
+
+func TestSearchMemory_SemanticType_ReturnsChunks(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandler()
+	ss := &fakeProceduralSearcher{
+		chunks: []qdrant.RunbookChunk{
+			{Content: "api latency anomaly", Source: "semantic-facts"},
+		},
+	}
+	h = h.WithSemantic(ss)
+
+	resp, err := h.SearchMemory(context.Background(), &memoryv1.SearchMemoryRequest{
+		TenantID:    "t1",
+		Query:       "latency",
+		MemoryTypes: []memoryv1.MemoryType{memoryv1.MemoryTypeSemantic},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, memoryv1.MemoryTypeSemantic, resp.Results[0].Type)
+	assert.Equal(t, "api latency anomaly", resp.Results[0].Content)
+	assert.Equal(t, "semantic-facts", resp.Results[0].Source)
+}
+
+func TestSearchMemory_SemanticType_ErrorPropagates(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandler()
+	ss := &fakeProceduralSearcher{err: fmt.Errorf("qdrant unavailable")}
+	h = h.WithSemantic(ss)
+
+	_, err := h.SearchMemory(context.Background(), &memoryv1.SearchMemoryRequest{
+		TenantID:    "t1",
+		Query:       "latency",
+		MemoryTypes: []memoryv1.MemoryType{memoryv1.MemoryTypeSemantic},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "semantic")
 }
 
 func TestSetWorkingMemory_CustomTTL(t *testing.T) {
