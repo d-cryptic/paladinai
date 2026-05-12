@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
@@ -24,6 +25,14 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/worker"
 	"go.uber.org/zap"
 )
+
+// pgxQuerier adapts *pgxpool.Pool to promptstore.Querier.
+// pgx.Rows satisfies promptstore.Rows structurally (Next/Scan/Err/Close).
+type pgxQuerier struct{ pool *pgxpool.Pool }
+
+func (q pgxQuerier) Query(ctx context.Context, sql string, args ...any) (promptstore.Rows, error) {
+	return q.pool.Query(ctx, sql, args...)
+}
 
 // natsPublisherAdapter bridges the internal/nats.Client to worker.ResultPublisher.
 type natsPublisherAdapter struct{ client *internalnats.Client }
@@ -65,9 +74,17 @@ func main() {
 	defer stop()
 
 	// ── Prompt store (versioned system prompts, 60s hot-reload) ──────────────
-	// DB wiring lands in a follow-up; with nil DB the store serves built-in
-	// defaults so paladin-agent stays functional during rollout.
-	ps, err := promptstore.New(ctx, nil, log)
+	var psQuerier promptstore.Querier
+	if cfg.DatabaseURL != "" {
+		pool, poolErr := pgxpool.New(ctx, cfg.DatabaseURL)
+		if poolErr != nil {
+			log.Warn("prompt store: postgres connect failed, using built-in defaults", zap.Error(poolErr))
+		} else {
+			psQuerier = pgxQuerier{pool: pool}
+			defer pool.Close()
+		}
+	}
+	ps, err := promptstore.New(ctx, psQuerier, log)
 	if err != nil {
 		log.Warn("prompt store init failed, using built-in defaults", zap.Error(err))
 	}
