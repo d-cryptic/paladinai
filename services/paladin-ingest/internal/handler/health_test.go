@@ -28,8 +28,8 @@ type stubChecker struct {
 	err  error
 }
 
-func (s *stubChecker) Name() string                      { return s.name }
-func (s *stubChecker) Check(ctx context.Context) error   { return s.err }
+func (s *stubChecker) Name() string                    { return s.name }
+func (s *stubChecker) Check(ctx context.Context) error { return s.err }
 
 func TestHealthHandler_LivenessAlwaysOK(t *testing.T) {
 	h := handler.NewHealthHandler("paladin-ingest")

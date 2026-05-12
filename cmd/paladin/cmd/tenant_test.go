@@ -12,27 +12,27 @@ import (
 // Rules: 2-64 chars, lowercase alphanumeric + hyphens, no leading/trailing hyphen.
 func TestSlugRE(t *testing.T) {
 	valid := []string{
-		"ab",                                          // minimum 2 chars
-		"a1",                                          // alphanumeric 2-char
-		"acme-corp",                                   // typical slug
-		"tenant-123",                                  // digits in middle
-		"a-b-c-d",                                     // multiple hyphens
-		"my-org-prod",                                 // multi-segment
-		"x" + strings.Repeat("a", 62) + "x",          // 64 chars (max)
-		"a--b",                                        // consecutive hyphens are allowed by current regex
+		"ab",                                // minimum 2 chars
+		"a1",                                // alphanumeric 2-char
+		"acme-corp",                         // typical slug
+		"tenant-123",                        // digits in middle
+		"a-b-c-d",                           // multiple hyphens
+		"my-org-prod",                       // multi-segment
+		"x" + strings.Repeat("a", 62) + "x", // 64 chars (max)
+		"a--b",                              // consecutive hyphens are allowed by current regex
 	}
 	invalid := []string{
-		"a",                       // too short (1 char)
-		"",                        // empty
-		"-abc",                    // leading hyphen
-		"abc-",                    // trailing hyphen
-		"ABC",                     // uppercase
-		"Acme-Corp",               // mixed case
-		"acme_corp",               // underscore not allowed
-		"acme corp",               // space not allowed
-		strings.Repeat("a", 65),   // 65 chars (max+1)
-		"café",                    // non-ASCII
-		"ab\nc",                   // newline injection
+		"a",                     // too short (1 char)
+		"",                      // empty
+		"-abc",                  // leading hyphen
+		"abc-",                  // trailing hyphen
+		"ABC",                   // uppercase
+		"Acme-Corp",             // mixed case
+		"acme_corp",             // underscore not allowed
+		"acme corp",             // space not allowed
+		strings.Repeat("a", 65), // 65 chars (max+1)
+		"café",                  // non-ASCII
+		"ab\nc",                 // newline injection
 	}
 
 	for _, s := range valid {

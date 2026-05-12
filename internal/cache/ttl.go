@@ -42,11 +42,11 @@ func TTLForQueryType(qt QueryType) time.Duration {
 
 // TTLRequest holds the parameters needed to compute an adaptive TTL.
 type TTLRequest struct {
-	QueryType   QueryType
-	InputTokens int
-	InputPrice  float64 // USD per million input tokens
+	QueryType    QueryType
+	InputTokens  int
+	InputPrice   float64 // USD per million input tokens
 	OutputTokens int
-	OutputPrice float64 // USD per million output tokens
+	OutputPrice  float64 // USD per million output tokens
 }
 
 // ComputeTTL returns the adaptive cache TTL for a given LLM request/response.
@@ -109,9 +109,9 @@ type ContentBlock struct {
 // ToolEntry represents one tool in the Anthropic tool catalog.
 // The last entry in the catalog carries the cache_control breakpoint.
 type ToolEntry struct {
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	InputSchema any           `json:"input_schema"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description"`
+	InputSchema  any           `json:"input_schema"`
 	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 

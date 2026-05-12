@@ -49,7 +49,6 @@ func TestComputeFingerprint_DifferentSources(t *testing.T) {
 	assert.NotEqual(t, fpAM, fpDD, "same labels from different sources should produce different fingerprints")
 }
 
-
 func TestAlertEnvelope_Clone(t *testing.T) {
 	original := alert.AlertEnvelope{
 		TenantID: "t1",

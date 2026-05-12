@@ -27,9 +27,9 @@ const (
 // Secret wraps a string so it prints as "[REDACTED]" in logs and JSON.
 type Secret string
 
-func (s Secret) String() string                   { return "[REDACTED]" }
-func (s Secret) MarshalJSON() ([]byte, error)      { return []byte(`"[REDACTED]"`), nil }
-func (s Secret) Reveal() string                    { return string(s) }
+func (s Secret) String() string               { return "[REDACTED]" }
+func (s Secret) MarshalJSON() ([]byte, error) { return []byte(`"[REDACTED]"`), nil }
+func (s Secret) Reveal() string               { return string(s) }
 
 // Config holds OpenRouter credentials and model names per tier.
 type Config struct {

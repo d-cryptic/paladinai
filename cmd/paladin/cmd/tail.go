@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	wsPongWait   = 60 * time.Second
-	wsPingPeriod = (wsPongWait * 9) / 10
+	wsPongWait    = 60 * time.Second
+	wsPingPeriod  = (wsPongWait * 9) / 10
 	wsDialTimeout = 10 * time.Second
 	wsCloseGrace  = 2 * time.Second
 	wsMaxBackoff  = 30 * time.Second

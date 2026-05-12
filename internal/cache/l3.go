@@ -28,14 +28,14 @@ const (
 // ("mcp-k8s"). Lookup tries the fully-qualified name first, then the server prefix.
 // A zero TTL means the tool must not be cached.
 var l3TTLTable = map[string]time.Duration{
-	"mcp-prometheus": 30 * time.Second,
-	"mcp-loki":       15 * time.Second,
-	"mcp-k8s":        60 * time.Second,
-	"mcp-pagerduty":  120 * time.Second,
-	"mcp-slack":      0,                 // never cache — actions, not reads
-	"mcp-github":     60 * time.Second,
-	"mcp-github:get_file":  5 * time.Minute,
-	"mcp-github:list_prs":  60 * time.Second,
+	"mcp-prometheus":      30 * time.Second,
+	"mcp-loki":            15 * time.Second,
+	"mcp-k8s":             60 * time.Second,
+	"mcp-pagerduty":       120 * time.Second,
+	"mcp-slack":           0, // never cache — actions, not reads
+	"mcp-github":          60 * time.Second,
+	"mcp-github:get_file": 5 * time.Minute,
+	"mcp-github:list_prs": 60 * time.Second,
 }
 
 // L3TTL returns the configured TTL for the given tool name.

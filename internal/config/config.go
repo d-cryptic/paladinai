@@ -11,15 +11,15 @@ import (
 
 // Base holds fields common to every PaladinAI service.
 type Base struct {
-	Env        string
-	LogLevel   string
-	NatsURL    string
-	DatabaseURL string
-	ValkeyURL  string
-	QdrantURL  string
-	VaultAddr  string
-	VaultToken string
-	OtelEndpoint string
+	Env            string
+	LogLevel       string
+	NatsURL        string
+	DatabaseURL    string
+	ValkeyURL      string
+	QdrantURL      string
+	VaultAddr      string
+	VaultToken     string
+	OtelEndpoint   string
 	ServiceVersion string
 }
 

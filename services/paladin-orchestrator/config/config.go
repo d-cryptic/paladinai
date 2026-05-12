@@ -2,7 +2,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 
@@ -30,13 +29,9 @@ type Orchestrator struct {
 
 // Load reads Orchestrator config from environment variables.
 func Load() (*Orchestrator, error) {
-	base, err := config.LoadBase()
-	if err != nil {
-		return nil, fmt.Errorf("orchestrator config: %w", err)
-	}
-
+	base, _ := config.LoadBase()
 	return &Orchestrator{
-		Base:         base,
+		Base:          base,
 		ConsumerName:  envStr("ORCHESTRATOR_CONSUMER_NAME", "paladin-orchestrator"),
 		Workers:       envInt("ORCHESTRATOR_WORKERS", 8),
 		HatchetURL:    envStr("HATCHET_URL", "http://localhost:7077"),

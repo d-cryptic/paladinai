@@ -60,7 +60,7 @@ func TestValkeyL2_StoreAndLookup(t *testing.T) {
 	}
 
 	// Cleanup.
-	rdb.Del(ctx, l2EntryKey(tenant, l1Key))        //nolint:errcheck
+	rdb.Del(ctx, l2EntryKey(tenant, l1Key))          //nolint:errcheck
 	rdb.Do(ctx, "FT.DROPINDEX", l2IndexName(tenant)) //nolint:errcheck
 }
 
@@ -111,6 +111,6 @@ func TestValkeyL2_TenantIsolation(t *testing.T) {
 		t.Errorf("tenant B should not see tenant A entry, got %q", got)
 	}
 
-	rdb.Del(ctx, l2EntryKey(tenantA, l1Key))         //nolint:errcheck
+	rdb.Del(ctx, l2EntryKey(tenantA, l1Key))          //nolint:errcheck
 	rdb.Do(ctx, "FT.DROPINDEX", l2IndexName(tenantA)) //nolint:errcheck
 }

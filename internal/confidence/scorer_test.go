@@ -78,7 +78,7 @@ func TestTemperatureScale_BoundaryInputs(t *testing.T) {
 
 func TestGate_PassAndBlock(t *testing.T) {
 	assert.True(t, confidence.Gate(0.7, 0.65))
-	assert.True(t, confidence.Gate(0.65, 0.65))  // exact boundary passes
+	assert.True(t, confidence.Gate(0.65, 0.65)) // exact boundary passes
 	assert.False(t, confidence.Gate(0.64, 0.65))
 	assert.False(t, confidence.Gate(0.0, 0.01))
 }

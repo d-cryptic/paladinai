@@ -115,6 +115,58 @@ func TestHandleMsg_ProcessError_NaksWithDelay(t *testing.T) {
 	assert.Equal(t, 2*time.Second, msg.nakDelay, "backoff for delivery 1 must be 2s")
 }
 
+func TestHandleMsg_MetadataError_StillNaksWithDelay(t *testing.T) {
+	t.Parallel()
+	dedup := &localDedup{}
+	pub := &localPub{err: errors.New("publish failed")}
+	p := New(dedup, localCorr{}, pub, zap.NewNop())
+
+	env := alert.AlertEnvelope{
+		TenantID:    "t1",
+		Fingerprint: "fp-meta-err",
+		Source:      alert.SourceAlertmanager,
+		Status:      alert.StatusFiring,
+		StartsAt:    time.Now(),
+	}
+	data, _ := json.Marshal(env)
+	// metaErr causes delivered to stay 0 → shift=0 → delay=1s
+	msg := &fakeMsg{
+		data:    data,
+		metaErr: errors.New("no metadata available"),
+	}
+	p.handleMsg(context.Background(), msg)
+
+	assert.True(t, msg.nakCalled, "process failure with metadata error must still nak")
+	assert.False(t, msg.termed)
+	// NumDelivered=0 → shift=0 → 1<<0 * Second = 1s.
+	assert.Equal(t, time.Second, msg.nakDelay)
+}
+
+func TestHandleMsg_HighDeliveryCount_ClampsShift(t *testing.T) {
+	t.Parallel()
+	dedup := &localDedup{}
+	pub := &localPub{err: errors.New("publish failed")}
+	p := New(dedup, localCorr{}, pub, zap.NewNop())
+
+	env := alert.AlertEnvelope{
+		TenantID:    "t1",
+		Fingerprint: "fp-high-deliver",
+		Source:      alert.SourceAlertmanager,
+		Status:      alert.StatusFiring,
+		StartsAt:    time.Now(),
+	}
+	data, _ := json.Marshal(env)
+	// NumDelivered=10 > 6 → clamp shift to 6 → 1<<6 = 64s → capped at 60s
+	msg := &fakeMsg{
+		data:     data,
+		metadata: &jetstream.MsgMetadata{NumDelivered: 10},
+	}
+	p.handleMsg(context.Background(), msg)
+
+	assert.True(t, msg.nakCalled)
+	assert.Equal(t, 60*time.Second, msg.nakDelay, "shift clamped at 6 → 64s > 60s cap → 60s")
+}
+
 // ─── Minimal local fakes (separate from pipeline_test package fakes) ─────────
 
 type localDedup struct{}

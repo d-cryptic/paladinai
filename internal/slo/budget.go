@@ -12,9 +12,9 @@ import (
 // WindowPolicy maps a burn-rate threshold to a severity label.
 // Based on the Google SRE multi-window alerting model (Chapter 6).
 type WindowPolicy struct {
-	Window    time.Duration
-	BurnRate  float64 // minimum burn rate to trigger this window's alert
-	Severity  string  // P1, P2, P3
+	Window   time.Duration
+	BurnRate float64 // minimum burn rate to trigger this window's alert
+	Severity string  // P1, P2, P3
 }
 
 // DefaultPolicies are the three multi-window alert policies from the spec.

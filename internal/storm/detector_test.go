@@ -13,9 +13,9 @@ import (
 
 // fakeStore is a minimal in-memory implementation of storm.Store.
 type fakeStore struct {
-	mu      sync.Mutex
-	counts  map[string]int64
-	hasTTL  map[string]bool
+	mu     sync.Mutex
+	counts map[string]int64
+	hasTTL map[string]bool
 }
 
 func newFakeStore() *fakeStore {

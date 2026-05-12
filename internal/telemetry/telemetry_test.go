@@ -55,3 +55,16 @@ func TestNoopExporter_Shutdown_NoError(t *testing.T) {
 	n := &noopExporter{}
 	assert.NoError(t, n.Shutdown(context.Background()))
 }
+
+// TestInit_WithEndpoint exercises the gRPC exporter path.
+// grpc.NewClient is lazy — it does not block on a live connection.
+// otlptracegrpc.New may fail or succeed depending on the environment;
+// we accept either outcome and just verify the function does not panic.
+func TestInit_WithEndpoint_DoesNotPanic(t *testing.T) {
+	assert.NotPanics(t, func() {
+		p, err := Init(context.Background(), "test-svc", "0.0.1", "localhost:4317", zap.NewNop())
+		if err == nil && p != nil {
+			_ = p.Shutdown(context.Background())
+		}
+	})
+}

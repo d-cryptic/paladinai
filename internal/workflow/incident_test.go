@@ -14,9 +14,9 @@ import (
 // ─── Fakes ───────────────────────────────────────────────────────────────────
 
 type fakeApprovalStore struct {
-	decision workflow.ApprovalResult
-	pollErr  error
-	pubErr   error
+	decision  workflow.ApprovalResult
+	pollErr   error
+	pubErr    error
 	published []workflow.ApprovalRequest
 }
 
@@ -89,10 +89,10 @@ func TestRunbookExecutor_ApprovalGranted(t *testing.T) {
 		RunbookID: "rb-approved",
 		Steps: []workflow.RunbookStep{
 			{
-				StepID:          "s1",
-				Name:            "delete pod",
-				Type:            workflow.StepTypeToolCall,
-				Tool:            "mcp-k8s",
+				StepID:           "s1",
+				Name:             "delete pod",
+				Type:             workflow.StepTypeToolCall,
+				Tool:             "mcp-k8s",
 				RequiresApproval: true,
 			},
 		},

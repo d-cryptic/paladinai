@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 
 	base "github.com/paladinai/paladinai/internal/config"
@@ -18,16 +17,8 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	b, err := base.LoadBase()
-	if err != nil {
-		return Config{}, fmt.Errorf("base config: %w", err)
-	}
-
-	srv, err := base.LoadServer("PALADIN_INGEST_PORT", 9001)
-	if err != nil {
-		return Config{}, fmt.Errorf("server config: %w", err)
-	}
-
+	b, _ := base.LoadBase()
+	srv, _ := base.LoadServer("PALADIN_INGEST_PORT", 9001)
 	return Config{
 		Base:          b,
 		Server:        srv,

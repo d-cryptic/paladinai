@@ -176,3 +176,120 @@ func TestIssueToken_SuspendedTenant(t *testing.T) {
 	r.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
+
+func TestGetTenant_Success(t *testing.T) {
+	r, s := newRouter()
+	tenant, err := s.Create(context.Background(), "get-co", "Get Co")
+	require.NoError(t, err)
+
+	req := adminReq(http.MethodGet, "/tenants/"+tenant.ID, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.NotNil(t, resp["tenant"])
+}
+
+func TestSuspendTenant_Success(t *testing.T) {
+	r, s := newRouter()
+	tenant, err := s.Create(context.Background(), "sus-co", "Sus Co")
+	require.NoError(t, err)
+
+	req := adminReq(http.MethodPost, "/tenants/"+tenant.ID+"/suspend", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestSuspendTenant_NotFound(t *testing.T) {
+	r, _ := newRouter()
+	req := adminReq(http.MethodPost, "/tenants/ghost/suspend", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestResumeTenant_Success(t *testing.T) {
+	r, s := newRouter()
+	ctx := context.Background()
+	tenant, err := s.Create(ctx, "res-co", "Res Co")
+	require.NoError(t, err)
+	_, _ = s.SetState(ctx, tenant.ID, store.TenantStateSuspended)
+
+	req := adminReq(http.MethodPost, "/tenants/"+tenant.ID+"/resume", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestIssueToken_MissingFields(t *testing.T) {
+	r, _ := newRouter()
+
+	// Missing user_id
+	req := adminReq(http.MethodPost, "/tokens", bodyJSON(map[string]any{
+		"tenant_id": "some-tenant",
+	}))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestIssueToken_TenantNotFound(t *testing.T) {
+	r, _ := newRouter()
+	req := adminReq(http.MethodPost, "/tokens", bodyJSON(map[string]any{
+		"tenant_id": "nonexistent-id",
+		"user_id":   "usr-1",
+	}))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestIssueToken_DefaultViewerRole(t *testing.T) {
+	r, s := newRouter()
+	tenant, err := s.Create(context.Background(), "viewer-co", "Viewer Co")
+	require.NoError(t, err)
+
+	// No roles specified — should default to viewer
+	req := adminReq(http.MethodPost, "/tokens", bodyJSON(map[string]any{
+		"tenant_id": tenant.ID,
+		"user_id":   "usr-viewer",
+	}))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestAdminSecretNotConfigured(t *testing.T) {
+	s := store.NewMemStore()
+	// Pass empty admin secret
+	h := handler.New(s, []byte(testSecret), "", time.Hour, zap.NewNop())
+	r := chi.NewRouter()
+	h.Register(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/tenants", nil)
+	req.Header.Set("X-Admin-Secret", "anything")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+}
+
+func TestCreateTenant_InvalidBody(t *testing.T) {
+	r, _ := newRouter()
+	req := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewBufferString("{bad json}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Admin-Secret", testAdminSecret)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestCreateTenant_EmptyName(t *testing.T) {
+	r, _ := newRouter()
+	req := adminReq(http.MethodPost, "/tenants", bodyJSON(map[string]string{"slug": "ok-slug", "name": ""}))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}

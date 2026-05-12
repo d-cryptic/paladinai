@@ -120,6 +120,14 @@ func TestPublishAlert_SubjectVariesByTenant(t *testing.T) {
 	}
 }
 
+// TestNew_ReturnsNonNil verifies the constructor wires the natsAdapter without
+// dialing — passing nil is safe here because no method is called on the client.
+func TestNew_ReturnsNonNil(t *testing.T) {
+	t.Parallel()
+	pub := publisher.New(nil, zap.NewNop())
+	assert.NotNil(t, pub)
+}
+
 func TestPublishAlert_SubjectVariesBySource(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

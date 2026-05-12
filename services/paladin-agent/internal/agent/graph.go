@@ -17,12 +17,12 @@ import (
 
 // Graph node keys — used in AddEdge / AddBranch calls and in trace events.
 const (
-	NodeClassify     = "classify"
-	NodeRouteBranch  = "route"
-	NodeTriage       = "triage"
-	NodeRCA          = "rca"
-	NodeCollect      = "collect"
-	NodeEnd          = compose.END
+	NodeClassify    = "classify"
+	NodeRouteBranch = "route"
+	NodeTriage      = "triage"
+	NodeRCA         = "rca"
+	NodeCollect     = "collect"
+	NodeEnd         = compose.END
 )
 
 // CompiledGraph is the compiled, runnable Eino graph for the supervisor pipeline.

@@ -79,4 +79,4 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 type noopExporter struct{}
 
 func (n *noopExporter) ExportSpans(_ context.Context, _ []sdktrace.ReadOnlySpan) error { return nil }
-func (n *noopExporter) Shutdown(_ context.Context) error                                { return nil }
+func (n *noopExporter) Shutdown(_ context.Context) error                               { return nil }

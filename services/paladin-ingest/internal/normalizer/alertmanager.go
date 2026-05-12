@@ -15,25 +15,25 @@ import (
 
 // AlertmanagerWebhook is the Alertmanager v2 webhook payload shape.
 type AlertmanagerWebhook struct {
-	Version           string                 `json:"version"`
-	GroupKey          string                 `json:"groupKey"`
-	Status            string                 `json:"status"` // "firing" | "resolved"
-	Receiver          string                 `json:"receiver"`
-	GroupLabels       map[string]string      `json:"groupLabels"`
-	CommonLabels      map[string]string      `json:"commonLabels"`
-	CommonAnnotations map[string]string      `json:"commonAnnotations"`
-	ExternalURL       string                 `json:"externalURL"`
-	Alerts            []AlertmanagerAlert    `json:"alerts"`
+	Version           string              `json:"version"`
+	GroupKey          string              `json:"groupKey"`
+	Status            string              `json:"status"` // "firing" | "resolved"
+	Receiver          string              `json:"receiver"`
+	GroupLabels       map[string]string   `json:"groupLabels"`
+	CommonLabels      map[string]string   `json:"commonLabels"`
+	CommonAnnotations map[string]string   `json:"commonAnnotations"`
+	ExternalURL       string              `json:"externalURL"`
+	Alerts            []AlertmanagerAlert `json:"alerts"`
 }
 
 type AlertmanagerAlert struct {
-	Status      string            `json:"status"`
-	Labels      map[string]string `json:"labels"`
-	Annotations map[string]string `json:"annotations"`
-	StartsAt    time.Time         `json:"startsAt"`
-	EndsAt      time.Time         `json:"endsAt"`
-	GeneratorURL string           `json:"generatorURL"`
-	Fingerprint string            `json:"fingerprint"`
+	Status       string            `json:"status"`
+	Labels       map[string]string `json:"labels"`
+	Annotations  map[string]string `json:"annotations"`
+	StartsAt     time.Time         `json:"startsAt"`
+	EndsAt       time.Time         `json:"endsAt"`
+	GeneratorURL string            `json:"generatorURL"`
+	Fingerprint  string            `json:"fingerprint"`
 }
 
 // NormalizeAlertmanager converts an Alertmanager webhook payload into AlertEnvelopes.

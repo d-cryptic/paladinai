@@ -31,9 +31,9 @@ func TestComputeTTL_ExpensiveOpus(t *testing.T) {
 	req := cache.TTLRequest{
 		QueryType:    cache.QueryTypeRCA,
 		InputTokens:  3000,
-		InputPrice:   15,   // $15/1M
+		InputPrice:   15, // $15/1M
 		OutputTokens: 1000,
-		OutputPrice:  75,   // $75/1M
+		OutputPrice:  75, // $75/1M
 	}
 	ttl := cache.ComputeTTL(req)
 	// base=4h × 4 = 16h, but max=16h
@@ -75,7 +75,7 @@ func TestComputeTTL_1xMultiplier(t *testing.T) {
 	req := cache.TTLRequest{
 		QueryType:    cache.QueryTypeRunbook,
 		InputTokens:  1000,
-		InputPrice:   1,    // $1/1M = $0.001 per 1000 tokens
+		InputPrice:   1, // $1/1M = $0.001 per 1000 tokens
 		OutputTokens: 100,
 		OutputPrice:  3,
 	}
