@@ -1,4 +1,4 @@
-.PHONY: help up down build test lint fmt clean dev hatchet-token
+.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test
 
 # Build env flags (common to all go commands)
 GOFLAGS     := -mod=mod
@@ -112,3 +112,9 @@ clean: ## Remove build artifacts
 
 eval-smoke: ## Run smoke eval suite (no LLM, CI mode)
 	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8
+
+e2e: ## Run E2E smoke tests (requires all services running via make up)
+	go test -tags e2e -timeout 120s ./test/e2e/...
+
+integration-test: ## Run integration tests (requires NATS, Valkey, Postgres)
+	go test -tags integration -timeout 120s ./...

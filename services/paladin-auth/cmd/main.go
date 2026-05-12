@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
@@ -52,8 +53,26 @@ func run() error {
 	}
 	defer otel.Shutdown(ctx) //nolint:errcheck
 
-	// Day-1: in-memory store. Production: swap for PostgresStore.
-	tenantStore := store.NewMemStore()
+	// Use Postgres if DATABASE_URL is set, otherwise fall back to in-memory
+	// (useful for unit tests and dev without a local Postgres).
+	var tenantStore store.Store
+	if conf.Base.DatabaseURL != "" {
+		pool, poolErr := pgxpool.New(ctx, conf.Base.DatabaseURL)
+		if poolErr != nil {
+			return fmt.Errorf("auth: postgres connect: %w", poolErr)
+		}
+		defer pool.Close()
+		if pingErr := pool.Ping(ctx); pingErr != nil {
+			log.Warn("postgres ping failed — falling back to in-memory store", zap.Error(pingErr))
+			tenantStore = store.NewMemStore()
+		} else {
+			log.Info("auth: using postgres tenant store")
+			tenantStore = store.NewPostgresStore(pool)
+		}
+	} else {
+		log.Info("auth: DATABASE_URL not set — using in-memory tenant store")
+		tenantStore = store.NewMemStore()
+	}
 
 	h := handler.New(tenantStore, []byte(conf.JWTSecret), conf.AdminSecret, conf.TokenTTL, log)
 
