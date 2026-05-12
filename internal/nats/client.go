@@ -38,6 +38,7 @@ const (
 	SubjectAlertsRaw        = "paladin.alerts.raw.>"        // raw inbound from integrations
 	SubjectAlertsDeduped    = "paladin.alerts.deduped.>"    // after fingerprint dedup
 	SubjectAlertsCorrelated = "paladin.alerts.correlated.>" // after correlation window
+	SubjectAlertsTriaged    = "paladin.alerts.triaged.>"    // after agent triage/RCA, consumed by paladin-comms
 	SubjectAgentWork        = "paladin.agent.work.>"
 	SubjectRunbookSteps     = "paladin.runbook.steps.>"
 	SubjectIncidents        = "paladin.incidents.>"
@@ -107,7 +108,7 @@ func (c *Client) ensureStreams(ctx context.Context) error {
 		{
 			Name:        StreamAlerts,
 			Description: "All alert events: raw, deduped, correlated",
-			Subjects:    []string{SubjectAlertsRaw, SubjectAlertsDeduped, SubjectAlertsCorrelated},
+			Subjects:    []string{SubjectAlertsRaw, SubjectAlertsDeduped, SubjectAlertsCorrelated, SubjectAlertsTriaged},
 			Retention:   jetstream.LimitsPolicy,
 			MaxAge:      72 * time.Hour, // 3 days
 			MaxMsgs:     5_000_000,

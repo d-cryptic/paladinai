@@ -558,6 +558,39 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  paladin-comms:
+    build:
+      context: .
+      dockerfile: services/paladin-comms/Dockerfile
+    image: ghcr.io/paladinai/comms:dev
+    container_name: paladin-comms
+    ports:
+      - "9005:9005"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-development}
+      NATS_URL: nats://nats:4222
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      PAGERDUTY_ROUTING_KEY: ${PAGERDUTY_ROUTING_KEY:-}
+      COMMS_MIN_SEVERITY: ${COMMS_MIN_SEVERITY:-P2}
+      COMMS_WORKERS: ${COMMS_WORKERS:-4}
+      COMMS_CONSUMER_NAME: paladin-comms
+      PALADIN_COMMS_PORT: "9005"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - paladin
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9005/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   paladin-memory:
     build:
       context: .
