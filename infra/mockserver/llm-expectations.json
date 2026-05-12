@@ -1,5 +1,6 @@
 [
   {
+    "priority": 10,
     "httpRequest": {
       "method": "POST",
       "path": "/api/v1/chat/completions"
@@ -19,7 +20,7 @@
             "index": 0,
             "message": {
               "role": "assistant",
-              "content": "{\"severity\":\"P2\",\"category\":\"infrastructure\",\"summary\":\"Mock: High CPU usage detected on node-1\",\"confidence\":0.92}"
+              "content": "{\"intent\":\"service_down\",\"agent_type\":\"triage\",\"severity\":\"P2\",\"confidence\":0.92}"
             },
             "finish_reason": "stop"
           }
@@ -33,6 +34,7 @@
     }
   },
   {
+    "priority": 5,
     "httpRequest": {
       "method": "GET",
       "path": "/api/v1/models"
@@ -43,11 +45,41 @@
         "Content-Type": ["application/json"]
       },
       "body": {
+        "object": "list",
         "data": [
-          {"id": "qwen/qwen3-8b", "object": "model"},
           {"id": "qwen/qwen3-1.7b", "object": "model"},
-          {"id": "deepseek/deepseek-v3", "object": "model"}
+          {"id": "qwen/qwen3-8b", "object": "model"},
+          {"id": "deepseek/deepseek-v3", "object": "model"},
+          {"id": "BAAI/bge-m3", "object": "model"}
         ]
+      }
+    }
+  },
+  {
+    "priority": 5,
+    "httpRequest": {
+      "method": "POST",
+      "path": "/api/v1/embeddings"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": {
+        "object": "list",
+        "model": "BAAI/bge-m3",
+        "data": [
+          {
+            "object": "embedding",
+            "index": 0,
+            "embedding": [
+              0.023, -0.041, 0.107, 0.059, -0.087, 0.122, -0.031, 0.048,
+              0.091, -0.063, 0.034, 0.108, -0.019, 0.076, -0.055, 0.099
+            ]
+          }
+        ],
+        "usage": {"prompt_tokens": 8, "total_tokens": 8}
       }
     }
   }
