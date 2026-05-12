@@ -166,8 +166,8 @@ func main() {
 					status = "resolved"
 				}
 				cases = append(cases, testCase{
-					ID:       caseID,
-					Category: "classification",
+					ID:          caseID,
+					Category:    "classification",
 					Description: fmt.Sprintf("[%s/%s] %s", ns, cluster, tmpl.description),
 					Alert: alert{
 						Title:    tmpl.title,

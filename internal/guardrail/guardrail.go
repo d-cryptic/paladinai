@@ -92,8 +92,8 @@ func ScanAssembledPrompt(prefix, alertSection string) ScanResult {
 		}
 	}
 	return ScanResult{
-		Sanitized: prefix + sanitized,
-		Triggered: matchCount > 0,
+		Sanitized:  prefix + sanitized,
+		Triggered:  matchCount > 0,
 		MatchCount: matchCount,
 	}
 }

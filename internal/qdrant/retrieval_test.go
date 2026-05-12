@@ -93,11 +93,11 @@ func TestRRF_ZeroK_UsesDefault(t *testing.T) {
 func TestMMR_SelectsTopK(t *testing.T) {
 	query := normalize([]float32{1, 0, 0})
 	candidates := []qdrant.Candidate{
-		mkCandidate("a", 0.9, normalize([]float32{1, 0, 0})),    // identical to query
+		mkCandidate("a", 0.9, normalize([]float32{1, 0, 0})),     // identical to query
 		mkCandidate("b", 0.8, normalize([]float32{0.9, 0.1, 0})), // similar to query
-		mkCandidate("c", 0.7, normalize([]float32{0, 1, 0})),    // orthogonal
-		mkCandidate("d", 0.6, normalize([]float32{0, 0, 1})),    // orthogonal
-		mkCandidate("e", 0.5, normalize([]float32{-1, 0, 0})),   // opposite
+		mkCandidate("c", 0.7, normalize([]float32{0, 1, 0})),     // orthogonal
+		mkCandidate("d", 0.6, normalize([]float32{0, 0, 1})),     // orthogonal
+		mkCandidate("e", 0.5, normalize([]float32{-1, 0, 0})),    // opposite
 	}
 	result := qdrant.MMR(candidates, query, qdrant.MMRConfig{Lambda: 0.7, TopK: 3})
 	require.Len(t, result, 3)
@@ -125,7 +125,7 @@ func TestMMR_DiversityPenalizesRedundant(t *testing.T) {
 	// partial wins because −0.24 > −0.4.
 	query := normalize([]float32{1, 0, 0})
 	dup1 := normalize([]float32{1, 0, 0})
-	dup2 := normalize([]float32{1, 0, 0})     // identical to dup1 (heavily penalized)
+	dup2 := normalize([]float32{1, 0, 0})        // identical to dup1 (heavily penalized)
 	partial := normalize([]float32{0.6, 0.8, 0}) // some relevance, lower sim to dup1
 
 	candidates := []qdrant.Candidate{

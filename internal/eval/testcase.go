@@ -33,8 +33,8 @@ func (c Category) Valid() bool {
 // AlertInput is the alert portion of a test case.
 type AlertInput struct {
 	Title       string            `json:"title"`
-	Severity    string            `json:"severity"` // P1/P2/P3/P4
-	Status      string            `json:"status"`   // firing/resolved
+	Severity    string            `json:"severity"`          // P1/P2/P3/P4
+	Status      string            `json:"status"`            // firing/resolved
 	Service     string            `json:"service,omitempty"` // shorthand used in summary contexts
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
@@ -62,8 +62,8 @@ type TestCase struct {
 	ExpectedSeverity  string   `json:"expected_severity,omitempty"`
 	ExpectedIntent    string   `json:"expected_intent,omitempty"`
 	ExpectedAgentType string   `json:"expected_agent_type,omitempty"` // supervisor_routing fixtures
-	ExpectedTools     []string `json:"expected_tools,omitempty"`       // tool_use fixtures
-	ExpectedToolNames []string `json:"expected_tool_names,omitempty"`  // legacy alias
+	ExpectedTools     []string `json:"expected_tools,omitempty"`      // tool_use fixtures
+	ExpectedToolNames []string `json:"expected_tool_names,omitempty"` // legacy alias
 	ExpectedKeywords  []string `json:"expected_keywords,omitempty"`
 	MustNotContain    []string `json:"must_not_contain,omitempty"`
 }

@@ -37,14 +37,14 @@ func NewClient(baseURL, apiKey string, httpClient *http.Client) *Client {
 
 // Episode is a single incident memory entry to store in Zep.
 type Episode struct {
-	ID         string            // UUID for idempotent writes
-	TenantID   string            // owner tenant
-	IncidentID string            // source incident
-	Content    string            // summary text for semantic search
-	ValidAt    time.Time         // bi-temporal: when the incident occurred (event time)
-	RecordedAt time.Time         // bi-temporal: when we recorded it (system time)
-	Domain     string            // "infra" | "traffic" | "unknown" — drives decay lambda
-	Metadata   map[string]any    // any extra fields
+	ID         string         // UUID for idempotent writes
+	TenantID   string         // owner tenant
+	IncidentID string         // source incident
+	Content    string         // summary text for semantic search
+	ValidAt    time.Time      // bi-temporal: when the incident occurred (event time)
+	RecordedAt time.Time      // bi-temporal: when we recorded it (system time)
+	Domain     string         // "infra" | "traffic" | "unknown" — drives decay lambda
+	Metadata   map[string]any // any extra fields
 }
 
 // SearchResult is one result from a Zep semantic search.

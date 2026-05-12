@@ -20,94 +20,94 @@ type alertInput struct {
 }
 
 type testCase struct {
-	ID              string     `json:"id"`
-	Category        string     `json:"category"`
-	Description     string     `json:"description"`
-	Alert           alertInput `json:"alert"`
+	ID               string     `json:"id"`
+	Category         string     `json:"category"`
+	Description      string     `json:"description"`
+	Alert            alertInput `json:"alert"`
 	ExpectedKeywords []string   `json:"expected_keywords"`
-	MustNotContain  []string   `json:"must_not_contain,omitempty"`
+	MustNotContain   []string   `json:"must_not_contain,omitempty"`
 }
 
 type rcaTemplate struct {
-	titleFmt        string
-	rootCause       string
-	keywords        []string
-	mustNotContain  []string
-	severity        string
-	service         string
-	namespace       string
+	titleFmt       string
+	rootCause      string
+	keywords       []string
+	mustNotContain []string
+	severity       string
+	service        string
+	namespace      string
 }
 
 var rcaTemplates = []rcaTemplate{
 	{
-		titleFmt:  "Payments API 5xx surge after deploy %s",
-		rootCause: "bad deployment introduced regression in %s",
-		keywords:  []string{"deploy", "regression", "rollback", "version"},
+		titleFmt:       "Payments API 5xx surge after deploy %s",
+		rootCause:      "bad deployment introduced regression in %s",
+		keywords:       []string{"deploy", "regression", "rollback", "version"},
 		mustNotContain: []string{"network partition", "hardware failure"},
-		severity:  "P1", service: "payments-api", namespace: "prod",
+		severity:       "P1", service: "payments-api", namespace: "prod",
 	},
 	{
-		titleFmt:  "Orders DB connection exhaustion on %s",
-		rootCause: "connection pool leak in %s after ORM upgrade",
-		keywords:  []string{"connection pool", "leak", "orm", "upgrade"},
+		titleFmt:       "Orders DB connection exhaustion on %s",
+		rootCause:      "connection pool leak in %s after ORM upgrade",
+		keywords:       []string{"connection pool", "leak", "orm", "upgrade"},
 		mustNotContain: []string{"disk full", "cpu throttle"},
-		severity:  "P1", service: "orders-db", namespace: "prod",
+		severity:       "P1", service: "orders-db", namespace: "prod",
 	},
 	{
-		titleFmt:  "Auth service OOMKill loop on %s",
-		rootCause: "memory leak in token cache on %s",
-		keywords:  []string{"memory", "leak", "cache", "token"},
+		titleFmt:       "Auth service OOMKill loop on %s",
+		rootCause:      "memory leak in token cache on %s",
+		keywords:       []string{"memory", "leak", "cache", "token"},
 		mustNotContain: []string{"disk io", "network"},
-		severity:  "P1", service: "auth-service", namespace: "prod",
+		severity:       "P1", service: "auth-service", namespace: "prod",
 	},
 	{
-		titleFmt:  "Kafka consumer lag spike on %s",
-		rootCause: "consumer group rebalance storm after rolling restart in %s",
-		keywords:  []string{"rebalance", "consumer", "lag", "rolling restart"},
+		titleFmt:       "Kafka consumer lag spike on %s",
+		rootCause:      "consumer group rebalance storm after rolling restart in %s",
+		keywords:       []string{"rebalance", "consumer", "lag", "rolling restart"},
 		mustNotContain: []string{"broker disk", "schema registry"},
-		severity:  "P2", service: "event-consumer", namespace: "data-pipeline",
+		severity:       "P2", service: "event-consumer", namespace: "data-pipeline",
 	},
 	{
-		titleFmt:  "Kubernetes node NotReady in %s",
-		rootCause: "kubelet crash due to containerd bug on %s",
-		keywords:  []string{"kubelet", "containerd", "node", "crash"},
+		titleFmt:       "Kubernetes node NotReady in %s",
+		rootCause:      "kubelet crash due to containerd bug on %s",
+		keywords:       []string{"kubelet", "containerd", "node", "crash"},
 		mustNotContain: []string{"application error", "database"},
-		severity:  "P1", service: "kubelet", namespace: "kube-system",
+		severity:       "P1", service: "kubelet", namespace: "kube-system",
 	},
 	{
-		titleFmt:  "Redis eviction storm on %s",
-		rootCause: "maxmemory policy set to allkeys-lru without TTL tuning on %s",
-		keywords:  []string{"maxmemory", "eviction", "lru", "ttl"},
+		titleFmt:       "Redis eviction storm on %s",
+		rootCause:      "maxmemory policy set to allkeys-lru without TTL tuning on %s",
+		keywords:       []string{"maxmemory", "eviction", "lru", "ttl"},
 		mustNotContain: []string{"network partition", "disk"},
-		severity:  "P2", service: "cache-service", namespace: "prod",
+		severity:       "P2", service: "cache-service", namespace: "prod",
 	},
 	{
-		titleFmt:  "gRPC timeout cascade on %s",
-		rootCause: "missing deadline propagation in internal RPC chain on %s",
-		keywords:  []string{"deadline", "timeout", "cascade", "grpc"},
+		titleFmt:       "gRPC timeout cascade on %s",
+		rootCause:      "missing deadline propagation in internal RPC chain on %s",
+		keywords:       []string{"deadline", "timeout", "cascade", "grpc"},
 		mustNotContain: []string{"disk", "network packet loss"},
-		severity:  "P1", service: "grpc-gateway", namespace: "prod",
+		severity:       "P1", service: "grpc-gateway", namespace: "prod",
 	},
 	{
-		titleFmt:  "Ingress 502 spike on %s",
-		rootCause: "backend pod scale-down during traffic peak on %s",
-		keywords:  []string{"scale-down", "502", "backend", "pod"},
+		titleFmt:       "Ingress 502 spike on %s",
+		rootCause:      "backend pod scale-down during traffic peak on %s",
+		keywords:       []string{"scale-down", "502", "backend", "pod"},
 		mustNotContain: []string{"certificate", "database"},
-		severity:  "P2", service: "ingress-nginx", namespace: "prod",
+		severity:       "P2", service: "ingress-nginx", namespace: "prod",
 	},
 	{
-		titleFmt:  "CronJob failing on %s",
-		rootCause: "permission denied on PVC mount after RBAC update on %s",
-		keywords:  []string{"rbac", "permission", "pvc", "mount"},
+		titleFmt:       "CronJob failing on %s",
+		rootCause:      "permission denied on PVC mount after RBAC update on %s",
+		keywords:       []string{"rbac", "permission", "pvc", "mount"},
 		mustNotContain: []string{"memory", "cpu"},
-		severity:  "P3", service: "cleanup-cronjob", namespace: "prod",
+		severity:       "P3", service: "cleanup-cronjob", namespace: "prod",
 	},
 	{
-		titleFmt:  "Etcd high latency on %s",
-		rootCause: "disk I/O saturation on etcd node due to noisy neighbour on %s",
-		keywords:  []string{"etcd", "disk", "io", "latency"},
+		titleFmt:       "Etcd high latency on %s",
+		rootCause:      "disk I/O saturation on etcd node due to noisy neighbour on %s",
+		keywords:       []string{"etcd", "disk", "io", "latency"},
 		mustNotContain: []string{"network partition", "application"},
-		severity:  "P1", service: "etcd", namespace: "kube-system",
+		severity:       "P1", service: "etcd", namespace: "kube-system",
 	},
 }
 

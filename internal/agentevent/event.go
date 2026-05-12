@@ -18,12 +18,12 @@ import (
 type EventType string
 
 const (
-	EventTypeStepStart       EventType = "step_start"
-	EventTypeToken           EventType = "token"
-	EventTypeToolCall        EventType = "tool_call"
-	EventTypeToolResult      EventType = "tool_result"
-	EventTypeStepEnd         EventType = "step_end"
-	EventTypeError           EventType = "error"
+	EventTypeStepStart        EventType = "step_start"
+	EventTypeToken            EventType = "token"
+	EventTypeToolCall         EventType = "tool_call"
+	EventTypeToolResult       EventType = "tool_result"
+	EventTypeStepEnd          EventType = "step_end"
+	EventTypeError            EventType = "error"
 	EventTypeApprovalRequired EventType = "approval_required"
 )
 
@@ -31,8 +31,8 @@ const (
 // It is serialized as JSON on the wire.
 type AgentEvent struct {
 	Type      EventType         `json:"type"`
-	Step      string            `json:"step"`               // graph node name
-	Content   string            `json:"content,omitempty"`  // token text or description
+	Step      string            `json:"step"`                // graph node name
+	Content   string            `json:"content,omitempty"`   // token text or description
 	ToolName  string            `json:"tool_name,omitempty"` // set for tool_call / tool_result
 	Metadata  map[string]string `json:"metadata,omitempty"`
 	Timestamp time.Time         `json:"timestamp"`

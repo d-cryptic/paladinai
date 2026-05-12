@@ -15,34 +15,34 @@ import (
 
 // GitHubDeploymentPayload is the payload for deployment and deployment_status events.
 type GitHubDeploymentPayload struct {
-	Action     string              `json:"action"`
-	Deployment GitHubDeployment    `json:"deployment"`
+	Action           string                  `json:"action"`
+	Deployment       GitHubDeployment        `json:"deployment"`
 	DeploymentStatus *GitHubDeploymentStatus `json:"deployment_status,omitempty"`
-	Repository GitHubRepository    `json:"repository"`
-	Sender     GitHubUser          `json:"sender"`
+	Repository       GitHubRepository        `json:"repository"`
+	Sender           GitHubUser              `json:"sender"`
 }
 
 // GitHubDeployment is a GitHub Deployments API record.
 type GitHubDeployment struct {
-	ID          int64             `json:"id"`
-	SHA         string            `json:"sha"`
-	Ref         string            `json:"ref"`
-	Task        string            `json:"task"`
-	Environment string            `json:"environment"`
-	Description string            `json:"description"`
-	Creator     GitHubUser        `json:"creator"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	Payload     json.RawMessage   `json:"payload"`
+	ID          int64           `json:"id"`
+	SHA         string          `json:"sha"`
+	Ref         string          `json:"ref"`
+	Task        string          `json:"task"`
+	Environment string          `json:"environment"`
+	Description string          `json:"description"`
+	Creator     GitHubUser      `json:"creator"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	Payload     json.RawMessage `json:"payload"`
 }
 
 // GitHubDeploymentStatus carries the current deployment state.
 type GitHubDeploymentStatus struct {
-	ID          int64      `json:"id"`
-	State       string     `json:"state"` // pending|in_progress|success|failure|error|inactive
-	Description string     `json:"description"`
-	Environment string     `json:"environment"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID          int64     `json:"id"`
+	State       string    `json:"state"` // pending|in_progress|success|failure|error|inactive
+	Description string    `json:"description"`
+	Environment string    `json:"environment"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // GitHubRepository is the repository block in a webhook payload.
@@ -61,21 +61,21 @@ type GitHubUser struct {
 
 // GitHubCheckRunPayload covers check_run events (CI failure detection).
 type GitHubCheckRunPayload struct {
-	Action   string          `json:"action"`
-	CheckRun GitHubCheckRun  `json:"check_run"`
+	Action     string           `json:"action"`
+	CheckRun   GitHubCheckRun   `json:"check_run"`
 	Repository GitHubRepository `json:"repository"`
-	Sender   GitHubUser      `json:"sender"`
+	Sender     GitHubUser       `json:"sender"`
 }
 
 // GitHubCheckRun is the check run result.
 type GitHubCheckRun struct {
-	ID          int64          `json:"id"`
-	Name        string         `json:"name"`
-	Status      string         `json:"status"`       // queued|in_progress|completed
-	Conclusion  string         `json:"conclusion"`   // success|failure|neutral|cancelled|timed_out|action_required
-	StartedAt   time.Time      `json:"started_at"`
-	CompletedAt *time.Time     `json:"completed_at,omitempty"`
-	HTMLURL     string         `json:"html_url"`
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Status      string     `json:"status"`     // queued|in_progress|completed
+	Conclusion  string     `json:"conclusion"` // success|failure|neutral|cancelled|timed_out|action_required
+	StartedAt   time.Time  `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	HTMLURL     string     `json:"html_url"`
 }
 
 // NormalizeGitHub converts a GitHub webhook event into AlertEnvelopes.
@@ -135,13 +135,13 @@ func normalizeGitHubDeployment(tenantID string, raw json.RawMessage, log *zap.Lo
 	}
 
 	rawLabels := map[string]string{
-		"alertname":   title,
-		"source":      "github",
-		"repo":        repo.FullName,
-		"environment": dep.Environment,
-		"ref":         dep.Ref,
-		"sha":         dep.SHA,
-		"task":        dep.Task,
+		"alertname":    title,
+		"source":       "github",
+		"repo":         repo.FullName,
+		"environment":  dep.Environment,
+		"ref":          dep.Ref,
+		"sha":          dep.SHA,
+		"task":         dep.Task,
 		"deploy_state": state,
 	}
 	if payload.Sender.Login != "" {
@@ -227,11 +227,11 @@ func normalizeGitHubCheckRun(tenantID string, raw json.RawMessage, log *zap.Logg
 	title := fmt.Sprintf("GitHub CI failed: %s — %s", cr.Name, repo.FullName)
 
 	rawLabels := map[string]string{
-		"alertname":   title,
-		"source":      "github",
-		"repo":        repo.FullName,
-		"check_name":  cr.Name,
-		"conclusion":  cr.Conclusion,
+		"alertname":  title,
+		"source":     "github",
+		"repo":       repo.FullName,
+		"check_name": cr.Name,
+		"conclusion": cr.Conclusion,
 	}
 
 	rawAnnotations := map[string]string{

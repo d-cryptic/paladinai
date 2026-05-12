@@ -28,13 +28,13 @@ type testCase struct {
 }
 
 type template struct {
-	titleFmt    string
-	descFmt     string
-	job         string
-	service     string
-	severity    string
-	tools       []string
-	labels      map[string]string
+	titleFmt string
+	descFmt  string
+	job      string
+	service  string
+	severity string
+	tools    []string
+	labels   map[string]string
 }
 
 var services = []string{"payments-api", "orders-service", "auth-service", "user-service", "catalog-service", "inventory-service"}

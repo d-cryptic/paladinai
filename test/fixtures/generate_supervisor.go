@@ -11,13 +11,13 @@ import (
 )
 
 type supervisorCase struct {
-	ID                string            `json:"id"`
-	Category          string            `json:"category"`
-	Description       string            `json:"description"`
-	Alert             supervisorAlert   `json:"alert"`
-	ExpectedAgentType string            `json:"expected_agent_type"` // "triage" | "rca" | "runbook"
-	ExpectedIntent    string            `json:"expected_intent"`
-	ExpectedSeverity  string            `json:"expected_severity"`
+	ID                string          `json:"id"`
+	Category          string          `json:"category"`
+	Description       string          `json:"description"`
+	Alert             supervisorAlert `json:"alert"`
+	ExpectedAgentType string          `json:"expected_agent_type"` // "triage" | "rca" | "runbook"
+	ExpectedIntent    string          `json:"expected_intent"`
+	ExpectedSeverity  string          `json:"expected_severity"`
 }
 
 type supervisorAlert struct {
@@ -113,8 +113,8 @@ func main() {
 			}
 			cluster := []string{"us-east-1", "eu-west-1", "ap-southeast-1"}[i%3]
 			cases = append(cases, supervisorCase{
-				ID:       fmt.Sprintf("sup-%03d", id),
-				Category: "supervisor_routing",
+				ID:          fmt.Sprintf("sup-%03d", id),
+				Category:    "supervisor_routing",
 				Description: fmt.Sprintf("[%s/%s] %s", ns, cluster, tmpl.description),
 				Alert: supervisorAlert{
 					Title:    tmpl.title,

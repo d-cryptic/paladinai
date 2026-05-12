@@ -85,8 +85,8 @@ func TestNormalizeSlack_MessageProducesEnvelope(t *testing.T) {
 
 func TestNormalizeSlack_SeverityInference(t *testing.T) {
 	tests := []struct {
-		text     string
-		wantSev  alert.Severity
+		text    string
+		wantSev alert.Severity
 	}{
 		{"p0 database is down for all tenants", alert.SeverityP1},
 		{"[P1] API gateway outage", alert.SeverityP1},

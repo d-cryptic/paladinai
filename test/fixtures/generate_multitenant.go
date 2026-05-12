@@ -20,12 +20,12 @@ type alertInput struct {
 }
 
 type testCase struct {
-	ID             string     `json:"id"`
-	Category       string     `json:"category"`
-	Description    string     `json:"description"`
-	Alert          alertInput `json:"alert"`
-	ExpectedKeywords []string `json:"expected_keywords,omitempty"`
-	MustNotContain []string   `json:"must_not_contain,omitempty"`
+	ID               string     `json:"id"`
+	Category         string     `json:"category"`
+	Description      string     `json:"description"`
+	Alert            alertInput `json:"alert"`
+	ExpectedKeywords []string   `json:"expected_keywords,omitempty"`
+	MustNotContain   []string   `json:"must_not_contain,omitempty"`
 }
 
 // Tenant pairs where isolation must hold: tenant A must never see tenant B data.

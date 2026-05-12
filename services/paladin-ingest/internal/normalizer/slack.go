@@ -15,12 +15,12 @@ import (
 
 // SlackEventWrapper is the outer Slack Events API envelope.
 type SlackEventWrapper struct {
-	Type        string     `json:"type"`
-	EventID     string     `json:"event_id"`
-	TeamID      string     `json:"team_id"`
-	Event       SlackEvent `json:"event"`
-	EventTime   int64      `json:"event_time"`
-	APIAppID    string     `json:"api_app_id"`
+	Type      string     `json:"type"`
+	EventID   string     `json:"event_id"`
+	TeamID    string     `json:"team_id"`
+	Event     SlackEvent `json:"event"`
+	EventTime int64      `json:"event_time"`
+	APIAppID  string     `json:"api_app_id"`
 }
 
 // SlackEvent is the inner event.

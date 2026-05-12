@@ -102,7 +102,7 @@ var ErrInvalidDepth = errors.New("topology: maxDepth must be >= 1")
 // InMemoryStore is a test-only in-memory implementation of Store.
 // It uses adjacency lists for graph traversal (BFS for BlastRadius).
 type InMemoryStore struct {
-	services    map[string]Service      // key: tenantID+":"+serviceID
+	services    map[string]Service // key: tenantID+":"+serviceID
 	edges       []DependsOnEdge
 	deployments []Deployment
 }

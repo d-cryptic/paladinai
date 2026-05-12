@@ -40,9 +40,9 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func ingestURL() string  { return envOr("PALADIN_INGEST_URL", defaultIngestURL) }
-func authURL() string    { return envOr("PALADIN_AUTH_URL", defaultAuthURL) }
-func hubURL() string     { return envOr("PALADIN_HUB_URL", defaultHubURL) }
+func ingestURL() string   { return envOr("PALADIN_INGEST_URL", defaultIngestURL) }
+func authURL() string     { return envOr("PALADIN_AUTH_URL", defaultAuthURL) }
+func hubURL() string      { return envOr("PALADIN_HUB_URL", defaultHubURL) }
 func adminSecret() string { return envOr("ADMIN_SECRET", "paladin-admin-secret") }
 func jwtSecret() string   { return envOr("JWT_SECRET", "paladin-dev-jwt-secret-min-32-chars!!") }
 
@@ -142,7 +142,9 @@ func TestIngestPipeline_AlertmanagerWebhook(t *testing.T) {
 	defer resp.Body.Close() //nolint:errcheck
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var tenant struct{ ID string `json:"id"` }
+	var tenant struct {
+		ID string `json:"id"`
+	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tenant))
 
 	tokenBody := fmt.Sprintf(`{"tenant_id":%q}`, tenant.ID)
@@ -153,7 +155,9 @@ func TestIngestPipeline_AlertmanagerWebhook(t *testing.T) {
 	require.NoError(t, err)
 	defer resp2.Body.Close() //nolint:errcheck
 
-	var tokenResp struct{ Token string `json:"token"` }
+	var tokenResp struct {
+		Token string `json:"token"`
+	}
 	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&tokenResp))
 	require.NotEmpty(t, tokenResp.Token)
 

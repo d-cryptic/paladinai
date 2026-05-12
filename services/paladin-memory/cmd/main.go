@@ -92,20 +92,20 @@ func main() {
 			)
 		} else {
 			// Use real HTTP embedder when OPENROUTER_API_KEY is set; otherwise stub.
-		var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
-		if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-			gatewayURL := os.Getenv("LLM_GATEWAY_URL")
-			if gatewayURL == "" {
-				gatewayURL = "https://openrouter.ai/api/v1"
+			var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
+			if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
+				gatewayURL := os.Getenv("LLM_GATEWAY_URL")
+				if gatewayURL == "" {
+					gatewayURL = "https://openrouter.ai/api/v1"
+				}
+				embedModel := os.Getenv("EMBED_MODEL")
+				if embedModel == "" {
+					embedModel = "BAAI/bge-m3"
+				}
+				embedder = qdrant.NewHTTPEmbedder(gatewayURL, apiKey, embedModel, qdrant.EmbeddingDim)
+				log.Info("using HTTP embedder", zap.String("model", embedModel))
 			}
-			embedModel := os.Getenv("EMBED_MODEL")
-			if embedModel == "" {
-				embedModel = "BAAI/bge-m3"
-			}
-			embedder = qdrant.NewHTTPEmbedder(gatewayURL, apiKey, embedModel, qdrant.EmbeddingDim)
-			log.Info("using HTTP embedder", zap.String("model", embedModel))
-		}
-		idx := qdrant.NewIndexer(qc, embedder)
+			idx := qdrant.NewIndexer(qc, embedder)
 			h.WithProcedural(idx)
 			log.Info("procedural memory enabled (qdrant)",
 				zap.String("url", cfg.QdrantURL),

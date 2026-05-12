@@ -84,10 +84,10 @@ func TestRunInitPrompt_CustomAPIURL(t *testing.T) {
 	}
 
 	stdin := simulatePrompt(
-		srv.URL,         // API URL
-		"",              // auth URL (default)
-		"my-token",      // token
-		"acme-corp",     // tenant
+		srv.URL,     // API URL
+		"",          // auth URL (default)
+		"my-token",  // token
+		"acme-corp", // tenant
 	)
 	oldStdin := os.Stdin
 	os.Stdin = stdin

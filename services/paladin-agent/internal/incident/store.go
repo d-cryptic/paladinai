@@ -23,27 +23,27 @@ import (
 type Status string
 
 const (
-	StatusOpen     Status = "open"
-	StatusResolved Status = "resolved"
+	StatusOpen      Status = "open"
+	StatusResolved  Status = "resolved"
 	StatusReplaying Status = "replaying"
 )
 
 // Incident is a record of a correlated alert group processed by the agent.
 type Incident struct {
-	ID           string            `json:"id"`
-	TenantID     string            `json:"tenant_id"`
-	Status       Status            `json:"status"`
-	Severity     string            `json:"severity"`
-	Title        string            `json:"title"`
-	AlertCount   int               `json:"alert_count"`
-	TriageResult json.RawMessage   `json:"triage_result,omitempty"`
+	ID           string          `json:"id"`
+	TenantID     string          `json:"tenant_id"`
+	Status       Status          `json:"status"`
+	Severity     string          `json:"severity"`
+	Title        string          `json:"title"`
+	AlertCount   int             `json:"alert_count"`
+	TriageResult json.RawMessage `json:"triage_result,omitempty"`
 	// RawEnvelope stores the original AlertEnvelope JSON so replays can
 	// re-publish to NATS without synthesizing a fake envelope from labels.
-	RawEnvelope  json.RawMessage   `json:"raw_envelope,omitempty"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
-	ReplayOf     string            `json:"replay_of,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
+	RawEnvelope json.RawMessage   `json:"raw_envelope,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	ReplayOf    string            `json:"replay_of,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 // ReplayResult is returned when a replay is triggered.

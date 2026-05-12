@@ -185,11 +185,11 @@ func (h *RunbookHandler) searchRunbooks(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type result struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		Source string `json:"source"`
-		Score  float64 `json:"score"`
-		Excerpt string `json:"excerpt"`
+		ID      string  `json:"id"`
+		Title   string  `json:"title"`
+		Source  string  `json:"source"`
+		Score   float64 `json:"score"`
+		Excerpt string  `json:"excerpt"`
 	}
 	results := make([]result, 0, len(chunks))
 	for i, c := range chunks {
