@@ -33,24 +33,44 @@ type AlertInput struct {
 	Title       string            `json:"title"`
 	Severity    string            `json:"severity"` // P1/P2/P3/P4
 	Status      string            `json:"status"`   // firing/resolved
+	Service     string            `json:"service,omitempty"` // shorthand used in summary contexts
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
 	Description string            `json:"description"`
 }
 
+// SummaryContext is the incident context for summary test cases.
+type SummaryContext struct {
+	IncidentID       string       `json:"incident_id"`
+	Severity         string       `json:"severity"`
+	Alerts           []AlertInput `json:"alerts"`
+	DurationMinutes  int          `json:"duration_minutes"`
+	AffectedServices []string     `json:"affected_services"`
+}
+
 // TestCase is one eval entry from a JSONL file.
 type TestCase struct {
-	ID          string     `json:"id"`
-	Category    Category   `json:"category"`
-	Description string     `json:"description"`
-	Alert       AlertInput `json:"alert"`
+	ID          string         `json:"id"`
+	Category    Category       `json:"category"`
+	Description string         `json:"description"`
+	Alert       AlertInput     `json:"alert"`
+	Context     SummaryContext `json:"context,omitempty"`
 
 	// Expected outputs (at least one must be set).
 	ExpectedSeverity  string   `json:"expected_severity,omitempty"`
 	ExpectedIntent    string   `json:"expected_intent,omitempty"`
-	ExpectedToolNames []string `json:"expected_tool_names,omitempty"`
+	ExpectedTools     []string `json:"expected_tools,omitempty"`     // tool_use fixtures
+	ExpectedToolNames []string `json:"expected_tool_names,omitempty"` // legacy alias
 	ExpectedKeywords  []string `json:"expected_keywords,omitempty"`
 	MustNotContain    []string `json:"must_not_contain,omitempty"`
+}
+
+// AllExpectedTools returns expected tools from either field (new or legacy).
+func (tc TestCase) AllExpectedTools() []string {
+	if len(tc.ExpectedTools) > 0 {
+		return tc.ExpectedTools
+	}
+	return tc.ExpectedToolNames
 }
 
 // HasExpectations returns true if the case has at least one expected output
@@ -58,7 +78,7 @@ type TestCase struct {
 func (tc TestCase) HasExpectations() bool {
 	return tc.ExpectedSeverity != "" ||
 		tc.ExpectedIntent != "" ||
-		len(tc.ExpectedToolNames) > 0 ||
+		len(tc.AllExpectedTools()) > 0 ||
 		len(tc.ExpectedKeywords) > 0 ||
 		len(tc.MustNotContain) > 0
 }

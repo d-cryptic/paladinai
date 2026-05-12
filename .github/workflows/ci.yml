@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+    branches: [v2, main]
+  pull_request:
+    branches: [v2, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.23"
+  GOFLAGS: "-mod=mod"
+  GONOSUMDB: "*"
+  GOINSECURE: "*"
+
+jobs:
+  # ── lint ────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # ── vet + build ─────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Build all binaries
+        run: |
+          go build ./cmd/paladin/...
+          go build ./cmd/paladin-eval/...
+          go build ./services/paladin-agent/cmd/...
+          go build ./services/paladin-auth/cmd/...
+          go build ./services/paladin-edge/cmd/...
+          go build ./services/paladin-hub/cmd/...
+          go build ./services/paladin-ingest/cmd/...
+          go build ./services/paladin-memory/cmd/...
+          go build ./services/paladin-orchestrator/cmd/...
+          go build ./services/paladin-ws/cmd/...
+
+  # ── unit tests ──────────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run unit tests with coverage
+        run: |
+          go test ./... -count=1 -timeout=120s \
+            -coverprofile=coverage.out \
+            -covermode=atomic
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -5
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  # ── eval suite ──────────────────────────────────────────────────────────────
+  eval:
+    name: Eval Suite
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build paladin-eval
+        run: go build -o bin/paladin-eval ./cmd/paladin-eval
+
+      - name: Run smoke eval (CI mode — no LLM)
+        run: |
+          ./bin/paladin-eval \
+            -fixtures test/fixtures \
+            -threshold 0.8
+
+      - name: Run classification category only
+        run: |
+          ./bin/paladin-eval \
+            -fixtures test/fixtures \
+            -category classification \
+            -threshold 0.8
+
+  # ── integration tests (infra required) ──────────────────────────────────────
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    services:
+      nats:
+        image: nats:2.10-alpine
+        options: -p 4222:4222 --name paladin-nats
+        ports:
+          - 4222:4222
+
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: paladin
+          POSTGRES_PASSWORD: paladin
+          POSTGRES_DB: paladin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      VALKEY_URL: localhost:6379
+      NATS_URL: nats://localhost:4222
+      DATABASE_URL: postgres://paladin:paladin@localhost:5432/paladin?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run integration tests
+        run: |
+          go test -tags integration ./... -count=1 -timeout=120s
+
+  # ── docker build check ──────────────────────────────────────────────────────
+  docker:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build paladin-ingest image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/paladin-ingest/Dockerfile
+          push: false
+          tags: paladin-ingest:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build paladin-orchestrator image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/paladin-orchestrator/Dockerfile
+          push: false
+          tags: paladin-orchestrator:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
