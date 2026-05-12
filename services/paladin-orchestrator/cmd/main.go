@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -135,6 +136,28 @@ func run() error {
 	pipe := pipeline.New(deduplicator, correlator, pub, log).
 		WithPostProcess(triagePostProcess(router, log))
 
+	// ── Health endpoint ───────────────────────────────────────────────────────
+	orchPort := os.Getenv("PALADIN_ORCHESTRATOR_PORT")
+	if orchPort == "" {
+		orchPort = "9008"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	httpSrv := &http.Server{
+		Addr:         ":" + orchPort,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	go func() {
+		log.Info("paladin-orchestrator HTTP listening", zap.String("port", orchPort))
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("HTTP server error", zap.Error(err))
+		}
+	}()
+
 	log.Info("paladin-orchestrator starting",
 		zap.String("consumer", cfg.ConsumerName),
 		zap.Int("workers", cfg.Workers),
@@ -146,6 +169,12 @@ func run() error {
 			return nil
 		}
 		return fmt.Errorf("pipeline: %w", err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error("HTTP shutdown error", zap.Error(err))
 	}
 
 	log.Info("paladin-orchestrator stopped")

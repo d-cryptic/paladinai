@@ -490,6 +490,15 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 				return err
 			},
 		},
+		{
+			name: "paladin-orchestrator reachable",
+			fn: func() error {
+				orchPort := envStr("PALADIN_ORCHESTRATOR_PORT", "9008")
+				orchBase := "http://localhost:" + orchPort
+				_, err := client.Get(cmd.Context(), orchBase+"/healthz", client.Options{})
+				return err
+			},
+		},
 	}
 
 	// Run all checks and collect results.
