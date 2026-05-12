@@ -4,6 +4,7 @@
 package incident
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -29,17 +30,20 @@ const (
 
 // Incident is a record of a correlated alert group processed by the agent.
 type Incident struct {
-	ID           string              `json:"id"`
-	TenantID     string              `json:"tenant_id"`
-	Status       Status              `json:"status"`
-	Severity     string              `json:"severity"`
-	Title        string              `json:"title"`
-	AlertCount   int                 `json:"alert_count"`
-	TriageResult json.RawMessage     `json:"triage_result,omitempty"`
-	CreatedAt    time.Time           `json:"created_at"`
-	UpdatedAt    time.Time           `json:"updated_at"`
-	ReplayOf     string              `json:"replay_of,omitempty"`
-	Labels       map[string]string   `json:"labels,omitempty"`
+	ID           string            `json:"id"`
+	TenantID     string            `json:"tenant_id"`
+	Status       Status            `json:"status"`
+	Severity     string            `json:"severity"`
+	Title        string            `json:"title"`
+	AlertCount   int               `json:"alert_count"`
+	TriageResult json.RawMessage   `json:"triage_result,omitempty"`
+	// RawEnvelope stores the original AlertEnvelope JSON so replays can
+	// re-publish to NATS without synthesizing a fake envelope from labels.
+	RawEnvelope  json.RawMessage   `json:"raw_envelope,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+	ReplayOf     string            `json:"replay_of,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
 }
 
 // ReplayResult is returned when a replay is triggered.
@@ -84,12 +88,22 @@ func (s *Store) Record(tenantID, severity, title string, alertCount int, labels 
 }
 
 // RecordFromEnvelope creates an incident record from an AlertEnvelope.
+// The raw envelope JSON is stored for future replay publishing.
 func (s *Store) RecordFromEnvelope(env *alert.AlertEnvelope, severity string, result json.RawMessage) *Incident {
 	title := env.Labels["alertname"]
 	if title == "" {
 		title = "Unnamed Incident"
 	}
-	return s.Record(env.TenantID, severity, title, 1, env.Labels, result)
+	inc := s.Record(env.TenantID, severity, title, 1, env.Labels, result)
+	// Store the raw envelope so replays can re-publish it to NATS unchanged.
+	if raw, err := json.Marshal(env); err == nil {
+		s.mu.Lock()
+		if i, ok := s.incidents[inc.ID]; ok {
+			i.RawEnvelope = raw
+		}
+		s.mu.Unlock()
+	}
+	return inc
 }
 
 // Get returns the incident with the given ID or nil.
@@ -167,15 +181,44 @@ func (s *Store) MarkResolved(id string) {
 	}
 }
 
+// ReplayPublisher is the narrow interface for re-publishing an alert envelope
+// to NATS so the orchestrator pipeline can re-process it. Satisfied by
+// internalnats.Client.Publish; NoopReplayPublisher is used when NATS is absent.
+type ReplayPublisher interface {
+	// Publish sends data to subject and returns the NATS sequence number.
+	Publish(ctx context.Context, subject string, data []byte) error
+}
+
+// NoopReplayPublisher is a ReplayPublisher that does nothing. Used when NATS
+// is not configured (dev/test).
+type NoopReplayPublisher struct{}
+
+func (NoopReplayPublisher) Publish(_ context.Context, _ string, _ []byte) error { return nil }
+
+// replaySubject returns the NATS subject for replaying an envelope.
+// Republish to the raw ingest topic so dedup+correlate runs again.
+func replaySubject(tenantID, fingerprint string) string {
+	return fmt.Sprintf("paladin.alerts.raw.%s.%s", tenantID, fingerprint)
+}
+
 // Handler exposes incident CRUD over HTTP.
 type Handler struct {
-	store *Store
-	log   *zap.Logger
+	store     *Store
+	log       *zap.Logger
+	replayPub ReplayPublisher
 }
 
 // NewHandler creates an incident HTTP handler.
+// replayPub may be nil; NoopReplayPublisher is used in that case.
 func NewHandler(store *Store, log *zap.Logger) *Handler {
-	return &Handler{store: store, log: log}
+	return &Handler{store: store, log: log, replayPub: NoopReplayPublisher{}}
+}
+
+// WithReplayPublisher sets the NATS publisher used to re-ingest replayed alerts.
+func (h *Handler) WithReplayPublisher(pub ReplayPublisher) *Handler {
+	cp := *h
+	cp.replayPub = pub
+	return &cp
 }
 
 // Routes mounts incident routes on the given chi router.
@@ -226,15 +269,37 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 		zap.String("tenant", tenantID),
 	)
 
-	// Fire-and-forget: in production this would submit to Hatchet. Here we
-	// immediately mark it resolved as a synchronous stub so the CLI can poll.
+	// Re-publish the original alert envelope to the raw ingest NATS topic so
+	// the orchestrator pipeline (dedup → correlate → agent) re-processes it.
+	// The replay incident is marked resolved after a successful publish.
+	// When the envelope is missing (legacy incidents), the replay is a no-op.
 	go func() {
-		// Simulate async replay completing after 2s.
-		timer := time.NewTimer(2 * time.Second)
-		defer timer.Stop()
-		<-timer.C
+		src := h.store.Get(incidentID)
+		if src == nil || len(src.RawEnvelope) == 0 {
+			// No stored envelope: legacy incident or test. Resolve immediately.
+			h.store.MarkResolved(replay.ID)
+			h.log.Warn("replay: no envelope stored, marking resolved without re-ingest",
+				zap.String("replay_id", replay.ID),
+			)
+			return
+		}
+		subject := replaySubject(tenantID, src.Labels["fingerprint"])
+		pubCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := h.replayPub.Publish(pubCtx, subject, src.RawEnvelope); err != nil {
+			h.log.Error("replay: NATS publish failed",
+				zap.String("replay_id", replay.ID),
+				zap.String("subject", subject),
+				zap.Error(err),
+			)
+			// Do not mark resolved: leave as "replaying" so the caller knows it failed.
+			return
+		}
 		h.store.MarkResolved(replay.ID)
-		h.log.Info("replay completed", zap.String("replay_id", replay.ID))
+		h.log.Info("replay: envelope re-published to NATS",
+			zap.String("replay_id", replay.ID),
+			zap.String("subject", subject),
+		)
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
