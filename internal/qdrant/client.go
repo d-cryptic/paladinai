@@ -161,3 +161,18 @@ func (c *Client) Delete(ctx context.Context, collection string, ids []string) er
 	body := map[string]any{"points": ids}
 	return c.do(ctx, http.MethodPost, "/collections/"+collection+"/points/delete", body, nil)
 }
+
+// NewClient is an alias for New for use in service wiring code.
+func NewClient(baseURL, apiKey string, log *zap.Logger) *Client {
+	return New(baseURL, apiKey, log)
+}
+
+// NoopClient implements PointStore with no-op operations. Used when QDRANT_URL
+// is not configured (local dev without vector search).
+type NoopClient struct{}
+
+func (n *NoopClient) Upsert(_ context.Context, _ string, _ []Point) error { return nil }
+
+func (n *NoopClient) Search(_ context.Context, _ string, _ []float32, _ int) ([]SearchResult, error) {
+	return nil, nil
+}

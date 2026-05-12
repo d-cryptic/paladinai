@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/internal/logger"
+	"github.com/paladinai/paladinai/internal/qdrant"
 	hubcfg "github.com/paladinai/paladinai/services/paladin-hub/config"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/store"
@@ -81,6 +82,42 @@ func main() {
 
 	h := handler.New(s, log)
 
+	// Wire runbook indexer: use real Qdrant when QDRANT_URL is set.
+	var rbHandler *handler.RunbookHandler
+	{
+		var embedder qdrant.Embedder
+		qdrantURL := os.Getenv("QDRANT_URL")
+		openrouterKey := os.Getenv("OPENROUTER_API_KEY")
+		embedModel := os.Getenv("EMBED_MODEL")
+		if embedModel == "" {
+			embedModel = "BAAI/bge-m3"
+		}
+		llmGateway := os.Getenv("LLM_GATEWAY_URL")
+		if llmGateway == "" {
+			llmGateway = "https://openrouter.ai/api/v1"
+		}
+
+		if openrouterKey != "" {
+			embedder = qdrant.NewHTTPEmbedder(llmGateway, openrouterKey, embedModel, qdrant.EmbeddingDim)
+			log.Info("paladin-hub using HTTPEmbedder", zap.String("model", embedModel))
+		} else {
+			embedder = &qdrant.StubEmbedder{}
+			log.Warn("paladin-hub using StubEmbedder (set OPENROUTER_API_KEY for real embeddings)")
+		}
+
+		var pointStore qdrant.PointStore
+		if qdrantURL != "" {
+			pointStore = qdrant.NewClient(qdrantURL, os.Getenv("QDRANT_API_KEY"), log)
+			log.Info("paladin-hub using Qdrant", zap.String("url", qdrantURL))
+		} else {
+			pointStore = &qdrant.NoopClient{}
+			log.Warn("paladin-hub using NoopClient (set QDRANT_URL for real vector search)")
+		}
+
+		indexer := qdrant.NewIndexer(pointStore, embedder)
+		rbHandler = handler.NewRunbookHandler(indexer, log)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
@@ -95,6 +132,7 @@ func main() {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		h.Routes(r)
+		rbHandler.RunbookRoutes(r)
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
