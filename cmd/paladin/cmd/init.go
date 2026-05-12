@@ -481,6 +481,15 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			name: "Qdrant reachable",
 			fn:   infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333),
 		},
+		{
+			name: "paladin-comms reachable",
+			fn: func() error {
+				commsPort := envStr("PALADIN_WS_PORT", "9007")
+				commsBase := "http://localhost:" + commsPort
+				_, err := client.Get(cmd.Context(), commsBase+"/healthz", client.Options{})
+				return err
+			},
+		},
 	}
 
 	// Run all checks and collect results.
