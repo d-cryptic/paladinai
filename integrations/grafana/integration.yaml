@@ -1,0 +1,36 @@
+name: grafana
+version: "1.0.0"
+description: "Grafana — query dashboards, annotations, and alerts during incidents"
+
+receiver:
+  type: none
+
+config_schema:
+  url:
+    type: string
+    required: true
+    description: "Grafana base URL (e.g. https://grafana.example.com)"
+  api_key:
+    type: string
+    required: true
+    secret: true
+    description: "Grafana service account token"
+  org_id:
+    type: integer
+    required: false
+    description: "Grafana organization ID (default: 1)"
+
+auth:
+  type: bearer_token
+  env_var: GRAFANA_API_KEY
+
+tools:
+  - get_dashboard
+  - list_dashboards
+  - get_panel_data
+  - list_annotations
+  - create_annotation
+  - list_alert_rules
+  - get_datasource
+
+docs_url: "https://grafana.com/docs/grafana/latest/developers/http_api/"

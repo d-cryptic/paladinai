@@ -1,0 +1,36 @@
+name: opsgenie
+version: "1.0.0"
+description: "OpsGenie — manage on-call alerts, escalations, and schedules"
+
+receiver:
+  type: webhook
+  path: /webhooks/opsgenie
+  secret_env: OPSGENIE_WEBHOOK_SECRET
+
+config_schema:
+  api_key:
+    type: string
+    required: true
+    secret: true
+    description: "OpsGenie API key (Integrations → API Key)"
+  region:
+    type: string
+    required: false
+    description: "OpsGenie region: 'us' or 'eu' (default: us)"
+
+auth:
+  type: api_key
+  env_var: OPSGENIE_API_KEY
+  header: Authorization
+  prefix: "GenieKey "
+
+tools:
+  - create_alert
+  - close_alert
+  - acknowledge_alert
+  - list_alerts
+  - get_alert
+  - list_on_call
+  - get_schedule
+
+docs_url: "https://docs.opsgenie.com/docs/api-overview"

@@ -1,0 +1,28 @@
+name: loki
+version: "1.0.0"
+description: "Grafana Loki — query log streams during incident investigation"
+
+receiver:
+  type: none
+
+config_schema:
+  url:
+    type: string
+    required: true
+    description: "Loki base URL (e.g. http://loki:3100)"
+  org_id:
+    type: string
+    required: false
+    description: "X-Scope-OrgID header for multi-tenant Loki (optional)"
+
+auth:
+  type: none
+
+tools:
+  - query_logs
+  - query_range
+  - list_labels
+  - list_label_values
+  - get_series
+
+docs_url: "https://grafana.com/docs/loki/latest/api/"

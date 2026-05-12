@@ -1,0 +1,38 @@
+name: newrelic
+version: "1.0.0"
+description: "New Relic — query APM metrics, traces, and alerts during incidents"
+
+receiver:
+  type: webhook
+  path: /webhooks/newrelic
+  secret_env: NEWRELIC_WEBHOOK_SECRET
+
+config_schema:
+  api_key:
+    type: string
+    required: true
+    secret: true
+    description: "New Relic User API key (NR1 → API keys)"
+  account_id:
+    type: string
+    required: true
+    description: "New Relic account ID"
+  region:
+    type: string
+    required: false
+    description: "New Relic region: 'us' or 'eu' (default: us)"
+
+auth:
+  type: api_key
+  env_var: NEW_RELIC_API_KEY
+  header: Api-Key
+
+tools:
+  - nrql_query
+  - get_entity
+  - list_entities
+  - list_alert_violations
+  - get_application_summary
+  - list_deployments
+
+docs_url: "https://docs.newrelic.com/docs/apis/nerdgraph/get-started/introduction-new-relic-nerdgraph/"

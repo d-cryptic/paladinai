@@ -1,0 +1,40 @@
+name: confluence
+version: "1.0.0"
+description: "Confluence — search and retrieve runbooks and postmortem documents"
+
+receiver:
+  type: none
+
+config_schema:
+  base_url:
+    type: string
+    required: true
+    description: "Confluence Cloud or Server URL (e.g. https://acme.atlassian.net/wiki)"
+  email:
+    type: string
+    required: true
+    description: "Atlassian user email for API token auth"
+  api_token:
+    type: string
+    required: true
+    secret: true
+    description: "Confluence API token (Atlassian account settings)"
+  space_key:
+    type: string
+    required: false
+    description: "Default Confluence space key for runbook search (e.g. OPS)"
+
+auth:
+  type: basic
+  env_var: CONFLUENCE_API_TOKEN
+
+tools:
+  - search_pages
+  - get_page
+  - get_page_children
+  - get_space
+  - list_spaces
+  - create_page
+  - update_page
+
+docs_url: "https://developer.atlassian.com/cloud/confluence/rest/v1/"
