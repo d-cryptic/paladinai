@@ -300,6 +300,75 @@ func TestWebhookHandler_Alertmanager_BatchPartialFailure(t *testing.T) {
 	assert.Equal(t, float64(2), body["failed"])
 }
 
+// fakeStormDetector implements StormDetector for tests.
+type fakeStormDetector struct {
+	storm bool
+	err   error
+	calls int
+}
+
+func (f *fakeStormDetector) Record(_ context.Context, _ string) (bool, int64, error) {
+	f.calls++
+	return f.storm, int64(f.calls), f.err
+}
+
+func TestWebhookHandler_StormDetector_TagsAlertsOnStorm(t *testing.T) {
+	pub := &fakePublisher{}
+	det := &fakeStormDetector{storm: true}
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop()).WithStormDetector(det)
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "HighCPU", "critical")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-storm", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+	require.Len(t, pub.published, 1)
+	assert.Equal(t, "true", pub.published[0].Labels["storm"], "storm label must be set when detector fires")
+}
+
+func TestWebhookHandler_StormDetector_NoTagWhenNoStorm(t *testing.T) {
+	pub := &fakePublisher{}
+	det := &fakeStormDetector{storm: false}
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop()).WithStormDetector(det)
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "HighCPU", "warning")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-ok", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+	require.Len(t, pub.published, 1)
+	assert.Empty(t, pub.published[0].Labels["storm"], "storm label must not be set when detector is calm")
+}
+
+func TestWebhookHandler_StormDetector_ErrorIsNonFatal(t *testing.T) {
+	pub := &fakePublisher{}
+	det := &fakeStormDetector{storm: false, err: fmt.Errorf("valkey down")}
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop()).WithStormDetector(det)
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "HighCPU", "critical")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-sd-err", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	// Storm detector error must not suppress alert publication.
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+	require.Len(t, pub.published, 1, "alert should be published even when storm detector errors")
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func alertmanagerBody(t *testing.T, status, alertname, severity string) []byte {

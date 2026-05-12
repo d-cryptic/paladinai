@@ -25,16 +25,28 @@ type Deduplicator interface {
 	Reset(ctx context.Context, tenantID, fingerprint string) error
 }
 
+// StormDetector counts alerts per tenant and signals when burst thresholds are exceeded.
+type StormDetector interface {
+	Record(ctx context.Context, tenantID string) (storm bool, count int64, err error)
+}
+
 // WebhookHandler handles inbound webhooks from monitoring integrations.
 type WebhookHandler struct {
 	pub   Publisher
 	dedup Deduplicator
+	storm StormDetector // optional; nil disables storm tagging
 	log   *zap.Logger
 }
 
 // NewWebhookHandler creates a configured WebhookHandler.
 func NewWebhookHandler(pub Publisher, dedup Deduplicator, log *zap.Logger) *WebhookHandler {
 	return &WebhookHandler{pub: pub, dedup: dedup, log: log}
+}
+
+// WithStormDetector attaches a storm detector and returns the handler for chaining.
+func (h *WebhookHandler) WithStormDetector(d StormDetector) *WebhookHandler {
+	h.storm = d
+	return h
 }
 
 // Routes returns a chi Router with all webhook routes.
@@ -124,9 +136,25 @@ func (h *WebhookHandler) handleWebhook(
 		return
 	}
 
+	isStorm := false
+	if h.storm != nil {
+		var stormErr error
+		isStorm, _, stormErr = h.storm.Record(r.Context(), tenantID)
+		if stormErr != nil {
+			h.log.Warn("storm detector error", zap.String("tenant", tenantID), zap.Error(stormErr))
+		}
+	}
+
 	published, suppressed, failed := 0, 0, 0
 	for i := range envelopes {
 		env := envelopes[i]
+
+		if isStorm {
+			if env.Labels == nil {
+				env.Labels = make(map[string]string)
+			}
+			env.Labels["storm"] = "true"
+		}
 
 		isDup, dupErr := h.dedup.IsDuplicate(r.Context(), &env)
 		if dupErr != nil {

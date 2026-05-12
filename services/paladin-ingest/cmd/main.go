@@ -24,6 +24,7 @@ import (
 
 	"github.com/paladinai/paladinai/internal/logger"
 	inats "github.com/paladinai/paladinai/internal/nats"
+	"github.com/paladinai/paladinai/internal/storm"
 	"github.com/paladinai/paladinai/internal/telemetry"
 )
 
@@ -72,7 +73,8 @@ func run() error {
 	// Wire dependencies
 	pub := publisher.New(natsClient, log)
 	ded := dedup.New(dedup.NewValkeyStore(rdb), log)
-	webhooks := handler.NewWebhookHandler(pub, ded, log)
+	stormDet := storm.New(&valkeyStormStore{rdb: rdb}, log)
+	webhooks := handler.NewWebhookHandler(pub, ded, log).WithStormDetector(stormDet)
 	health := handler.NewHealthHandler("paladin-ingest",
 		handler.NewNATSChecker(natsClient.Conn()),
 		handler.NewValkeyChecker(rdb),
@@ -120,6 +122,17 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// valkeyStormStore adapts *redis.Client to storm.Store.
+type valkeyStormStore struct{ rdb *redis.Client }
+
+func (v *valkeyStormStore) Incr(ctx context.Context, key string) (int64, error) {
+	return v.rdb.Incr(ctx, key).Result()
+}
+
+func (v *valkeyStormStore) ExpireNX(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return v.rdb.ExpireNX(ctx, key, ttl).Result()
 }
 
 // parseRedisAddr extracts the host:port from a Redis/Valkey URL.
