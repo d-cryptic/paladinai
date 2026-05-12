@@ -23,6 +23,13 @@ type Config struct {
 	// e.g. "http://paladin-hub:8082". When empty, the /api/v1/mcp routes are
 	// registered but return 502 immediately (safe for local dev without hub running).
 	HubURL string
+	// IngestURL is the base URL of paladin-ingest. Routes /api/v1/ingest/*.
+	IngestURL string
+	// AuthURL is the base URL of paladin-auth. Routes /api/v1/tenants and /api/v1/tokens.
+	AuthURL string
+	// MemoryURL is the base URL of paladin-memory (HTTP side, if any).
+	// Currently paladin-memory only exposes gRPC; this is reserved for future HTTP API.
+	MemoryURL string
 	// AllowedOrigins is the list of CORS origins for the dashboard SPA.
 	// Defaults to localhost dev ports; override via CORS_ALLOWED_ORIGINS (comma-separated).
 	AllowedOrigins []string
@@ -55,6 +62,9 @@ func Load() (Config, error) {
 		RateLimitRPS:   60,
 		JWTSecret:      os.Getenv("JWT_SECRET"),
 		HubURL:         os.Getenv("HUB_URL"),
+		IngestURL:      os.Getenv("INGEST_URL"),
+		AuthURL:        os.Getenv("AUTH_URL"),
+		MemoryURL:      os.Getenv("MEMORY_URL"),
 		AllowedOrigins: origins,
 	}, nil
 }
