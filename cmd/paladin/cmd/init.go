@@ -15,7 +15,10 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-isatty"
 	"github.com/paladinai/paladinai/cmd/paladin/client"
+	"github.com/paladinai/paladinai/cmd/paladin/tui"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -79,7 +82,15 @@ var initCmd = &cobra.Command{
 	Short: "Interactive setup wizard — get PaladinAI running in minutes",
 	Long: `paladin init guides you through connecting PaladinAI to your infrastructure.
 
-Steps:
+Steps (TUI mode, --tui):
+  1. Environment detection — auto-detect Prometheus, Grafana, Datadog, PagerDuty, etc.
+  2. Authentication       — provide or generate an API token
+  3. Tier selection       — Pool / Bridge / Silo deployment tier
+  4. Integrations         — enable detected and manual integrations
+  5. Deploy               — apply configuration
+  6. Verify               — inline health check
+
+Steps (default / non-TTY mode):
   1. API endpoint    — point the CLI at your PaladinAI instance
   2. Authentication  — provide or generate an API token
   3. Tenant          — select or create your tenant
@@ -90,22 +101,69 @@ After init, run 'paladin doctor' to verify all integrations are healthy.`,
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {
-	r := bufio.NewReader(os.Stdin)
-
-	fmt.Println("Welcome to PaladinAI — interactive setup wizard")
-	fmt.Println(strings.Repeat("-", 50))
-
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// ── Step 1: API endpoint ─────────────────────────────────────────────────
-	fmt.Println("\n[1/4] API Endpoint")
+	useTUI, _ := cmd.Flags().GetBool("tui")
+	// Auto-enable TUI when stdout is an interactive terminal.
+	if !useTUI && isatty.IsTerminal(os.Stdout.Fd()) {
+		useTUI = true
+	}
+
 	defaultAPI := cfg.APIEndpoint
 	if defaultAPI == "" {
 		defaultAPI = "http://localhost:8080"
 	}
+	defaultAuth := cfg.AuthEndpoint
+	if defaultAuth == "" {
+		defaultAuth = "http://localhost:9003"
+	}
+	defaultTenant := cfg.DefaultTenant
+	if t := os.Getenv("PALADIN_TENANT"); t != "" {
+		defaultTenant = t
+	}
+	tokenFromEnv := os.Getenv("PALADIN_TOKEN") != ""
+	existingToken := ""
+	if !tokenFromEnv {
+		existingToken = cfg.Token
+	}
+
+	if useTUI {
+		return runInitTUI(cmd, cfg, defaultAPI, defaultAuth, defaultTenant, existingToken, tokenFromEnv)
+	}
+	return runInitPrompt(cmd, cfg, defaultAPI, defaultAuth, defaultTenant, existingToken, tokenFromEnv)
+}
+
+// runInitTUI launches the Bubble Tea 6-step wizard.
+func runInitTUI(cmd *cobra.Command, cfg *PaladinConfig, defaultAPI, defaultAuth, defaultTenant, existingToken string, tokenFromEnv bool) error {
+	wizard := tui.NewWizardModel(defaultAPI, defaultAuth, defaultTenant, existingToken)
+	prog := tea.NewProgram(wizard, tea.WithAltScreen())
+	finalModel, err := prog.Run()
+	if err != nil {
+		return fmt.Errorf("wizard: %w", err)
+	}
+	wm, ok := finalModel.(tui.WizardModel)
+	if !ok {
+		return fmt.Errorf("unexpected model type from wizard")
+	}
+	if wm.Aborted() {
+		return fmt.Errorf("setup aborted")
+	}
+	res := wm.Result()
+	return applyAndSave(cmd, cfg, res.APIEndpoint, res.AuthEndpoint, res.Tenant, res.Token, tokenFromEnv)
+}
+
+// runInitPrompt runs the classic line-prompt fallback (non-TTY / piped).
+func runInitPrompt(cmd *cobra.Command, cfg *PaladinConfig, defaultAPI, defaultAuth, defaultTenant, existingToken string, tokenFromEnv bool) error {
+	r := bufio.NewReader(os.Stdin)
+
+	fmt.Println("Welcome to PaladinAI — interactive setup wizard")
+	fmt.Println(strings.Repeat("-", 50))
+
+	// ── Step 1: API endpoint ─────────────────────────────────────────────────
+	fmt.Println("\n[1/4] API Endpoint")
 	fmt.Printf("  PaladinAI API URL [%s]: ", defaultAPI)
 	apiEndpoint, err := readLine(r)
 	if err != nil {
@@ -119,10 +177,6 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 	apiEndpoint = strings.TrimRight(apiEndpoint, "/")
 
-	defaultAuth := cfg.AuthEndpoint
-	if defaultAuth == "" {
-		defaultAuth = "http://localhost:9003"
-	}
 	fmt.Printf("  PaladinAI Auth URL [%s]: ", defaultAuth)
 	authEndpoint, err := readLine(r)
 	if err != nil {
@@ -138,12 +192,6 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	fmt.Println("  NOTE: For production, set PALADIN_TOKEN env var — tokens stored")
 	fmt.Println("        in ~/.paladin/config.yaml are plaintext. Use with care.")
 
-	tokenFromEnv := os.Getenv("PALADIN_TOKEN") != ""
-	existingToken := ""
-	if !tokenFromEnv {
-		existingToken = cfg.Token // only use disk token if env is absent
-	}
-
 	if tokenFromEnv {
 		fmt.Println("  Using token from PALADIN_TOKEN env var (will NOT be written to disk).")
 	} else if existingToken != "" {
@@ -158,10 +206,6 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	// ── Step 3: Tenant ────────────────────────────────────────────────────────
 	fmt.Println("\n[3/4] Tenant")
-	defaultTenant := cfg.DefaultTenant
-	if t := os.Getenv("PALADIN_TENANT"); t != "" {
-		defaultTenant = t
-	}
 	fmt.Printf("  Default tenant ID [%s]: ", defaultTenant)
 	tenant, err := readLine(r)
 	if err != nil {
@@ -171,14 +215,17 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		tenant = defaultTenant
 	}
 
-	// resolve token for connectivity check: env takes precedence
-	activeToken := existingToken
+	return applyAndSave(cmd, cfg, apiEndpoint, authEndpoint, tenant, existingToken, tokenFromEnv)
+}
+
+// applyAndSave verifies connectivity, then writes config to disk.
+func applyAndSave(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, authEndpoint, tenant, token string, tokenFromEnv bool) error {
+	activeToken := token
 	if t := os.Getenv("PALADIN_TOKEN"); t != "" {
 		activeToken = t
 	}
 
-	// ── Step 4: Verify connectivity ───────────────────────────────────────────
-	fmt.Println("\n[4/4] Verifying connectivity...")
+	fmt.Println("\nVerifying connectivity...")
 	if _, err := client.Get(cmd.Context(), apiEndpoint+"/healthz", client.Options{
 		TenantID: tenant,
 		Token:    activeToken,
@@ -189,12 +236,11 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		fmt.Printf("  ok Connected to %s\n", apiEndpoint)
 	}
 
-	// ── Save config — never write env-sourced token to disk ───────────────────
 	cfg.APIEndpoint = apiEndpoint
 	cfg.AuthEndpoint = authEndpoint
 	cfg.DefaultTenant = tenant
 	if !tokenFromEnv {
-		cfg.Token = existingToken // blank clears it; omitempty omits from file
+		cfg.Token = token
 	}
 	if cfg.OutputFormat == "" {
 		cfg.OutputFormat = "table"
@@ -496,6 +542,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(doctorCmd)
+	initCmd.Flags().Bool("tui", false, "Force Bubble Tea interactive wizard (auto-detected when stdout is a TTY)")
 	doctorCmd.Flags().Bool("json", false, "Emit machine-readable JSON output (for CI)")
 	doctorCmd.Flags().Bool("quiet", false, "Suppress output; communicate status via exit code only")
 }
