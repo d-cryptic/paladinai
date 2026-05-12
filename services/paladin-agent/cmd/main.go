@@ -106,10 +106,19 @@ func main() {
 		log.Fatal("llm client init failed", zap.Error(err))
 	}
 
+	// ── Tier A model (classifier — fast, cheap) ──────────────────────────────
+	tierAModel, err := llmClient.Model(llm.TierA)
+	if err != nil {
+		log.Fatal("llm tier A not found", zap.Error(err))
+	}
+
 	tierBModel, err := llmClient.Model(llm.TierB)
 	if err != nil {
 		log.Fatal("llm tier B not found", zap.Error(err))
 	}
+
+	// ── Classifier (Stage 3 §3: always Tier A — fast routing decision) ───────
+	classifierAgent := agent.NewClassifierAgent(tierAModel, log)
 
 	// ── Triage agent ─────────────────────────────────────────────────────────
 	triageAgent, err := agent.NewTriageAgent(ctx, tierBModel, log)
@@ -126,6 +135,11 @@ func main() {
 	if err != nil {
 		log.Fatal("rca agent init failed", zap.Error(err))
 	}
+
+	// ── Stage 3 SupervisorPipeline (classify → route → specialist) ───────────
+	// This is the production path. The worker dispatches through the supervisor
+	// instead of calling triager/rca directly, giving us the classifier gate.
+	supervisor := agent.NewSupervisorPipeline(classifierAgent, triageAgent, rcaAgent, log)
 
 	// ── NATS ─────────────────────────────────────────────────────────────────
 	natsClient, err := internalnats.Connect(cfg.NatsURL, log)
@@ -172,7 +186,8 @@ func main() {
 	pub := natsPublisherAdapter{client: natsClient}
 	w := worker.New(triageAgent, pub, cfg.TriageTimeout, cfg.AgentWorkers, log).
 		WithRCA(rcaAgent).
-		WithRCATimeout(cfg.RCATimeout)
+		WithRCATimeout(cfg.RCATimeout).
+		WithSupervisor(supervisor)
 
 	log.Info("paladin-agent starting",
 		zap.String("consumer", cfg.NATSConsumerName),

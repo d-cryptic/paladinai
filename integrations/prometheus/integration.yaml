@@ -1,0 +1,28 @@
+name: prometheus
+version: "1.0.0"
+description: "Prometheus — query metrics and evaluate recording/alerting rules"
+
+receiver:
+  type: none
+
+config_schema:
+  url:
+    type: string
+    required: true
+    description: "Prometheus base URL (e.g. http://prometheus:9090)"
+  scrape_interval:
+    type: string
+    default: "15s"
+    description: "Default scrape interval for range queries"
+
+auth:
+  type: none
+
+tools:
+  - query_instant
+  - query_range
+  - list_alerts
+  - list_alerting_rules
+  - list_recording_rules
+  - get_targets
+  - get_tsdb_status

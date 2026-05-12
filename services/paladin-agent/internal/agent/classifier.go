@@ -44,13 +44,14 @@ var validIntents = map[string]bool{
 
 // ClassifierAgent classifies an alert and determines routing.
 type ClassifierAgent struct {
-	m   model.ChatModel
+	m   model.BaseChatModel
 	log *zap.Logger
 }
 
 // NewClassifierAgent creates a ClassifierAgent.
-// Uses ChatModel (not ToolCallingChatModel) — the classifier only needs Generate.
-func NewClassifierAgent(m model.ChatModel, log *zap.Logger) *ClassifierAgent {
+// Accepts BaseChatModel — the classifier only calls Generate, no tool binding needed.
+// Both model.ChatModel and model.ToolCallingChatModel satisfy this interface.
+func NewClassifierAgent(m model.BaseChatModel, log *zap.Logger) *ClassifierAgent {
 	if log == nil {
 		log = zap.NewNop()
 	}
