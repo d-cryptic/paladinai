@@ -45,6 +45,8 @@ const (
 	SourceDatadog      Source = "datadog"
 	SourcePagerDuty    Source = "pagerduty"
 	SourceCloudWatch   Source = "cloudwatch"
+	SourceSlack        Source = "slack"
+	SourceGitHub       Source = "github"
 	SourceOTLP         Source = "otlp"
 	SourceCustom       Source = "custom"
 )
