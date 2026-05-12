@@ -82,7 +82,7 @@ func main() {
 	// ── Health endpoint ───────────────────────────────────────────────────────
 	commsPort := os.Getenv("PALADIN_COMMS_PORT")
 	if commsPort == "" {
-		commsPort = "9005"
+		commsPort = "9007" // 9005 is used by paladin-orchestrator
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

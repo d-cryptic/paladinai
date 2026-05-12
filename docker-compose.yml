@@ -542,6 +542,8 @@ services:
       VALKEY_URL: redis://valkey:6379
       QDRANT_URL: http://qdrant:6333
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-5-haiku-20241022}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PALADIN_AGENT_PORT: "9006"
     depends_on:
@@ -565,7 +567,7 @@ services:
     image: ghcr.io/paladinai/comms:dev
     container_name: paladin-comms
     ports:
-      - "9005:9005"
+      - "9007:9007"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-development}
@@ -575,7 +577,7 @@ services:
       COMMS_MIN_SEVERITY: ${COMMS_MIN_SEVERITY:-P2}
       COMMS_WORKERS: ${COMMS_WORKERS:-4}
       COMMS_CONSUMER_NAME: paladin-comms
-      PALADIN_COMMS_PORT: "9005"
+      PALADIN_COMMS_PORT: "9007"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
       nats:
@@ -585,7 +587,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9005/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9007/healthz"]
       interval: 15s
       timeout: 5s
       retries: 3
