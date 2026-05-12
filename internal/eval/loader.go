@@ -90,8 +90,8 @@ func validateCase(tc TestCase) error {
 	if !tc.Category.Valid() {
 		return fmt.Errorf("invalid category %q", tc.Category)
 	}
-	// Summary and tool_use cases may use context instead of alert.title.
-	if tc.Category != CategorySummary && tc.Category != CategoryToolUse {
+	// Summary, tool_use, and adversarial cases may have empty or unusual titles.
+	if tc.Category != CategorySummary && tc.Category != CategoryToolUse && tc.Category != CategoryAdversarial {
 		if strings.TrimSpace(tc.Alert.Title) == "" {
 			return fmt.Errorf("missing alert.title")
 		}
