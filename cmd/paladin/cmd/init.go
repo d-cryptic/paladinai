@@ -483,6 +483,11 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 
 	if !allPassed {
+		if quietMode {
+			// Suppress cobra's "Error:" and usage printing — exit code is the signal.
+			cmd.SilenceUsage = true
+			cmd.Root().SilenceErrors = true
+		}
 		return fmt.Errorf("doctor: one or more checks failed")
 	}
 	return nil

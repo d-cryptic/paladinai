@@ -6,16 +6,20 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
 	agentcfg "github.com/paladinai/paladinai/services/paladin-agent/config"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
+	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/llm"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/worker"
 	"go.uber.org/zap"
@@ -104,7 +108,40 @@ func main() {
 	}
 	defer natsClient.Close()
 
+	// ── Incident store + HTTP API ─────────────────────────────────────────────
+	incStore := incident.NewStore()
+	incHandler := incident.NewHandler(incStore, log)
+
+	r := chi.NewRouter()
+	r.Use(chimiddleware.RequestID)
+	r.Use(chimiddleware.Recoverer)
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Route("/api/v1", func(r chi.Router) {
+		incHandler.Routes(r)
+	})
+
+	agentPort := os.Getenv("PALADIN_AGENT_PORT")
+	if agentPort == "" {
+		agentPort = "9004"
+	}
+	httpSrv := &http.Server{
+		Addr:         ":" + agentPort,
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	go func() {
+		log.Info("paladin-agent HTTP listening", zap.String("port", agentPort))
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("HTTP server error", zap.Error(err))
+		}
+	}()
+
 	// ── Worker ───────────────────────────────────────────────────────────────
+	_ = incStore // incident store available for future worker integration
+
 	pub := natsPublisherAdapter{client: natsClient}
 	w := worker.New(triageAgent, pub, cfg.TriageTimeout, cfg.AgentWorkers, log).
 		WithRCA(rcaAgent).
@@ -120,6 +157,12 @@ func main() {
 			log.Error("worker exited with error", zap.Error(err))
 			os.Exit(1)
 		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error("HTTP shutdown error", zap.Error(err))
 	}
 
 	log.Info("paladin-agent stopped")
