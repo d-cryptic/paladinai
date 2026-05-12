@@ -89,6 +89,9 @@ func ComputeTTL(req TTLRequest) time.Duration {
 
 // ─── Prompt cache breakpoint helpers ─────────────────────────────────────────
 
+// CacheTypeEphemeral is the only Anthropic prompt cache type in the public API.
+const CacheTypeEphemeral = "ephemeral"
+
 // CacheControl is the Anthropic cache_control ephemeral marker.
 // Injected at system prompt end and tool catalog end.
 type CacheControl struct {
@@ -134,4 +137,54 @@ func AppendToolCacheControl(tools []ToolEntry) []ToolEntry {
 	copy(out, tools)
 	out[len(out)-1].CacheControl = EphemeralCacheControl
 	return out
+}
+
+// ─── Chat message cache injection ─────────────────────────────────────────────
+
+// ChatMessage is one turn in an Anthropic chat completion request.
+// Content uses []ContentBlock so cache_control can be attached per block.
+type ChatMessage struct {
+	Role    string         `json:"role"` // "user" | "assistant"
+	Content []ContentBlock `json:"content"`
+}
+
+// InjectMessageCacheBreakpoints marks the last user message in msgs for
+// ephemeral caching. It deep-copies so the caller's slice is not mutated.
+// The returned slice should be used in the Anthropic messages field alongside
+// BuildSystemBlocks for the system field.
+func InjectMessageCacheBreakpoints(msgs []ChatMessage) []ChatMessage {
+	out := make([]ChatMessage, len(msgs))
+	for i, m := range msgs {
+		blocks := make([]ContentBlock, len(m.Content))
+		copy(blocks, m.Content)
+		out[i] = ChatMessage{Role: m.Role, Content: blocks}
+	}
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i].Role == "user" && len(out[i].Content) > 0 {
+			last := len(out[i].Content) - 1
+			out[i].Content[last].CacheControl = EphemeralCacheControl
+			break
+		}
+	}
+	return out
+}
+
+// PlainChatMessages converts (role, text) pairs to []ChatMessage. Convenience
+// helper for callers that build prompts from strings.
+func PlainChatMessages(pairs [][2]string) []ChatMessage {
+	msgs := make([]ChatMessage, 0, len(pairs))
+	for _, p := range pairs {
+		msgs = append(msgs, ChatMessage{
+			Role:    p[0],
+			Content: []ContentBlock{{Type: "text", Text: p[1]}},
+		})
+	}
+	return msgs
+}
+
+// TokenSavingsEstimate returns the estimated tokens saved by a prompt cache
+// hit on the prefix up to the injected breakpoint. Uses 80% as the heuristic
+// fraction of a typical prompt that is cacheable prefix.
+func TokenSavingsEstimate(tokenCount int) int {
+	return int(float64(tokenCount) * 0.8)
 }
