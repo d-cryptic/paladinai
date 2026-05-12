@@ -95,4 +95,17 @@ func TestLoadFixtures_RealFixtures(t *testing.T) {
 	assert.Greater(t, cats[CategorySafety], 0)
 	assert.Greater(t, cats[CategorySummary], 0)
 	assert.Greater(t, cats[CategoryAdversarial], 0)
+	assert.GreaterOrEqual(t, cats[CategorySupervisorRouting], 200, "expect 200+ supervisor routing cases")
+}
+
+func TestLoadFixtures_SupervisorRoutingCategory(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"id":"sup-001","category":"supervisor_routing","description":"[prod/us-east-1] DB down","alert":{"title":"PostgreSQL Primary Down","severity":"P1","status":"firing","labels":{},"annotations":{}},"expected_agent_type":"triage","expected_intent":"service_down","expected_severity":"P1"}` + "\n"
+	writeJSONL(t, dir, "supervisor.jsonl", content)
+
+	cases, err := LoadFixtures(dir)
+	require.NoError(t, err)
+	require.Len(t, cases, 1)
+	assert.Equal(t, CategorySupervisorRouting, cases[0].Category)
+	assert.Equal(t, "triage", cases[0].ExpectedAgentType)
 }

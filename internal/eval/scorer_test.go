@@ -94,6 +94,28 @@ func TestToolF1Score(t *testing.T) {
 	}
 }
 
+func TestAgentTypeScore(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		expected string
+		got      string
+		wantPass bool
+	}{
+		{"exact match", "triage", "triage", true},
+		{"case insensitive", "RCA", "rca", true},
+		{"whitespace", " runbook ", "runbook", true},
+		{"mismatch", "triage", "rca", false},
+		{"empty expected", "", "triage", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := AgentTypeScore(tc.expected, tc.got)
+			assert.Equal(t, tc.wantPass, s.Pass)
+		})
+	}
+}
+
 func TestAggregateResults(t *testing.T) {
 	t.Parallel()
 	t.Run("empty", func(t *testing.T) {
