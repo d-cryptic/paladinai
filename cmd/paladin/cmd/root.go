@@ -32,6 +32,8 @@ func init() {
 	rootCmd.PersistentFlags().String("tenant", os.Getenv("PALADIN_TENANT"), "Tenant ID")
 	rootCmd.PersistentFlags().String("token", os.Getenv("PALADIN_TOKEN"), "Bearer token for authentication")
 	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
+	// --ci disables TUI and forces JSON output; useful in GitHub Actions / ArgoCD.
+	rootCmd.PersistentFlags().Bool("ci", envStr("PALADIN_CI", "") != "", "CI mode: disable TUI, emit JSON, exit-code-only")
 
 	rootCmd.AddCommand(alertCmd)
 	rootCmd.AddCommand(mcpCmd)
@@ -78,4 +80,18 @@ func apiURL(cmd *cobra.Command) string {
 		return "http://localhost:8080"
 	}
 	return f.Value.String()
+}
+
+// isCIMode reports whether --ci was set or PALADIN_CI env var is non-empty.
+func isCIMode(cmd *cobra.Command) bool {
+	if f := cmd.Flag("ci"); f != nil && f.Value.String() == "true" {
+		return true
+	}
+	return os.Getenv("PALADIN_CI") != ""
+}
+
+// telemetryEnabled reports whether anonymous telemetry should be collected.
+// Opt-out via PALADIN_NO_TELEMETRY=1 or config telemetry=false.
+func telemetryEnabled() bool {
+	return os.Getenv("PALADIN_NO_TELEMETRY") == ""
 }

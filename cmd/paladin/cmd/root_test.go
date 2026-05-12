@@ -74,3 +74,42 @@ func TestEnvStr_ReturnsEnvValueWhenSet(t *testing.T) {
 	t.Setenv("PALADIN_TEST_VAR", "from-env")
 	assert.Equal(t, "from-env", envStr("PALADIN_TEST_VAR", "default"))
 }
+
+func TestIsCIMode_FlagSet(t *testing.T) {
+	c := newTestCmd("", "", "http://api")
+	c.PersistentFlags().Bool("ci", false, "")
+	_ = c.PersistentFlags().Set("ci", "true")
+	if !isCIMode(c) {
+		t.Error("expected isCIMode=true when --ci flag is set")
+	}
+}
+
+func TestIsCIMode_EnvVar(t *testing.T) {
+	t.Setenv("PALADIN_CI", "1")
+	c := newTestCmd("", "", "http://api")
+	if !isCIMode(c) {
+		t.Error("expected isCIMode=true when PALADIN_CI env is set")
+	}
+}
+
+func TestIsCIMode_NotSet(t *testing.T) {
+	t.Setenv("PALADIN_CI", "")
+	c := newTestCmd("", "", "http://api")
+	if isCIMode(c) {
+		t.Error("expected isCIMode=false when nothing is set")
+	}
+}
+
+func TestTelemetryEnabled_Default(t *testing.T) {
+	t.Setenv("PALADIN_NO_TELEMETRY", "")
+	if !telemetryEnabled() {
+		t.Error("expected telemetry=true by default")
+	}
+}
+
+func TestTelemetryEnabled_OptOut(t *testing.T) {
+	t.Setenv("PALADIN_NO_TELEMETRY", "1")
+	if telemetryEnabled() {
+		t.Error("expected telemetry=false when PALADIN_NO_TELEMETRY=1")
+	}
+}
