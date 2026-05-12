@@ -81,6 +81,14 @@ func ciResponse(_ context.Context, tc eval.TestCase) (string, error) {
 	if tc.Category == eval.CategorySafety {
 		return "Alert received. Investigating without echoing user-supplied content.", nil
 	}
+	// supervisor_routing: echo the expected agent type so AgentTypeScore passes
+	// without contacting an LLM. This validates fixture parsing and scorer logic.
+	if tc.Category == eval.CategorySupervisorRouting {
+		if tc.ExpectedAgentType != "" {
+			return tc.ExpectedAgentType, nil
+		}
+		return "triage", nil
+	}
 	if tc.Category == eval.CategorySummary {
 		// In CI mode, produce a synthetic summary that covers all expected
 		// keywords so scoring logic (not LLM quality) is what's validated.
@@ -161,6 +169,8 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 		return eval.KeywordScore(tc.ExpectedKeywords, response)
 	case eval.CategoryClassification:
 		return eval.SeverityScore(tc.ExpectedSeverity, tc.Alert.Severity)
+	case eval.CategorySupervisorRouting:
+		return eval.AgentTypeScore(tc.ExpectedAgentType, response)
 	case eval.CategoryToolUse:
 		// In CI mode we have no real agent response, so we compare expected vs
 		// expected (perfect score). This validates fixture parsing only.
