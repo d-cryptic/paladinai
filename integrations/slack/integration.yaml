@@ -1,0 +1,60 @@
+name: slack
+version: "1.0.0"
+description: "Slack — send incident alerts and thread updates to Slack channels"
+
+receiver:
+  type: webhook
+  path: /v1/ingest/slack
+  hmac_header: X-Slack-Signature
+
+config_schema:
+  default_channel:
+    type: string
+    required: true
+    description: "Default Slack channel ID for incident notifications (e.g. C0123ABCDEF)"
+  workspace_name:
+    type: string
+    required: false
+    description: "Human-readable Slack workspace name for display purposes"
+  thread_on_update:
+    type: boolean
+    required: false
+    default: true
+    description: "Reply in thread for incident updates rather than posting new messages"
+
+auth:
+  type: oauth
+  fields:
+    - name: bot_token
+      secret: true
+      description: "Slack Bot User OAuth Token (starts with xoxb-)"
+    - name: signing_secret
+      secret: true
+      description: "Slack app signing secret for webhook HMAC verification"
+
+tools:
+  - send_message
+  - post_thread
+  - list_channels
+  - get_channel_history
+  - lookup_user_by_email
+
+deployment:
+  scale_policy: "always_on"
+  min_replicas: 1
+  max_replicas: 3
+  rate_limit_per_tenant_per_minute: 60
+
+upstream_costs:
+  send_message: 0.0
+  post_thread: 0.0
+  list_channels: 0.0
+  get_channel_history: 0.0
+  lookup_user_by_email: 0.0
+
+detection:
+  probes:
+    - type: kubernetes_secret
+      label_selector: "paladin.io/slack-integration=true"
+
+docs_url: "https://api.slack.com/methods"

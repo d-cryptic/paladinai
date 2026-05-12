@@ -1,0 +1,62 @@
+name: github
+version: "1.0.0"
+description: "GitHub — correlate deployments with incidents and create issue reports"
+
+receiver:
+  type: webhook
+  path: /v1/ingest/github
+  hmac_header: X-Hub-Signature-256
+
+config_schema:
+  org:
+    type: string
+    required: false
+    description: "GitHub organization or user name (for scoping repository listing)"
+  default_repo:
+    type: string
+    required: false
+    description: "Default repository slug (org/repo) for issue creation"
+  deployment_tracking:
+    type: boolean
+    required: false
+    default: true
+    description: "Auto-ingest deployment events as topology data for blast-radius analysis"
+
+auth:
+  type: oauth
+  fields:
+    - name: github_token
+      secret: true
+      description: "GitHub Personal Access Token or GitHub App token (repo, issues, read:org scopes)"
+    - name: webhook_secret
+      secret: true
+      description: "GitHub webhook secret for HMAC-SHA256 X-Hub-Signature-256 verification"
+
+tools:
+  - create_issue
+  - get_issue
+  - list_prs
+  - list_recent_deployments
+  - get_workflow_run_status
+  - create_deployment_marker
+
+deployment:
+  scale_policy: "scale_to_zero"
+  min_replicas: 0
+  max_replicas: 2
+  rate_limit_per_tenant_per_minute: 30
+
+upstream_costs:
+  create_issue: 0.0
+  get_issue: 0.0
+  list_prs: 0.0
+  list_recent_deployments: 0.0
+  get_workflow_run_status: 0.0
+  create_deployment_marker: 0.0
+
+detection:
+  probes:
+    - type: kubernetes_secret
+      label_selector: "paladin.io/github-integration=true"
+
+docs_url: "https://docs.github.com/en/rest"

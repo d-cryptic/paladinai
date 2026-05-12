@@ -45,6 +45,8 @@ func (h *WebhookHandler) Routes() chi.Router {
 	r.Post("/datadog/{tenantID}", h.datadog)
 	r.Post("/pagerduty/{tenantID}", h.pagerduty)
 	r.Post("/cloudwatch/{tenantID}", h.cloudwatch)
+	r.Post("/slack/{tenantID}", h.slack)
+	r.Post("/github/{tenantID}", h.github)
 	return r
 }
 
@@ -69,6 +71,21 @@ func (h *WebhookHandler) pagerduty(w http.ResponseWriter, r *http.Request) {
 // cloudwatch handles POST /webhook/cloudwatch/{tenantID}
 func (h *WebhookHandler) cloudwatch(w http.ResponseWriter, r *http.Request) {
 	h.handleWebhook(w, r, "cloudwatch", normalizer.NormalizeCloudWatch)
+}
+
+// slack handles POST /webhook/slack/{tenantID}
+func (h *WebhookHandler) slack(w http.ResponseWriter, r *http.Request) {
+	h.handleWebhook(w, r, "slack", normalizer.NormalizeSlack)
+}
+
+// github handles POST /webhook/github/{tenantID}
+// The X-GitHub-Event header is forwarded to the normalizer for event dispatch.
+func (h *WebhookHandler) github(w http.ResponseWriter, r *http.Request) {
+	eventType := r.Header.Get("X-GitHub-Event")
+	norm := func(tenantID string, raw json.RawMessage, log *zap.Logger) ([]alert.AlertEnvelope, error) {
+		return normalizer.NormalizeGitHub(tenantID, eventType, raw, log)
+	}
+	h.handleWebhook(w, r, "github", norm)
 }
 
 // handleWebhook is the shared body for every integration handler.
