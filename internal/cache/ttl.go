@@ -141,10 +141,16 @@ func AppendToolCacheControl(tools []ToolEntry) []ToolEntry {
 
 // ─── Chat message cache injection ─────────────────────────────────────────────
 
+// Anthropic role constants for chat messages.
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+)
+
 // ChatMessage is one turn in an Anthropic chat completion request.
 // Content uses []ContentBlock so cache_control can be attached per block.
 type ChatMessage struct {
-	Role    string         `json:"role"` // "user" | "assistant"
+	Role    string         `json:"role"` // RoleUser | RoleAssistant
 	Content []ContentBlock `json:"content"`
 }
 
@@ -160,7 +166,7 @@ func InjectMessageCacheBreakpoints(msgs []ChatMessage) []ChatMessage {
 		out[i] = ChatMessage{Role: m.Role, Content: blocks}
 	}
 	for i := len(out) - 1; i >= 0; i-- {
-		if out[i].Role == "user" && len(out[i].Content) > 0 {
+		if out[i].Role == RoleUser && len(out[i].Content) > 0 {
 			last := len(out[i].Content) - 1
 			out[i].Content[last].CacheControl = EphemeralCacheControl
 			break
@@ -184,7 +190,10 @@ func PlainChatMessages(pairs [][2]string) []ChatMessage {
 
 // TokenSavingsEstimate returns the estimated tokens saved by a prompt cache
 // hit on the prefix up to the injected breakpoint. Uses 80% as the heuristic
-// fraction of a typical prompt that is cacheable prefix.
+// fraction of a typical prompt that is cacheable prefix. Returns 0 for non-positive input.
 func TokenSavingsEstimate(tokenCount int) int {
+	if tokenCount <= 0 {
+		return 0
+	}
 	return int(float64(tokenCount) * 0.8)
 }
