@@ -90,8 +90,11 @@ func validateCase(tc TestCase) error {
 	if !tc.Category.Valid() {
 		return fmt.Errorf("invalid category %q", tc.Category)
 	}
-	if strings.TrimSpace(tc.Alert.Title) == "" {
-		return fmt.Errorf("missing alert.title")
+	// Summary and tool_use cases may use context instead of alert.title.
+	if tc.Category != CategorySummary && tc.Category != CategoryToolUse {
+		if strings.TrimSpace(tc.Alert.Title) == "" {
+			return fmt.Errorf("missing alert.title")
+		}
 	}
 	if !tc.HasExpectations() {
 		return fmt.Errorf("test case has no expected outputs")
