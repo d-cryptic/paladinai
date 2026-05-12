@@ -39,6 +39,15 @@ func (a natsPublisherAdapter) Publish(ctx context.Context, subject string, data 
 	return worker.PublishResult{Sequence: ack.Sequence}, nil
 }
 
+// natsReplayAdapter bridges internal/nats.Client to incident.ReplayPublisher,
+// discarding the PubAck since replay callers only need error semantics.
+type natsReplayAdapter struct{ client *internalnats.Client }
+
+func (a natsReplayAdapter) Publish(ctx context.Context, subject string, data []byte) error {
+	_, err := a.client.Publish(ctx, subject, data)
+	return err
+}
+
 func main() {
 	cfg, err := agentcfg.Load()
 	if err != nil {
@@ -110,7 +119,8 @@ func main() {
 
 	// ── Incident store + HTTP API ─────────────────────────────────────────────
 	incStore := incident.NewStore()
-	incHandler := incident.NewHandler(incStore, log)
+	incHandler := incident.NewHandler(incStore, log).
+		WithReplayPublisher(natsReplayAdapter{client: natsClient})
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
