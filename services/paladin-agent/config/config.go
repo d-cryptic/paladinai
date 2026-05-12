@@ -27,6 +27,15 @@ type Agent struct {
 
 	// NATSConsumerName is the durable consumer name for this agent instance.
 	NATSConsumerName string
+
+	// AnthropicAPIKey enables the native Anthropic API path (with prompt cache injection).
+	// When non-empty, the agent uses Anthropic's Messages API directly for triage
+	// instead of the OpenRouter/Eino path. Prompt cache breakpoints are injected
+	// automatically on every request (Stage 9).
+	AnthropicAPIKey string
+	// AnthropicModel is the Claude model ID to use when AnthropicAPIKey is set.
+	// Defaults to "claude-3-5-haiku-20241022".
+	AnthropicModel string
 }
 
 // Load reads Agent config from environment, applying sane defaults.
@@ -42,6 +51,7 @@ func Load() (*Agent, error) {
 	}
 
 	triageTimeout := 30 * time.Second
+	anthropicModel := envStr("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
 	return &Agent{
 		Base:             base,
 		LLM:              llm,
@@ -49,6 +59,8 @@ func Load() (*Agent, error) {
 		TriageTimeout:    triageTimeout,
 		RCATimeout:       2 * triageTimeout,
 		NATSConsumerName: envStr("AGENT_CONSUMER_NAME", "paladin-agent-runtime"),
+		AnthropicAPIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicModel:   anthropicModel,
 	}, nil
 }
 

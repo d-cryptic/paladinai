@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/paladinai/paladinai/internal/anthropic"
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
@@ -121,10 +122,30 @@ func main() {
 	classifierAgent := agent.NewClassifierAgent(tierAModel, log)
 
 	// ── Triage agent ─────────────────────────────────────────────────────────
-	triageAgent, err := agent.NewTriageAgent(ctx, tierBModel, log)
-	if err != nil {
-		log.Fatal("triage agent init failed", zap.Error(err))
+	// When ANTHROPIC_API_KEY is set, use the native Anthropic API with automatic
+	// prompt cache injection (Stage 9). Otherwise fall back to OpenRouter/Eino path.
+	var triager agent.Triager
+	if cfg.AnthropicAPIKey != "" {
+		ac, acErr := anthropic.New(anthropic.Config{
+			APIKey: cfg.AnthropicAPIKey,
+			Model:  cfg.AnthropicModel,
+		}, log)
+		if acErr != nil {
+			log.Fatal("anthropic client init failed", zap.Error(acErr))
+		}
+		triager = agent.NewAnthropicTriager(ac, log)
+		log.Info("triage: using Anthropic native API with prompt cache injection",
+			zap.String("model", cfg.AnthropicModel),
+		)
+	} else {
+		triageAgent, taErr := agent.NewTriageAgent(ctx, tierBModel, log)
+		if taErr != nil {
+			log.Fatal("triage agent init failed", zap.Error(taErr))
+		}
+		triager = triageAgent
+		log.Info("triage: using OpenRouter/Eino path")
 	}
+	triageAgent := triager
 
 	// ── RCA agent (Tier C for deeper reasoning) ───────────────────────────────
 	tierCModel, err := llmClient.Model(llm.TierC)
