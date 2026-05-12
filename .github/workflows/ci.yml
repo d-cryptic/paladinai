@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.23"
+  GO_VERSION: "1.24"
   GOFLAGS: "-mod=mod"
   GONOSUMDB: "*"
   GOINSECURE: "*"
@@ -62,6 +62,7 @@ jobs:
           go build ./services/paladin-memory/cmd/...
           go build ./services/paladin-orchestrator/cmd/...
           go build ./services/paladin-ws/cmd/...
+          go build -o /tmp/paladin-comms ./services/paladin-comms/cmd/main.go
 
   # ── unit tests ──────────────────────────────────────────────────────────────
   test:
