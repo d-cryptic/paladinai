@@ -10,7 +10,7 @@ GOPROXY     := file://$(HOME)/go/pkg/mod/cache/download,http://proxy.golang.org,
 
 export GOFLAGS GONOSUMDB GOINSECURE GOCACHE GOMODCACHE GOPROXY
 
-SERVICES := paladin-ingest paladin-edge paladin-agent paladin-hub paladin-memory paladin-auth paladin-ws paladin-orchestrator
+SERVICES := paladin-ingest paladin-edge paladin-agent paladin-hub paladin-memory paladin-auth paladin-ws paladin-orchestrator paladin-comms
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -56,6 +56,9 @@ build: ## Build all services
 
 build-ingest: ## Build paladin-ingest only
 	go build -o bin/paladin-ingest ./services/paladin-ingest/cmd/
+
+build-comms: ## Build paladin-comms only
+	go build -o bin/paladin-comms ./services/paladin-comms/cmd/main.go
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
