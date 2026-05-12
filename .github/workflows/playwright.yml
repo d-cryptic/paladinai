@@ -1,0 +1,118 @@
+name: Playwright API Tests
+
+on:
+  push:
+    branches: [v2, main]
+    paths:
+      - "test/playwright/**"
+      - "services/**"
+      - ".github/workflows/playwright.yml"
+  pull_request:
+    branches: [v2, main]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.23"
+  GOFLAGS: "-mod=mod"
+  GONOSUMDB: "*"
+  GOINSECURE: "*"
+
+jobs:
+  playwright:
+    name: Playwright API Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: paladin
+          POSTGRES_PASSWORD: paladin
+          POSTGRES_DB: paladin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U paladin"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+        options: --entrypoint nats-server -- -js
+
+      valkey:
+        image: valkey/valkey:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      JWT_SECRET: "playwright-test-jwt-secret-min-32-chars"
+      ADMIN_SECRET: "playwright-admin-secret"
+      DATABASE_URL: "postgres://paladin:paladin@localhost:5432/paladin?sslmode=disable"
+      NATS_URL: "nats://localhost:4222"
+      VALKEY_URL: "redis://localhost:6379"
+      LLM_GATEWAY_URL: "http://localhost:9099"
+      PALADIN_INGEST_PORT: "9001"
+      PALADIN_EDGE_PORT: "9002"
+      PALADIN_AUTH_PORT: "9003"
+      PALADIN_HUB_PORT: "8082"
+      PALADIN_EDGE_URL: "http://localhost:9002"
+      PALADIN_INGEST_URL: "http://localhost:9001"
+      PALADIN_AUTH_URL: "http://localhost:9003"
+      PALADIN_HUB_URL: "http://localhost:8082"
+      HUB_URL: "http://localhost:8082"
+      INGEST_URL: "http://localhost:9001"
+      AUTH_URL: "http://localhost:9003"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build all services
+        run: go build -o bin/paladin-ingest ./services/paladin-ingest/cmd && go build -o bin/paladin-edge ./services/paladin-edge/cmd && go build -o bin/paladin-auth ./services/paladin-auth/cmd && go build -o bin/paladin-hub ./services/paladin-hub/cmd
+
+      - name: Start paladin services
+        run: |
+          ./bin/paladin-ingest &
+          ./bin/paladin-auth &
+          ./bin/paladin-hub &
+          sleep 2
+          ./bin/paladin-edge &
+          sleep 2
+
+      - name: Wait for services to be ready
+        run: |
+          for url in http://localhost:9001/healthz http://localhost:9003/healthz http://localhost:8082/healthz http://localhost:9002/healthz; do
+            for i in $(seq 1 15); do
+              curl -sf $url && break
+              echo "Waiting for $url..."
+              sleep 2
+            done
+          done
+
+      - name: Install Playwright
+        run: cd test/playwright && bun install && bun playwright install --with-deps chromium
+
+      - name: Run Playwright API tests
+        run: cd test/playwright && bun playwright test --project=api --reporter=github
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: test/playwright/playwright-report/
+          retention-days: 14

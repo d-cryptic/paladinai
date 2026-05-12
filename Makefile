@@ -1,4 +1,4 @@
-.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test
+.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install
 
 # Build env flags (common to all go commands)
 GOFLAGS     := -mod=mod
@@ -118,3 +118,12 @@ e2e: ## Run E2E smoke tests (requires all services running via make up)
 
 integration-test: ## Run integration tests (requires NATS, Valkey, Postgres)
 	go test -tags integration -timeout 120s ./...
+
+playwright-install: ## Install Playwright and its browser dependencies
+	cd test/playwright && bun install && bun playwright install --with-deps chromium
+
+playwright: ## Run Playwright API tests (requires all services running via make up)
+	cd test/playwright && bun playwright test --project=api
+
+playwright-ci: ## Run Playwright in CI mode (headless, GitHub reporter)
+	cd test/playwright && bun playwright test --project=api --reporter=github
