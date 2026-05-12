@@ -14,5 +14,5 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
     addgroup -S paladin && adduser -S -G paladin paladin
 COPY --from=builder /bin/paladin-ws /paladin-ws
 USER paladin
-EXPOSE 9004
+EXPOSE 9007
 ENTRYPOINT ["/paladin-ws"]

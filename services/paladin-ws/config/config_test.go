@@ -70,5 +70,5 @@ func TestLoad_DefaultPort(t *testing.T) {
 
 	c, err := config.Load()
 	require.NoError(t, err)
-	assert.Equal(t, 9004, c.Server.Port)
+	assert.Equal(t, 9007, c.Server.Port)
 }

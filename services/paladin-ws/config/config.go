@@ -23,7 +23,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("base config: %w", err)
 	}
-	srv, err := base.LoadServer("PALADIN_WS_PORT", 9004)
+	srv, err := base.LoadServer("PALADIN_WS_PORT", 9007)
 	if err != nil {
 		return Config{}, fmt.Errorf("server config: %w", err)
 	}

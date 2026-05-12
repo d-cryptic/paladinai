@@ -474,7 +474,7 @@ services:
     image: ghcr.io/paladinai/ws:dev
     container_name: paladin-ws
     ports:
-      - "9004:9004"
+      - "9007:9007"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-development}
@@ -482,7 +482,7 @@ services:
       VALKEY_URL: redis://valkey:6379
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PALADIN_WS_PORT: "9004"
+      PALADIN_WS_PORT: "9007"
     depends_on:
       nats:
         condition: service_healthy
@@ -505,7 +505,7 @@ services:
     image: ghcr.io/paladinai/orchestrator:dev
     container_name: paladin-orchestrator
     ports:
-      - "9005:9005"
+      - "9008:9008"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-development}
@@ -513,7 +513,12 @@ services:
       NATS_URL: nats://nats:4222
       VALKEY_URL: redis://valkey:6379
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PALADIN_ORCHESTRATOR_PORT: "9005"
+      PALADIN_ORCHESTRATOR_PORT: "9008"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9008/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       postgres:
         condition: service_healthy
