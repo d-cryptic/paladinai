@@ -1,0 +1,15 @@
+{
+  "name": "paladinai-playwright",
+  "version": "1.0.0",
+  "description": "Playwright API and E2E tests for PaladinAI v2",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test --project=api",
+    "test:ui": "playwright test --project=ui",
+    "test:ci": "playwright test --project=api --reporter=github",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0"
+  }
+}
