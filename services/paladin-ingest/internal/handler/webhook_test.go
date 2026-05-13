@@ -246,12 +246,14 @@ func TestWebhookHandler_Alertmanager_DedupErrorIsNonFatal(t *testing.T) {
 	r.ServeHTTP(rr, req)
 
 	// Dedup error is non-fatal: alert is still published and 202 is returned.
+	// `failed` counts only publish failures, not dedup check errors, so it should be 0.
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 	require.Len(t, pub.published, 1, "alert should be published even when dedup check errors")
 
 	var body map[string]interface{}
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
-	assert.Equal(t, float64(1), body["failed"], "failed count should reflect dedup error")
+	assert.Equal(t, float64(1), body["published"], "alert should be counted as published despite dedup error")
+	assert.Equal(t, float64(0), body["failed"], "dedup error should not count as a publish failure")
 }
 
 func TestWebhookHandler_Alertmanager_PublishFailureCountedAsFailed(t *testing.T) {

@@ -136,42 +136,37 @@ func (h *WebhookHandler) handleWebhook(
 		return
 	}
 
-	isStorm := false
-	var stormCount int64
-	if h.storm != nil {
-		var stormErr error
-		isStorm, stormCount, stormErr = h.storm.Record(r.Context(), tenantID)
-		if stormErr != nil {
-			h.log.Warn("storm detector error", zap.String("tenant", tenantID), zap.Error(stormErr))
-		} else if isStorm {
-			h.log.Warn("alert storm in progress",
-				zap.String("tenant", tenantID),
-				zap.Int64("count", stormCount),
-			)
-		}
-	}
-
 	published, suppressed, failed := 0, 0, 0
 	for i := range envelopes {
 		env := envelopes[i]
 
-		if isStorm {
-			if env.Labels == nil {
-				env.Labels = make(map[string]string)
+		// Record each alert individually so burst counts reflect actual alert volume,
+		// not HTTP request count (a single batch would otherwise count as 1).
+		if h.storm != nil {
+			isStorm, stormCount, stormErr := h.storm.Record(r.Context(), tenantID)
+			if stormErr != nil {
+				h.log.Warn("storm detector error", zap.String("tenant", tenantID), zap.Error(stormErr))
+			} else if isStorm {
+				h.log.Warn("alert storm in progress",
+					zap.String("tenant", tenantID),
+					zap.Int64("count", stormCount),
+				)
+				if env.Labels == nil {
+					env.Labels = make(map[string]string)
+				}
+				env.Labels["storm"] = "true"
 			}
-			env.Labels["storm"] = "true"
 		}
 
 		isDup, dupErr := h.dedup.IsDuplicate(r.Context(), &env)
 		if dupErr != nil {
-			// Fail-open: publish the alert even when dedup check is unavailable
+			// Fail-open: publish the alert even when dedup is unavailable
 			// so alerts are not silently dropped during Valkey degradation.
-			// Increment failed for observability (dedup partial failure), but still publish.
 			h.log.Error("dedup check failed, publishing anyway",
 				zap.String("fingerprint", env.Fingerprint),
 				zap.Error(dupErr),
 			)
-			failed++
+			// Do not increment failed here — the alert will still be published.
 		} else if isDup {
 			h.log.Debug("suppressed duplicate",
 				zap.String("fingerprint", env.Fingerprint),
@@ -182,7 +177,12 @@ func (h *WebhookHandler) handleWebhook(
 		}
 
 		if env.Status == alert.StatusResolved {
-			_ = h.dedup.Reset(r.Context(), env.TenantID, env.Fingerprint)
+			if resetErr := h.dedup.Reset(r.Context(), env.TenantID, env.Fingerprint); resetErr != nil {
+				h.log.Warn("dedup reset failed for resolved alert",
+					zap.String("fingerprint", env.Fingerprint),
+					zap.Error(resetErr),
+				)
+			}
 		}
 
 		if pubErr := h.pub.PublishAlert(r.Context(), env); pubErr != nil {

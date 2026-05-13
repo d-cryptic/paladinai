@@ -262,11 +262,10 @@ func MahalanobisDistance(x, mean []float64, covInv [][]float64, threshold float6
 	if len(covInv) != d {
 		return MahalanobisResult{}, errors.New("anomaly.MahalanobisDistance: covInv row count must equal len(x)")
 	}
-	for i, row := range covInv {
+	for _, row := range covInv {
 		if len(row) != d {
 			return MahalanobisResult{}, errors.New("anomaly.MahalanobisDistance: covInv must be square")
 		}
-		_ = i
 	}
 
 	// diff = x - μ

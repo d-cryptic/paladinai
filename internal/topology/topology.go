@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -101,7 +102,9 @@ var ErrInvalidDepth = errors.New("topology: maxDepth must be >= 1")
 
 // InMemoryStore is a test-only in-memory implementation of Store.
 // It uses adjacency lists for graph traversal (BFS for BlastRadius).
+// All methods are safe for concurrent use.
 type InMemoryStore struct {
+	mu          sync.RWMutex
 	services    map[string]Service // key: tenantID+":"+serviceID
 	edges       []DependsOnEdge
 	deployments []Deployment
@@ -118,11 +121,15 @@ func (s *InMemoryStore) UpsertService(_ context.Context, svc Service) error {
 	if svc.TenantID == "" || svc.ID == "" {
 		return fmt.Errorf("topology: service requires tenant_id and id")
 	}
+	s.mu.Lock()
 	s.services[svc.TenantID+":"+svc.ID] = svc
+	s.mu.Unlock()
 	return nil
 }
 
 func (s *InMemoryStore) UpsertDependency(_ context.Context, edge DependsOnEdge) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i, e := range s.edges {
 		if e.FromServiceID == edge.FromServiceID && e.ToServiceID == edge.ToServiceID {
 			s.edges[i] = edge
@@ -137,6 +144,8 @@ func (s *InMemoryStore) UpsertDeployment(_ context.Context, dep Deployment) erro
 	if dep.TenantID == "" || dep.ServiceID == "" {
 		return fmt.Errorf("topology: deployment requires tenant_id and service_id")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i, d := range s.deployments {
 		if d.ID == dep.ID {
 			s.deployments[i] = dep
@@ -154,6 +163,7 @@ func (s *InMemoryStore) BlastRadius(_ context.Context, tenantID, serviceName str
 		return nil, ErrInvalidDepth
 	}
 
+	s.mu.RLock()
 	// Build a name→ID index for this tenant.
 	nameToID := make(map[string]string)
 	idToName := make(map[string]string)
@@ -164,6 +174,9 @@ func (s *InMemoryStore) BlastRadius(_ context.Context, tenantID, serviceName str
 		nameToID[svc.Name] = svc.ID
 		idToName[svc.ID] = svc.Name
 	}
+	edges := make([]DependsOnEdge, len(s.edges))
+	copy(edges, s.edges)
+	s.mu.RUnlock()
 
 	sourceID, ok := nameToID[serviceName]
 	if !ok {
@@ -181,7 +194,7 @@ func (s *InMemoryStore) BlastRadius(_ context.Context, tenantID, serviceName str
 		queue = nil
 		depth++
 		for _, nodeID := range next {
-			for _, edge := range s.edges {
+			for _, edge := range edges {
 				if edge.FromServiceID != nodeID {
 					continue
 				}
@@ -200,6 +213,7 @@ func (s *InMemoryStore) BlastRadius(_ context.Context, tenantID, serviceName str
 
 // RecentDeployments returns deployments to a service in [since, until].
 func (s *InMemoryStore) RecentDeployments(_ context.Context, tenantID, serviceName string, since, until time.Time) ([]Deployment, error) {
+	s.mu.RLock()
 	// Build name→ID map.
 	var serviceID string
 	for _, svc := range s.services {
@@ -208,12 +222,16 @@ func (s *InMemoryStore) RecentDeployments(_ context.Context, tenantID, serviceNa
 			break
 		}
 	}
+	deps := make([]Deployment, len(s.deployments))
+	copy(deps, s.deployments)
+	s.mu.RUnlock()
+
 	if serviceID == "" {
 		return nil, fmt.Errorf("%w: %q in tenant %q", ErrServiceNotFound, serviceName, tenantID)
 	}
 
 	var result []Deployment
-	for _, dep := range s.deployments {
+	for _, dep := range deps {
 		if dep.TenantID == tenantID &&
 			dep.ServiceID == serviceID &&
 			!dep.DeployedAt.Before(since) &&
@@ -226,6 +244,8 @@ func (s *InMemoryStore) RecentDeployments(_ context.Context, tenantID, serviceNa
 
 // ServicesByTenant returns all services for a tenant.
 func (s *InMemoryStore) ServicesByTenant(_ context.Context, tenantID string) ([]Service, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	var result []Service
 	for _, svc := range s.services {
 		if svc.TenantID == tenantID {

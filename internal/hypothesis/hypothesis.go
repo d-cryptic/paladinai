@@ -117,10 +117,13 @@ func UpdatePrior(correctCount, totalIncidents int) (float64, error) {
 	return (alpha + float64(correctCount)) / (alpha + beta + float64(totalIncidents)), nil
 }
 
-// Top returns the highest-ranked hypothesis from a ranked list.
-// Panics if the list is empty (callers should check Rank errors first).
-func Top(ranked []RankedHypothesis) RankedHypothesis {
-	return ranked[0]
+// Top returns the highest-ranked hypothesis and true, or zero value and false if
+// the list is empty. Callers should always check the bool before using the result.
+func Top(ranked []RankedHypothesis) (RankedHypothesis, bool) {
+	if len(ranked) == 0 {
+		return RankedHypothesis{}, false
+	}
+	return ranked[0], true
 }
 
 // ConfidenceThresholdMet returns true if the top hypothesis posterior exceeds threshold.

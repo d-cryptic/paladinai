@@ -10,6 +10,7 @@ package flap
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -117,9 +118,9 @@ func (d *Detector) IsFlapping(ctx context.Context, tenantID, fingerprint string)
 		return false, nil
 	}
 
-	var count int64
-	if _, scanErr := fmt.Sscanf(val, "%d", &count); scanErr != nil {
-		return false, fmt.Errorf("flap.IsFlapping parse: %w", scanErr)
+	count, parseErr := strconv.ParseInt(val, 10, 64)
+	if parseErr != nil {
+		return false, fmt.Errorf("flap.IsFlapping parse: %w", parseErr)
 	}
 	return count >= d.threshold, nil
 }
