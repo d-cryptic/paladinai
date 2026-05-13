@@ -16,6 +16,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/internal/anthropic"
+	"github.com/paladinai/paladinai/internal/cache"
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
@@ -24,6 +25,8 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/llm"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/worker"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -146,6 +149,31 @@ func main() {
 		log.Info("triage: using OpenRouter/Eino path")
 	}
 
+	// ── L1 Exact Cache (Stage 9) ─────────────────────────────────────────────
+	// Wrap triageAgent with write-through L1 exact cache if Valkey is reachable.
+	if cfg.Base.ValkeyURL != "" {
+		rdbOpts, rdbErr := redis.ParseURL(cfg.Base.ValkeyURL)
+		if rdbErr != nil {
+			log.Warn("l1 cache: invalid VALKEY_URL, skipping", zap.Error(rdbErr))
+		} else {
+			rdb := redis.NewClient(rdbOpts)
+			if pingErr := rdb.Ping(ctx).Err(); pingErr != nil {
+				log.Warn("l1 cache: valkey ping failed, skipping", zap.Error(pingErr))
+				_ = rdb.Close()
+			} else {
+				l1 := cache.NewValkeyL1(rdb)
+				modelID := cfg.AnthropicModel
+				if cfg.AnthropicAPIKey == "" {
+					modelID = cfg.LLM.TierB
+				}
+				triageAgent = agent.NewCachedTriager(triageAgent, l1, modelID, log)
+				log.Info("l1 cache enabled (valkey)", zap.String("url", cfg.Base.ValkeyURL))
+				// Close rdb when main exits — defer runs on return
+				defer rdb.Close()
+			}
+		}
+	}
+
 	// ── RCA agent (Tier C for deeper reasoning) ───────────────────────────────
 	tierCModel, err := llmClient.Model(llm.TierC)
 	if err != nil {
@@ -178,6 +206,7 @@ func main() {
 	r.Use(chimiddleware.Recoverer)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 	r.Route("/api/v1", func(r chi.Router) {
 		incHandler.Routes(r)
 	})
