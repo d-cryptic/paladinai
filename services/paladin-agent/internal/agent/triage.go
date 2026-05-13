@@ -61,22 +61,23 @@ type TriageResult struct {
 }
 
 // validate clamps field lengths and normalises ConfirmedSeverity to the platform enum.
-// Returns an error if the severity is not a known value (after normalisation).
+// Clamping always runs first so LLM-produced oversized fields are bounded regardless
+// of whether the severity is valid. Returns an error only if severity is unknown.
 func (r *TriageResult) validate() error {
-	r.ConfirmedSeverity = strings.ToUpper(strings.TrimSpace(r.ConfirmedSeverity))
-	if !validSeverities[r.ConfirmedSeverity] {
-		return fmt.Errorf("unknown severity %q", r.ConfirmedSeverity)
-	}
-
+	// Clamp content fields unconditionally — must run even if severity is invalid.
 	r.Summary = truncate(r.Summary, maxSummaryLen)
 	r.LikelyCause = truncate(r.LikelyCause, maxCauseLen)
 	r.RecommendedAction = truncate(r.RecommendedAction, maxActionLen)
-
 	if len(r.AffectedServices) > maxServiceCount {
 		r.AffectedServices = r.AffectedServices[:maxServiceCount]
 	}
 	for i, s := range r.AffectedServices {
 		r.AffectedServices[i] = truncate(s, maxServiceLen)
+	}
+
+	r.ConfirmedSeverity = strings.ToUpper(strings.TrimSpace(r.ConfirmedSeverity))
+	if !validSeverities[r.ConfirmedSeverity] {
+		return fmt.Errorf("unknown severity %q", r.ConfirmedSeverity)
 	}
 	return nil
 }

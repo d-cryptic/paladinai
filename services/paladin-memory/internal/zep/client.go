@@ -173,7 +173,7 @@ func (c *Client) DeleteSession(ctx context.Context, tenantID string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return fmt.Errorf("zep: DELETE session returned %d: %s", resp.StatusCode, body)
 	}
 	return nil
@@ -231,7 +231,7 @@ func (c *Client) post(ctx context.Context, url string, body any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return fmt.Errorf("zep: POST %s returned %d: %s", url, resp.StatusCode, body)
 	}
 	return nil
@@ -253,7 +253,7 @@ func (c *Client) postDecode(ctx context.Context, url string, reqBody, out any) e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return fmt.Errorf("zep: POST %s returned %d: %s", url, resp.StatusCode, body)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {

@@ -80,12 +80,12 @@ func (c *httpOPAClient) Allow(ctx context.Context, input OPAInput) (bool, error)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		return false, fmt.Errorf("opa: unexpected status %d", resp.StatusCode)
 	}
 
 	var out opaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
 		return false, fmt.Errorf("opa: decode response: %w", err)
 	}
 	return out.Result, nil

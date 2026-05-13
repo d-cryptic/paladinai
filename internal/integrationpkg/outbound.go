@@ -79,7 +79,7 @@ func (s *OutboundSender) Send(ctx context.Context, method, url string, body []by
 			lastErr = fmt.Errorf("attempt %d: %w", attempt+1, err)
 			continue
 		}
-		io.Copy(io.Discard, resp.Body) //nolint:errcheck
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		resp.Body.Close()
 
 		if resp.StatusCode < 500 {
