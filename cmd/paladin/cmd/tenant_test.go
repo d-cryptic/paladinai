@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -61,10 +65,105 @@ func TestConfirmTenantDelete_YesSkipsPromptInCIMode(t *testing.T) {
 	require.NoError(t, confirmTenantDelete(cmd, "acme-corp"))
 }
 
+func TestWriteTenantCreateResult_CIModeJSON(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, true)
+
+	out := captureTenantStdout(t, func() {
+		require.NoError(t, writeTenantCreateResult(cmd, []byte(`{"id":"tenant-1","slug":"acme-corp"}`)))
+	})
+
+	var result tenantActionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "create", result.Action)
+	assert.Equal(t, "tenant-1", result.TenantID)
+	assert.Equal(t, "acme-corp", result.Slug)
+	assert.JSONEq(t, `{"id":"tenant-1","slug":"acme-corp"}`, string(result.Response))
+	assert.NotContains(t, out, "Tenant created")
+}
+
+func TestWriteTenantStateActionResult_CIModeJSON(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, true)
+
+	out := captureTenantStdout(t, func() {
+		require.NoError(t, writeTenantStateActionResult(cmd, "tenant-1", "suspend", []byte(`{"state":"suspended"}`)))
+	})
+
+	var result tenantActionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "suspend", result.Action)
+	assert.Equal(t, "tenant-1", result.TenantID)
+	assert.JSONEq(t, `{"state":"suspended"}`, string(result.Response))
+	assert.NotContains(t, out, "Tenant")
+}
+
+func TestWriteTenantMigrateResult_CIModeJSON(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, true)
+
+	out := captureTenantStdout(t, func() {
+		require.NoError(t, writeTenantMigrateResult(cmd, "acme-corp", "silo", []byte(`{"job_id":"job-1"}`)))
+	})
+
+	var result tenantActionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "migrate", result.Action)
+	assert.Equal(t, "acme-corp", result.Slug)
+	assert.Equal(t, "silo", result.Tier)
+	assert.JSONEq(t, `{"job_id":"job-1"}`, string(result.Response))
+	assert.NotContains(t, out, "migration")
+}
+
+func TestWriteTenantDeleteResult_CIModeJSON(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, true)
+
+	out := captureTenantStdout(t, func() {
+		require.NoError(t, writeTenantDeleteResult(cmd, "acme-corp", nil))
+	})
+
+	var result tenantActionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "delete", result.Action)
+	assert.Equal(t, "acme-corp", result.Slug)
+	assert.Empty(t, result.Response)
+	assert.NotContains(t, out, "Tenant")
+}
+
+func TestWriteTenantCreateResult_HumanOutput(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, false)
+
+	out := captureTenantStdout(t, func() {
+		require.NoError(t, writeTenantCreateResult(cmd, []byte(`{"id":"tenant-1","slug":"acme-corp"}`)))
+	})
+
+	assert.Contains(t, out, "Tenant created: tenant-1 (slug: acme-corp)")
+}
+
 func tenantDeleteTestCmd(t *testing.T, yes, ci bool) *cobra.Command {
 	t.Helper()
 	cmd := &cobra.Command{Use: "delete"}
 	cmd.Flags().Bool("yes", yes, "")
 	cmd.Flags().Bool("ci", ci, "")
 	return cmd
+}
+
+func captureTenantStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+
+	origOut := os.Stdout
+	os.Stdout = w
+
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = io.Copy(&buf, r)
+	}()
+
+	fn()
+
+	os.Stdout = origOut
+	require.NoError(t, w.Close())
+	<-done
+	return buf.String()
 }
