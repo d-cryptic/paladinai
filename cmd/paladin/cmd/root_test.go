@@ -65,6 +65,33 @@ func TestAPIURL_DefaultsWhenFlagAbsent(t *testing.T) {
 	assert.Equal(t, defaultAPIURL, apiURL(cmd))
 }
 
+func TestOutputFormat_DefaultsToTable(t *testing.T) {
+	cmd := newTestCmd("t1", "", "http://api")
+	assert.Equal(t, "table", outputFormat(cmd))
+}
+
+func TestOutputFormat_UsesOutputFlag(t *testing.T) {
+	cmd := newTestCmd("t1", "", "http://api")
+	cmd.PersistentFlags().StringP("output", "o", "table", "")
+	require.NoError(t, cmd.PersistentFlags().Set("output", "json"))
+	assert.Equal(t, "json", outputFormat(cmd))
+}
+
+func TestOutputFormat_CIModeForcesJSON(t *testing.T) {
+	cmd := newTestCmd("t1", "", "http://api")
+	cmd.PersistentFlags().StringP("output", "o", "table", "")
+	cmd.PersistentFlags().Bool("ci", false, "")
+	require.NoError(t, cmd.PersistentFlags().Set("ci", "true"))
+	assert.Equal(t, "json", outputFormat(cmd))
+}
+
+func TestOutputFormat_CIEnvForcesJSON(t *testing.T) {
+	t.Setenv("PALADIN_CI", "1")
+	cmd := newTestCmd("t1", "", "http://api")
+	cmd.PersistentFlags().StringP("output", "o", "table", "")
+	assert.Equal(t, "json", outputFormat(cmd))
+}
+
 func TestRootAPIURLFlagDefaultsToLocalEdge(t *testing.T) {
 	flag := rootCmd.PersistentFlags().Lookup("api-url")
 	require.NotNil(t, flag)

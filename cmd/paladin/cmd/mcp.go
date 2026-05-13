@@ -42,8 +42,7 @@ var mcpListCmd = &cobra.Command{
 			return err
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
@@ -129,8 +128,7 @@ var mcpGetCmd = &cobra.Command{
 			return err
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}

@@ -85,6 +85,17 @@ func apiURL(cmd *cobra.Command) string {
 	return f.Value.String()
 }
 
+func outputFormat(cmd *cobra.Command) string {
+	if isCIMode(cmd) {
+		return "json"
+	}
+	f := cmd.Flag("output")
+	if f == nil || f.Value.String() == "" {
+		return "table"
+	}
+	return f.Value.String()
+}
+
 // isCIMode reports whether --ci was set or PALADIN_CI env var is non-empty.
 func isCIMode(cmd *cobra.Command) bool {
 	if f := cmd.Flag("ci"); f != nil && f.Value.String() == "true" {

@@ -51,8 +51,7 @@ var integrationsListCmd = &cobra.Command{
 			return fmt.Errorf("load integrations: %w", err)
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			data, err := json.MarshalIndent(all, "", "  ")
 			if err != nil {
 				return fmt.Errorf("marshal json: %w", err)
@@ -97,8 +96,7 @@ var integrationsStatusCmd = &cobra.Command{
 			return err
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
@@ -222,8 +220,7 @@ var integrationsShowCmd = &cobra.Command{
 			return fmt.Errorf("load integration: %w", err)
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			data, err := json.MarshalIndent(integ, "", "  ")
 			if err != nil {
 				return fmt.Errorf("marshal json: %w", err)
