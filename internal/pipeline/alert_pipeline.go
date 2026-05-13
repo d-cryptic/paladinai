@@ -233,5 +233,10 @@ func (p *Pipeline) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
-	_ = msg.Ack()
+	if ackErr := msg.Ack(); ackErr != nil {
+		p.log.Warn("pipeline: ack failed; message may be redelivered",
+			zap.String("fingerprint", env.Fingerprint),
+			zap.Error(ackErr),
+		)
+	}
 }

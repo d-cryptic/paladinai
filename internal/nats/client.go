@@ -80,7 +80,9 @@ func Connect(url string, log *zap.Logger) (*Client, error) {
 	}
 
 	c := &Client{nc: nc, js: js, log: log}
-	if err := c.ensureStreams(context.Background()); err != nil {
+	sctx, scancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer scancel()
+	if err := c.ensureStreams(sctx); err != nil {
 		nc.Close()
 		return nil, err
 	}
@@ -95,10 +97,20 @@ func (c *Client) JS() jetstream.JetStream { return c.js }
 // Conn returns the underlying NATS connection (e.g. for health checks).
 func (c *Client) Conn() *nats.Conn { return c.nc }
 
-// Close drains the connection gracefully.
+// Close drains the connection gracefully, falling back to a hard close on error.
 func (c *Client) Close() {
+	done := make(chan struct{})
+	c.nc.SetClosedHandler(func(*nats.Conn) { close(done) })
 	if err := c.nc.Drain(); err != nil {
-		c.log.Warn("nats drain error", zap.Error(err))
+		c.log.Warn("nats drain error; forcing close", zap.Error(err))
+		c.nc.Close()
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		c.log.Warn("nats drain timeout; forcing close")
+		c.nc.Close()
 	}
 }
 

@@ -8,9 +8,9 @@
 //
 // Cache injection strategy (per Stage 9 spec):
 //
-//   Breakpoint 1: end of system prompt       (BuildSystemBlocks)
-//   Breakpoint 2: last tool in catalog       (AppendToolCacheControl)
-//   Breakpoint 3: last user message content  (InjectMessageCacheBreakpoints)
+//	Breakpoint 1: end of system prompt       (BuildSystemBlocks)
+//	Breakpoint 2: last tool in catalog       (AppendToolCacheControl)
+//	Breakpoint 3: last user message content  (InjectMessageCacheBreakpoints)
 //
 // All three breakpoints are set on every request regardless of model tier.
 // Unused breakpoints (e.g. no tools) are silently skipped by the helpers.
@@ -114,9 +114,9 @@ func (c *Client) Model() string { return c.cfg.Model }
 // Client sends requests to the Anthropic Messages API with automatic prompt
 // cache injection on every request.
 type Client struct {
-	cfg    Config
-	http   *http.Client
-	log    *zap.Logger
+	cfg  Config
+	http *http.Client
+	log  *zap.Logger
 }
 
 // New creates a Client. Returns an error if APIKey or Model is empty.
@@ -175,7 +175,7 @@ func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: read response body: %w", err)
 	}
@@ -204,11 +204,11 @@ func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 // wireFormat is the JSON-serialisable form of an Anthropic Messages API request.
 // It mirrors the Anthropic API spec, not the cache.* types.
 type wireFormat struct {
-	Model     string             `json:"model"`
-	MaxTokens int                `json:"max_tokens"`
+	Model     string               `json:"model"`
+	MaxTokens int                  `json:"max_tokens"`
 	System    []cache.ContentBlock `json:"system"`
-	Tools     []cache.ToolEntry  `json:"tools,omitempty"`
-	Messages  []cache.ChatMessage `json:"messages"`
+	Tools     []cache.ToolEntry    `json:"tools,omitempty"`
+	Messages  []cache.ChatMessage  `json:"messages"`
 }
 
 func (c *Client) buildBody(req Request) ([]byte, error) {

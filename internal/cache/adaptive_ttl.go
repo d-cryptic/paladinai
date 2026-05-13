@@ -46,6 +46,16 @@ func NewHitCounter() *HitCounter {
 // RecordHit increments the hit counter for key. Call on every L1 cache hit.
 func (h *HitCounter) RecordHit(key string) {
 	h.mu.Lock()
+	const maxHitKeys = 50_000
+	if len(h.hits) >= maxHitKeys {
+		if _, exists := h.hits[key]; !exists {
+			// Evict a random existing entry to make room for the new key.
+			for k := range h.hits {
+				delete(h.hits, k)
+				break
+			}
+		}
+	}
 	h.hits[key]++
 	h.mu.Unlock()
 }

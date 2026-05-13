@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"regexp"
 	"sort"
 	"strings"
@@ -89,32 +90,46 @@ type AlertEnvelope struct {
 	RootCause  string `json:"root_cause,omitempty"`
 }
 
-// Fingerprint computes a deterministic fingerprint from stable alert attributes.
+// ComputeFingerprint computes a deterministic fingerprint from stable alert attributes.
 // Matches the same fingerprinting logic used in Alertmanager.
 // Labels used: alertname + namespace + job + instance (sorted for stability).
+//
+// Each field is length-prefixed before hashing to prevent separator collisions
+// (e.g. key "a|b" with value "c" vs key "a" with value "b|c" must hash differently).
 func ComputeFingerprint(source Source, labels map[string]string) string {
 	// Stable label subset for fingerprinting (matches stage 2 spec)
 	fingerprintKeys := []string{"alertname", "namespace", "job", "instance", "cluster", "service"}
 
-	parts := []string{string(source)}
+	h := sha256.New()
+	writeField(h, string(source))
+
 	for _, k := range fingerprintKeys {
 		if v, ok := labels[k]; ok {
-			parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+			writeField(h, k)
+			writeField(h, v)
 		}
 	}
 
-	// Include any label starting with "paladin_" for custom tenant routing
-	var extra []string
+	// Include any label starting with "paladin_" for custom tenant routing.
+	var extra [][2]string
 	for k, v := range labels {
 		if strings.HasPrefix(k, "paladin_") {
-			extra = append(extra, fmt.Sprintf("%s=%s", k, v))
+			extra = append(extra, [2]string{k, v})
 		}
 	}
-	sort.Strings(extra)
-	parts = append(parts, extra...)
+	sort.Slice(extra, func(i, j int) bool { return extra[i][0] < extra[j][0] })
+	for _, kv := range extra {
+		writeField(h, kv[0])
+		writeField(h, kv[1])
+	}
 
-	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return hex.EncodeToString(h[:16]) // 32 hex chars, compact
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:16]) // 32 hex chars, compact
+}
+
+// writeField writes a length-prefixed field to h, acting as a null-byte separator.
+func writeField(h hash.Hash, s string) {
+	fmt.Fprintf(h, "%d:%s\x00", len(s), s)
 }
 
 // ValidateTenantID returns an error if the tenant ID contains characters that

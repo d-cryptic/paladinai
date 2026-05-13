@@ -271,11 +271,9 @@ func main() {
 		zap.Int("workers", cfg.AgentWorkers),
 	)
 
-	if err := w.Run(ctx, natsClient.JS(), cfg.NATSConsumerName); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			log.Error("worker exited with error", zap.Error(err))
-			os.Exit(1)
-		}
+	workerErr := w.Run(ctx, natsClient.JS(), cfg.NATSConsumerName)
+	if workerErr != nil && !errors.Is(workerErr, context.Canceled) {
+		log.Error("worker exited with error", zap.Error(workerErr))
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -285,4 +283,7 @@ func main() {
 	}
 
 	log.Info("paladin-agent stopped")
+	if workerErr != nil && !errors.Is(workerErr, context.Canceled) {
+		os.Exit(1)
+	}
 }

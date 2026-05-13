@@ -55,6 +55,13 @@ type ReplayResult struct {
 	StartedAt time.Time `json:"started_at"`
 }
 
+// maxStoreSize is the maximum number of incidents kept in memory.
+// Old entries are evicted on insertion to prevent OOM in long-running processes.
+const maxStoreSize = 10_000
+
+// incidentTTL is the maximum age of an incident kept in memory.
+const incidentTTL = 7 * 24 * time.Hour
+
 // Store is a thread-safe in-memory incident store.
 type Store struct {
 	mu        sync.RWMutex
@@ -66,11 +73,39 @@ func NewStore() *Store {
 	return &Store{incidents: make(map[string]*Incident)}
 }
 
+// evictLocked removes expired entries and, if still over capacity, removes the
+// oldest resolved incidents. Must be called with s.mu held for writing.
+func (s *Store) evictLocked() {
+	cutoff := time.Now().UTC().Add(-incidentTTL)
+	for id, inc := range s.incidents {
+		if inc.UpdatedAt.Before(cutoff) {
+			delete(s.incidents, id)
+		}
+	}
+	// If still over capacity, drop resolved entries arbitrarily.
+	for len(s.incidents) >= maxStoreSize {
+		for id, inc := range s.incidents {
+			if inc.Status == StatusResolved {
+				delete(s.incidents, id)
+				break
+			}
+		}
+		// Safety: avoid infinite loop if all entries are open.
+		if len(s.incidents) >= maxStoreSize {
+			for id := range s.incidents {
+				delete(s.incidents, id)
+				break
+			}
+		}
+	}
+}
+
 // Record stores a new incident record from a processed alert envelope.
 // Returns the created incident.
 func (s *Store) Record(tenantID, severity, title string, alertCount int, labels map[string]string, result json.RawMessage) *Incident {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.evictLocked()
 	now := time.Now().UTC()
 	inc := &Incident{
 		ID:           uuid.New().String(),
@@ -103,6 +138,7 @@ func (s *Store) RecordFromEnvelope(env *alert.AlertEnvelope, severity string, re
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.evictLocked()
 	now := time.Now().UTC()
 	inc := &Incident{
 		ID:           uuid.New().String(),
@@ -228,6 +264,7 @@ type Handler struct {
 	store     *Store
 	log       *zap.Logger
 	replayPub ReplayPublisher
+	wg        sync.WaitGroup // tracks in-flight replay goroutines
 }
 
 // NewHandler creates an incident HTTP handler.
@@ -238,10 +275,13 @@ func NewHandler(store *Store, log *zap.Logger) *Handler {
 
 // WithReplayPublisher sets the NATS publisher used to re-ingest replayed alerts.
 func (h *Handler) WithReplayPublisher(pub ReplayPublisher) *Handler {
-	cp := *h
-	cp.replayPub = pub
-	return &cp
+	h.replayPub = pub
+	return h
 }
+
+// Shutdown waits for all in-flight replay goroutines to finish.
+// Call this during graceful service shutdown.
+func (h *Handler) Shutdown() { h.wg.Wait() }
 
 // Routes mounts incident routes on the given chi router.
 func (h *Handler) Routes(r chi.Router) {
@@ -295,7 +335,9 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 	// the orchestrator pipeline (dedup → correlate → agent) re-processes it.
 	// The replay incident is marked resolved after a successful publish.
 	// When the envelope is missing (legacy incidents), the replay is a no-op.
+	h.wg.Add(1)
 	go func() {
+		defer h.wg.Done()
 		src := h.store.Get(incidentID)
 		if src == nil || len(src.RawEnvelope) == 0 {
 			// No stored envelope: legacy incident or test. Resolve immediately.
@@ -306,7 +348,7 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		subject := replaySubject(tenantID, src.Fingerprint)
-		pubCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		pubCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		if err := h.replayPub.Publish(pubCtx, subject, src.RawEnvelope); err != nil {
 			h.log.Error("replay: NATS publish failed",
