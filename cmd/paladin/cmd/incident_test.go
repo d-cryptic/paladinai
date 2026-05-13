@@ -74,3 +74,35 @@ func TestPrintIncidentTable_EmptyData_PrintsHeaderOnly(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	assert.Len(t, lines, 1)
 }
+
+func TestWriteIncidentResolveResult_CIModeJSON(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, true)
+
+	stdout := captureStdout(t, func() {
+		require.NoError(t, writeIncidentResolveResult(cmd, incidentResolveResult{
+			IncidentID: "inc-001",
+			Resolved:   true,
+			Response:   json.RawMessage(`{"status":"resolved"}`),
+		}))
+	})
+
+	var result incidentResolveResult
+	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
+	assert.Equal(t, "inc-001", result.IncidentID)
+	assert.True(t, result.Resolved)
+	assert.JSONEq(t, `{"status":"resolved"}`, string(result.Response))
+	assert.NotContains(t, stdout, "Incident")
+}
+
+func TestWriteIncidentResolveResult_HumanOutput(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, false)
+
+	stdout := captureStdout(t, func() {
+		require.NoError(t, writeIncidentResolveResult(cmd, incidentResolveResult{
+			IncidentID: "inc-001",
+			Resolved:   true,
+		}))
+	})
+
+	assert.Equal(t, "Incident \"inc-001\" resolved.\n", stdout)
+}

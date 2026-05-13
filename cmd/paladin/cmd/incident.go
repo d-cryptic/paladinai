@@ -131,9 +131,32 @@ var incidentResolveCmd = &cobra.Command{
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Fprintf(os.Stdout, "Incident %q resolved.\n", args[0])
-		return nil
+		return writeIncidentResolveResult(cmd, incidentResolveResult{
+			IncidentID: args[0],
+			Resolved:   true,
+			Response:   jsonResponseBody(body),
+			Message:    nonJSONResponseMessage(body),
+		})
 	},
+}
+
+type incidentResolveResult struct {
+	IncidentID string          `json:"incident_id"`
+	Resolved   bool            `json:"resolved"`
+	Response   json.RawMessage `json:"response,omitempty"`
+	Message    string          `json:"message,omitempty"`
+}
+
+func writeIncidentResolveResult(cmd *cobra.Command, result incidentResolveResult) error {
+	if outputFormat(cmd) == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(result); err != nil {
+			return fmt.Errorf("write json: %w", err)
+		}
+		return nil
+	}
+	fmt.Fprintf(os.Stdout, "Incident %q resolved.\n", result.IncidentID)
+	return nil
 }
 
 func printIncidentTable(body []byte) error {
