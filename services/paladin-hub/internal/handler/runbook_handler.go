@@ -1,10 +1,16 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +19,8 @@ import (
 	"github.com/paladinai/paladinai/internal/qdrant"
 	"go.uber.org/zap"
 )
+
+const maxRunbookContentBytes = 2 << 20
 
 // RunbookRecord is the metadata record returned by list and import.
 type RunbookRecord struct {
@@ -29,8 +37,9 @@ type RunbookRecord struct {
 // RunbookHandler serves runbook import, list, and search routes.
 // It is intentionally separate from the MCP server registry handler.
 type RunbookHandler struct {
-	indexer *qdrant.Indexer
-	log     *zap.Logger
+	indexer    *qdrant.Indexer
+	log        *zap.Logger
+	httpClient *http.Client
 	// records is a simple in-memory index of imported runbooks.
 	// Production would persist this to Postgres.
 	records map[string]*RunbookRecord
@@ -39,9 +48,10 @@ type RunbookHandler struct {
 // NewRunbookHandler constructs a RunbookHandler backed by a qdrant.Indexer.
 func NewRunbookHandler(indexer *qdrant.Indexer, log *zap.Logger) *RunbookHandler {
 	return &RunbookHandler{
-		indexer: indexer,
-		log:     log,
-		records: make(map[string]*RunbookRecord),
+		indexer:    indexer,
+		log:        log,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		records:    make(map[string]*RunbookRecord),
 	}
 }
 
@@ -76,7 +86,7 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	text, title, srcPath, err := h.fetchContent(req)
+	text, title, srcPath, err := h.fetchContent(r.Context(), req)
 	if err != nil {
 		jsonErr(w, "FETCH_FAILED", err.Error(), http.StatusBadGateway)
 		return
@@ -211,8 +221,7 @@ func (h *RunbookHandler) searchRunbooks(w http.ResponseWriter, r *http.Request) 
 }
 
 // fetchContent resolves runbook content based on source type.
-// For "file" source it reads from disk; for remote sources it returns stub content in dev.
-func (h *RunbookHandler) fetchContent(req importRequest) (text, title, srcPath string, err error) {
+func (h *RunbookHandler) fetchContent(ctx context.Context, req importRequest) (text, title, srcPath string, err error) {
 	switch req.Source {
 	case "file":
 		if req.Path == "" {
@@ -228,26 +237,113 @@ func (h *RunbookHandler) fetchContent(req importRequest) (text, title, srcPath s
 		}
 		return string(data), title, req.Path, nil
 	case "github":
+		if req.Repo == "" {
+			return "", "", "", errors.New("repo is required for source=github")
+		}
 		title = req.Repo
 		if req.Path != "" {
 			title = req.Repo + "/" + req.Path
 		}
-		srcPath = title
-		text = "# " + title + "\n\nGitHub runbook content placeholder. Configure GITHUB_TOKEN and implement fetch in production."
+		srcPath, err = githubRunbookURL(req)
+		if err != nil {
+			return "", "", "", err
+		}
+		text, err = h.fetchRemoteText(ctx, srcPath)
+		if err != nil {
+			return "", "", "", err
+		}
 		return text, title, srcPath, nil
 	case "confluence":
 		title = "Confluence:" + req.Space
-		srcPath = "confluence://" + req.Space
-		text = "# " + title + "\n\nConfluence runbook content placeholder. Configure CONFLUENCE_TOKEN in production."
+		srcPath, err = remoteRunbookURL(req.Space, req.Path, "space is required as an HTTP URL for source=confluence")
+		if err != nil {
+			return "", "", "", err
+		}
+		text, err = h.fetchRemoteText(ctx, srcPath)
+		if err != nil {
+			return "", "", "", err
+		}
 		return text, title, srcPath, nil
 	case "notion":
 		title = "Notion:" + req.Space
-		srcPath = "notion://" + req.Space
-		text = "# " + title + "\n\nNotion runbook content placeholder. Configure NOTION_TOKEN in production."
+		srcPath, err = remoteRunbookURL(req.Space, req.Path, "space is required as an HTTP URL for source=notion")
+		if err != nil {
+			return "", "", "", err
+		}
+		text, err = h.fetchRemoteText(ctx, srcPath)
+		if err != nil {
+			return "", "", "", err
+		}
 		return text, title, srcPath, nil
 	default:
 		return "", "", "", errMsg("unsupported source: " + req.Source)
 	}
+}
+func githubRunbookURL(req importRequest) (string, error) {
+	if isHTTPURL(req.Repo) {
+		return remoteRunbookURL(req.Repo, req.Path, "repo must be an HTTP URL or owner/repo")
+	}
+	parts := strings.Split(req.Repo, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", errors.New("repo must be owner/repo for source=github")
+	}
+	if req.Path == "" {
+		return "", errors.New("path is required for source=github when repo is owner/repo")
+	}
+	return url.JoinPath("https://raw.githubusercontent.com", parts[0], parts[1], "main", req.Path)
+}
+
+func remoteRunbookURL(base, path, missingMsg string) (string, error) {
+	if base == "" {
+		return "", errors.New(missingMsg)
+	}
+	if !isHTTPURL(base) {
+		return "", errors.New(missingMsg)
+	}
+	if path == "" {
+		return strings.TrimRight(base, "/"), nil
+	}
+	joined, err := url.JoinPath(base, path)
+	if err != nil {
+		return "", fmt.Errorf("invalid remote path: %w", err)
+	}
+	return joined, nil
+}
+
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func (h *RunbookHandler) fetchRemoteText(ctx context.Context, rawURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("build remote request: %w", err)
+	}
+	req.Header.Set("Accept", "text/markdown,text/plain,text/*;q=0.9,*/*;q=0.1")
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch remote runbook: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("fetch remote runbook: status %d", resp.StatusCode)
+	}
+	limited := io.LimitReader(resp.Body, maxRunbookContentBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return "", fmt.Errorf("read remote runbook: %w", err)
+	}
+	if len(data) > maxRunbookContentBytes {
+		return "", fmt.Errorf("remote runbook exceeds %d bytes", maxRunbookContentBytes)
+	}
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return "", errors.New("remote runbook is empty")
+	}
+	return text, nil
 }
 
 func lastSlash(s string) int {

@@ -53,11 +53,17 @@ func (h *WebhookHandler) WithStormDetector(d StormDetector) *WebhookHandler {
 // Path pattern: /webhook/{integration}/{tenantID}
 func (h *WebhookHandler) Routes() chi.Router {
 	r := chi.NewRouter()
+	r.Post("/alertmanager", h.alertmanager)
 	r.Post("/alertmanager/{tenantID}", h.alertmanager)
+	r.Post("/datadog", h.datadog)
 	r.Post("/datadog/{tenantID}", h.datadog)
+	r.Post("/pagerduty", h.pagerduty)
 	r.Post("/pagerduty/{tenantID}", h.pagerduty)
+	r.Post("/cloudwatch", h.cloudwatch)
 	r.Post("/cloudwatch/{tenantID}", h.cloudwatch)
+	r.Post("/slack", h.slack)
 	r.Post("/slack/{tenantID}", h.slack)
+	r.Post("/github", h.github)
 	r.Post("/github/{tenantID}", h.github)
 	return r
 }
@@ -108,6 +114,9 @@ func (h *WebhookHandler) handleWebhook(
 	normalize normalizerFunc,
 ) {
 	tenantID := chi.URLParam(r, "tenantID")
+	if tenantID == "" {
+		tenantID = r.Header.Get("X-Tenant-ID")
+	}
 	if tenantID == "" {
 		writeError(w, http.StatusBadRequest, "tenant_id required")
 		return

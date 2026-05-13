@@ -7,8 +7,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const tenantsLockID = int64(0x706c647461757468) // "pldtauth" in hex
+
+type execer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
 
 // PostgresStore is a pgx-backed Store for production use.
 type PostgresStore struct {
@@ -18,6 +25,45 @@ type PostgresStore struct {
 // NewPostgresStore wraps an existing connection pool.
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
+}
+
+func (s *PostgresStore) MigrateUp(ctx context.Context) error {
+	if _, err := s.pool.Exec(ctx, `SELECT pg_advisory_lock($1)`, tenantsLockID); err != nil {
+		return fmt.Errorf("auth store migrate advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = s.pool.Exec(ctx, `SELECT pg_advisory_unlock($1)`, tenantsLockID)
+	}()
+
+	if err := migrateTenantsTable(ctx, s.pool); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateTenantsTable(ctx context.Context, db execer) error {
+	if _, err := db.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pgcrypto`); err != nil {
+		return fmt.Errorf("auth store migrate pgcrypto: %w", err)
+	}
+	if _, err := db.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS tenants (
+			id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			slug        TEXT        NOT NULL,
+			name        TEXT        NOT NULL,
+			state       TEXT        NOT NULL DEFAULT 'active'
+			                        CHECK (state IN ('active', 'suspended')),
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`); err != nil {
+		return fmt.Errorf("auth store migrate create tenants: %w", err)
+	}
+	if _, err := db.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug ON tenants (slug)`); err != nil {
+		return fmt.Errorf("auth store migrate tenants slug index: %w", err)
+	}
+	if _, err := db.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_tenants_state ON tenants (state)`); err != nil {
+		return fmt.Errorf("auth store migrate tenants state index: %w", err)
+	}
+	return nil
 }
 
 func (s *PostgresStore) Create(ctx context.Context, slug, name string) (*Tenant, error) {

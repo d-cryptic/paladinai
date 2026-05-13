@@ -4,6 +4,7 @@
  */
 import { test, expect, request } from "@playwright/test";
 import { writeFileSync, mkdirSync } from "fs";
+import { createServer, Server } from "http";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -12,22 +13,51 @@ const EDGE_URL = process.env.PALADIN_EDGE_URL || "http://localhost:9002";
 const HUB_URL = process.env.PALADIN_HUB_URL || "http://localhost:8082";
 
 let tenantSlug: string;
+let tenantID: string;
 let jwtToken: string;
 let runbookFilePath: string;
+let runbookServer: Server;
+let remoteRunbookURL: string;
 
 test.beforeAll(async () => {
+  runbookServer = createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "text/markdown" });
+    res.end(`# Remote Runbook
+
+## Overview
+This fixture verifies HTTP-backed runbook imports without depending on an external service.
+
+## Steps
+- Confirm the incident scope.
+- Check metrics and recent deploys.
+- Escalate if impact is customer-facing.
+`);
+  });
+  await new Promise<void>((resolve) => {
+    runbookServer.listen(0, "127.0.0.1", resolve);
+  });
+  const address = runbookServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("runbook fixture server did not expose a TCP address");
+  }
+  remoteRunbookURL = `http://127.0.0.1:${address.port}/runbook.md`;
+
   tenantSlug = `runbook-test-${Date.now()}`;
   const edgeCtx = await request.newContext({ baseURL: EDGE_URL });
 
-  await edgeCtx.post("/api/v1/auth/tenants", {
+  const created = await edgeCtx.post("/api/v1/auth/tenants", {
     data: { slug: tenantSlug, name: "Runbook Test Tenant" },
     headers: { "X-Admin-Secret": ADMIN_SECRET },
   });
+  expect(created.status()).toBe(201);
+  const { data: tenant } = await created.json();
+  tenantID = tenant.id;
 
   const tokenResp = await edgeCtx.post("/api/v1/auth/tokens", {
-    data: { tenant_slug: tenantSlug },
+    data: { tenant_id: tenantID, user_id: "playwright-runbook-user" },
     headers: { "X-Admin-Secret": ADMIN_SECRET },
   });
+  expect(tokenResp.status()).toBe(200);
   const body = await tokenResp.json();
   jwtToken = body.token;
   await edgeCtx.dispose();
@@ -73,11 +103,20 @@ If the replica promotion fails, contact the database team immediately.
   );
 });
 
+test.afterAll(async () => {
+  if (!runbookServer) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    runbookServer.close((err) => (err ? reject(err) : resolve()));
+  });
+});
+
 test.describe("Runbook import via paladin-hub direct", () => {
   test("import from github source returns 201", async () => {
     const ctx = await request.newContext({ baseURL: HUB_URL });
     const resp = await ctx.post("/api/v1/runbooks/import", {
-      data: { source: "github", repo: "owner/runbooks", path: "docs/" },
+      data: { source: "github", repo: remoteRunbookURL },
       headers: { "X-Tenant-ID": tenantSlug },
     });
     expect(resp.status()).toBe(201);
@@ -126,7 +165,7 @@ test.describe("Runbook list via paladin-hub direct", () => {
     const ctx = await request.newContext({ baseURL: HUB_URL });
     // Seed at least one runbook.
     await ctx.post("/api/v1/runbooks/import", {
-      data: { source: "confluence", space: "OPS" },
+      data: { source: "confluence", space: remoteRunbookURL },
       headers: { "X-Tenant-ID": tenantSlug },
     });
 
@@ -142,7 +181,7 @@ test.describe("Runbook list via paladin-hub direct", () => {
   test("list with source filter returns matching records", async () => {
     const ctx = await request.newContext({ baseURL: HUB_URL });
     await ctx.post("/api/v1/runbooks/import", {
-      data: { source: "notion", space: "INFRA" },
+      data: { source: "notion", space: remoteRunbookURL },
       headers: { "X-Tenant-ID": tenantSlug },
     });
 
@@ -196,10 +235,10 @@ test.describe("Runbook API via paladin-edge (JWT-protected)", () => {
   test("import via edge with JWT returns 201", async () => {
     const ctx = await request.newContext({ baseURL: EDGE_URL });
     const resp = await ctx.post("/api/v1/runbooks/import", {
-      data: { source: "github", repo: "owner/edge-runbooks" },
+      data: { source: "github", repo: remoteRunbookURL },
       headers: {
         Authorization: `Bearer ${jwtToken}`,
-        "X-Tenant-ID": tenantSlug,
+        "X-Tenant-ID": tenantID,
       },
     });
     expect(resp.status()).toBe(201);

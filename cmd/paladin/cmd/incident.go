@@ -39,7 +39,11 @@ var incidentListCmd = &cobra.Command{
 		}
 		u.RawQuery = q.Encode()
 
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, err := client.Get(cmd.Context(), u.String(), opts)
 		if err != nil {
 			return err
 		}
@@ -69,7 +73,11 @@ var incidentShowCmd = &cobra.Command{
 		}
 		u.Path = fmt.Sprintf("/api/v1/incidents/%s", url.PathEscape(args[0]))
 
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, err := client.Get(cmd.Context(), u.String(), opts)
 		if err != nil {
 			return err
 		}
@@ -113,8 +121,12 @@ var incidentResolveCmd = &cobra.Command{
 		}
 		u.Path = fmt.Sprintf("/api/v1/incidents/%s/resolve", url.PathEscape(args[0]))
 
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{TenantID: tenant, Token: optToken(cmd)}, bytes.NewReader(data))
+			opts, bytes.NewReader(data))
 		if err != nil {
 			return err
 		}
@@ -196,8 +208,12 @@ The replay runs asynchronously; poll status with: paladin incident show <replay-
 		}
 		u.Path = fmt.Sprintf("/api/v1/incidents/%s/replay", url.PathEscape(args[0]))
 
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{TenantID: tenant, Token: optToken(cmd)}, nil)
+			opts, nil)
 		if err != nil {
 			return err
 		}

@@ -20,7 +20,7 @@ func newIntegrationRedis(t *testing.T) *redis.Client {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	rdb := redis.NewClient(&redis.Options{Addr: addr, Protocol: 3, UnstableResp3: true})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := rdb.Ping(ctx).Err(); err != nil {
@@ -47,21 +47,32 @@ func TestValkeyL2_StoreAndLookup(t *testing.T) {
 		t.Fatalf("Store: %v", err)
 	}
 
-	// Small sleep to allow HNSW index to settle.
-	time.Sleep(200 * time.Millisecond)
-
 	// Exact same query should hit.
-	got, err := l2.Lookup(ctx, tenant, query)
-	if err != nil {
-		t.Fatalf("Lookup: %v", err)
-	}
-	if got != l1Key {
-		t.Errorf("expected %q, got %q", l1Key, got)
-	}
+	waitForL2Hit(t, l2, tenant, query, l1Key)
 
 	// Cleanup.
 	rdb.Del(ctx, l2EntryKey(tenant, l1Key))          //nolint:errcheck
 	rdb.Do(ctx, "FT.DROPINDEX", l2IndexName(tenant)) //nolint:errcheck
+}
+
+func waitForL2Hit(t *testing.T, l2 *ValkeyL2, tenantID, queryText, wantL1Key string) {
+	t.Helper()
+
+	ctx := context.Background()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got, err := l2.Lookup(ctx, tenantID, queryText)
+		if err != nil {
+			t.Fatalf("Lookup: %v", err)
+		}
+		if got == wantL1Key {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected %q, got %q", wantL1Key, got)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func TestValkeyL2_MissOnEmptyIndex(t *testing.T) {

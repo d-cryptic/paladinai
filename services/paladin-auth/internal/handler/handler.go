@@ -104,7 +104,7 @@ func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"tenant": t})
+	writeJSON(w, http.StatusCreated, map[string]any{"tenant": t, "data": t})
 }
 
 // GET /tenants
@@ -115,7 +115,7 @@ func (h *Handler) listTenants(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenants": tenants})
+	writeJSON(w, http.StatusOK, map[string]any{"tenants": tenants, "data": tenants})
 }
 
 // GET /tenants/{id}
@@ -131,7 +131,7 @@ func (h *Handler) getTenant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenant": t})
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": t, "data": t})
 }
 
 // POST /tenants/{id}/suspend
@@ -156,7 +156,7 @@ func (h *Handler) setState(w http.ResponseWriter, r *http.Request, state store.T
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tenant": t})
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": t, "data": t})
 }
 
 // POST /tokens — issues a JWT for a tenant (requires X-Admin-Secret).

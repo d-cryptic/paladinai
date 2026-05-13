@@ -80,6 +80,9 @@ func (c *ValkeyL2) Lookup(ctx context.Context, tenantID, queryText string) (stri
 	if tenantID == "" {
 		return "", fmt.Errorf("l2 lookup: tenantID must not be empty")
 	}
+	if err := c.requireSearchClient(); err != nil {
+		return "", err
+	}
 	if err := c.ensureIndex(ctx, tenantID); err != nil {
 		return "", fmt.Errorf("l2 ensure index: %w", err)
 	}
@@ -109,7 +112,7 @@ func (c *ValkeyL2) Lookup(ctx context.Context, tenantID, queryText string) (stri
 	}
 
 	if result.Total == 0 || len(result.Docs) == 0 {
-		return "", nil
+		return c.lookupByScan(ctx, tenantID, vec)
 	}
 
 	doc := result.Docs[0]
@@ -138,6 +141,9 @@ func (c *ValkeyL2) Store(ctx context.Context, tenantID, queryText, l1Key string)
 	if tenantID == "" {
 		return fmt.Errorf("l2 store: tenantID must not be empty")
 	}
+	if err := c.requireSearchClient(); err != nil {
+		return err
+	}
 	if err := c.ensureIndex(ctx, tenantID); err != nil {
 		return fmt.Errorf("l2 ensure index: %w", err)
 	}
@@ -162,6 +168,16 @@ func (c *ValkeyL2) Store(ctx context.Context, tenantID, queryText, l1Key string)
 	return nil
 }
 
+func (c *ValkeyL2) requireSearchClient() error {
+	if c.rdb == nil {
+		return fmt.Errorf("l2 valkey client: redis client is required")
+	}
+	if !c.rdb.Options().UnstableResp3 {
+		return fmt.Errorf("l2 valkey client: redis.Options.UnstableResp3 must be true for RediSearch commands")
+	}
+	return nil
+}
+
 // ensureIndex creates the HNSW index for tenantID if it doesn't exist yet.
 func (c *ValkeyL2) ensureIndex(ctx context.Context, tenantID string) error {
 	c.mu.Lock()
@@ -175,8 +191,9 @@ func (c *ValkeyL2) ensureIndex(ctx context.Context, tenantID string) error {
 	prefix := l2EntryPrefix(tenantID)
 
 	err := c.rdb.FTCreate(ctx, indexName, &redis.FTCreateOptions{
-		OnHash: true,
-		Prefix: []any{prefix},
+		OnHash:          true,
+		Prefix:          []any{prefix},
+		SkipInitialScan: true,
 	}, &redis.FieldSchema{
 		FieldName: "embedding",
 		FieldType: redis.SearchFieldTypeVector,

@@ -33,7 +33,11 @@ var mcpListCmd = &cobra.Command{
 		}
 		u.Path = "/api/v1/mcp/servers"
 
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, err := client.Get(cmd.Context(), u.String(), opts)
 		if err != nil {
 			return err
 		}
@@ -85,7 +89,11 @@ var mcpRegisterCmd = &cobra.Command{
 		}
 		u.Path = "/api/v1/mcp/servers"
 
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)}, bytes.NewReader(data))
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), opts, bytes.NewReader(data))
 		if err != nil {
 			return err
 		}
@@ -112,7 +120,11 @@ var mcpGetCmd = &cobra.Command{
 		}
 		u.Path = fmt.Sprintf("/api/v1/mcp/servers/%s", url.PathEscape(args[0]))
 
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, err := client.Get(cmd.Context(), u.String(), opts)
 		if err != nil {
 			return err
 		}
@@ -141,7 +153,11 @@ var mcpHeartbeatCmd = &cobra.Command{
 		}
 		u.Path = fmt.Sprintf("/api/v1/mcp/servers/%s/heartbeat", url.PathEscape(args[0]))
 
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)}, nil)
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), opts, nil)
 		if err != nil {
 			return err
 		}
@@ -168,7 +184,11 @@ var mcpDeregisterCmd = &cobra.Command{
 		}
 		u.Path = fmt.Sprintf("/api/v1/mcp/servers/%s", url.PathEscape(args[0]))
 
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodDelete, u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)}, nil)
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, status, err := client.DoJSON(cmd.Context(), http.MethodDelete, u.String(), opts, nil)
 		if err != nil {
 			return err
 		}

@@ -83,23 +83,23 @@ func run() error {
 
 	// Build backend proxies. When a URL is empty, routes return 502 so the
 	// router is always complete (avoids 404 confusion in dev).
-	hubProxy, err := buildProxy(conf.HubURL, "/api/v1/mcp", log)
+	hubProxy, err := buildProxy(conf.HubURL, "/api/v1/mcp", "/api/v1/mcp", log)
 	if err != nil {
 		return fmt.Errorf("hub proxy: %w", err)
 	}
-	runbookProxy, err := buildProxy(conf.HubURL, "/api/v1/runbooks", log)
+	runbookProxy, err := buildProxy(conf.HubURL, "/api/v1/runbooks", "/api/v1/runbooks", log)
 	if err != nil {
 		return fmt.Errorf("runbook proxy: %w", err)
 	}
-	incidentProxy, err := buildProxy(conf.AgentURL, "/api/v1/incidents", log)
+	incidentProxy, err := buildProxy(conf.AgentURL, "/api/v1/incidents", "/api/v1/incidents", log)
 	if err != nil {
 		return fmt.Errorf("incident proxy: %w", err)
 	}
-	ingestProxy, err := buildProxy(conf.IngestURL, "/api/v1/ingest", log)
+	ingestProxy, err := buildProxy(conf.IngestURL, "/api/v1/ingest", "/api/v1/ingest", log)
 	if err != nil {
 		return fmt.Errorf("ingest proxy: %w", err)
 	}
-	authProxy, err := buildProxy(conf.AuthURL, "/api/v1/auth", log)
+	authProxy, err := buildProxy(conf.AuthURL, "/api/v1/auth", "/api/v1", log)
 	if err != nil {
 		return fmt.Errorf("auth proxy: %w", err)
 	}
@@ -191,7 +191,7 @@ func run() error {
 // When rawURL is empty, a stub that always returns 502 is returned so routes
 // are still registered and return a clear error rather than 404.
 // When rawURL is non-empty it is validated (must be http/https with a host).
-func buildProxy(rawURL, prefix string, log *zap.Logger) (http.Handler, error) {
+func buildProxy(rawURL, prefix, backendPrefix string, log *zap.Logger) (http.Handler, error) {
 	if rawURL == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -207,7 +207,7 @@ func buildProxy(rawURL, prefix string, log *zap.Logger) (http.Handler, error) {
 	if err := proxy.Validate(target); err != nil {
 		return nil, err
 	}
-	return proxy.New(target, prefix, log), nil
+	return proxy.NewWithBackendPrefix(target, prefix, backendPrefix, log), nil
 }
 
 func parseRedisAddr(rawURL string) (string, error) {

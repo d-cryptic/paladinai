@@ -1,5 +1,3 @@
-version: "3.9"
-
 # PaladinAI v2 — local infrastructure stack
 # Run: make up
 # Stop: make down
@@ -81,10 +79,10 @@ services:
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────
-  # Valkey 8.x — Redis-compatible L1/L2/L3 cache
+  # Redis Stack — Redis-compatible L1/L2/L3 cache with Search for L2 vectors
   # ─────────────────────────────────────────────────────
   valkey:
-    image: valkey/valkey:8-alpine
+    image: redis/redis-stack-server:7.2.0-v19
     container_name: paladin-valkey
     command:
       - "--maxmemory"
@@ -102,7 +100,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10

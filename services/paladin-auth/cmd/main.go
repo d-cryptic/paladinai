@@ -67,7 +67,11 @@ func run() error {
 			tenantStore = store.NewMemStore()
 		} else {
 			log.Info("auth: using postgres tenant store")
-			tenantStore = store.NewPostgresStore(pool)
+			pgStore := store.NewPostgresStore(pool)
+			if err := pgStore.MigrateUp(ctx); err != nil {
+				return fmt.Errorf("auth: postgres migrate: %w", err)
+			}
+			tenantStore = pgStore
 		}
 	} else {
 		log.Info("auth: DATABASE_URL not set — using in-memory tenant store")
@@ -82,6 +86,7 @@ func run() error {
 	r.Use(chimiddleware.Recoverer)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	r.Route("/api/v1", func(r chi.Router) {
