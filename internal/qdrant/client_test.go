@@ -106,7 +106,7 @@ func TestClient_Search(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "", nil)
-	res, err := c.Search(context.Background(), "rb", []float32{0.1, 0.2}, 5)
+	res, err := c.Search(context.Background(), "rb", []float32{0.1, 0.2}, 5, nil)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

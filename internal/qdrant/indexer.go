@@ -9,7 +9,9 @@ import (
 // here so tests can substitute an in-memory fake.
 type PointStore interface {
 	Upsert(ctx context.Context, collection string, points []Point) error
-	Search(ctx context.Context, collection string, vector []float32, topK int) ([]SearchResult, error)
+	// Search performs a vector similarity search. filter, when non-nil, is passed
+	// to the backing store as a server-side predicate (e.g. Qdrant must-match).
+	Search(ctx context.Context, collection string, vector []float32, topK int, filter map[string]any) ([]SearchResult, error)
 }
 
 // NoopClient is a PointStore implementation that discards all writes and returns
@@ -17,7 +19,7 @@ type PointStore interface {
 type NoopClient struct{}
 
 func (NoopClient) Upsert(_ context.Context, _ string, _ []Point) error { return nil }
-func (NoopClient) Search(_ context.Context, _ string, _ []float32, _ int) ([]SearchResult, error) {
+func (NoopClient) Search(_ context.Context, _ string, _ []float32, _ int, _ map[string]any) ([]SearchResult, error) {
 	return nil, nil
 }
 
@@ -61,22 +63,24 @@ func (idx *Indexer) Index(ctx context.Context, source, title, tenantID, text str
 	return len(points), nil
 }
 
-// Search finds runbook chunks semantically similar to the query, filtering by
-// tenant ID via the payload.
+// Search finds runbook chunks semantically similar to the query, filtered by
+// tenant ID server-side via a Qdrant must-match predicate.
 func (idx *Indexer) Search(ctx context.Context, query, tenantID string, topK int) ([]RunbookChunk, error) {
 	vec, err := idx.embedder.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("indexer: embed query: %w", err)
 	}
-	results, err := idx.client.Search(ctx, idx.collection, vec, topK)
+	filter := map[string]any{
+		"must": []map[string]any{
+			{"key": "tenant_id", "match": map[string]any{"value": tenantID}},
+		},
+	}
+	results, err := idx.client.Search(ctx, idx.collection, vec, topK, filter)
 	if err != nil {
 		return nil, fmt.Errorf("indexer: search: %w", err)
 	}
 	chunks := make([]RunbookChunk, 0, len(results))
 	for _, r := range results {
-		if tid, _ := r.Payload["tenant_id"].(string); tid != tenantID {
-			continue
-		}
 		chunks = append(chunks, RunbookChunk{
 			ID:       r.ID,
 			Source:   getString(r.Payload, "source"),

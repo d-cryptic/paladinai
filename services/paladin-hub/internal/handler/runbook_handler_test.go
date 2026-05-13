@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -26,7 +25,7 @@ func (s *stubPointStore) Upsert(_ context.Context, _ string, points []qdrant.Poi
 	return nil
 }
 
-func (s *stubPointStore) Search(_ context.Context, _ string, _ []float32, topK int) ([]qdrant.SearchResult, error) {
+func (s *stubPointStore) Search(_ context.Context, _ string, _ []float32, topK int, _ map[string]any) ([]qdrant.SearchResult, error) {
 	results := make([]qdrant.SearchResult, 0, len(s.points))
 	for _, p := range s.points {
 		results = append(results, qdrant.SearchResult{
@@ -118,18 +117,18 @@ func TestRunbookImport_GitHubSource(t *testing.T) {
 }
 
 func TestRunbookImport_FileSource(t *testing.T) {
-	// Write a temp runbook file.
-	dir := t.TempDir()
-	p := filepath.Join(dir, "runbook.md")
+	// Write a temp runbook file using a relative path (absolute paths are rejected by the API).
+	relPath := "testrunbook_filesource.md"
 	content := "# DB Failover Runbook\n\nStep 1: Check replication lag.\nStep 2: Promote replica.\n"
-	if err := os.WriteFile(p, []byte(content), 0600); err != nil {
+	if err := os.WriteFile(relPath, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Remove(relPath) })
 
 	h, _ := newTestRunbookHandler()
 	srv := mountRunbookRoutes(h)
 
-	body, _ := json.Marshal(map[string]any{"source": "file", "path": p})
+	body, _ := json.Marshal(map[string]any{"source": "file", "path": relPath})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", "tenant-abc")

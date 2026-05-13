@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -73,11 +74,21 @@ func main() {
 		log.Fatal("comms: create consumer failed", zap.Error(err))
 	}
 
-	msgs, err := cons.Messages(jetstream.PullMaxMessages(cfg.Workers))
+	workers := cfg.Workers
+	if workers < 1 {
+		workers = 1
+	}
+
+	msgs, err := cons.Messages(jetstream.PullMaxMessages(workers))
 	if err != nil {
 		log.Fatal("comms: start message fetch failed", zap.Error(err))
 	}
-	defer msgs.Stop()
+	// Watchdog: unblock msgs.Next() when ctx is cancelled. Without this,
+	// msgs.Next() blocks indefinitely and defer msgs.Stop() never runs.
+	go func() {
+		<-ctx.Done()
+		msgs.Stop()
+	}()
 
 	// ── Health endpoint ───────────────────────────────────────────────────────
 	commsPort := os.Getenv("PALADIN_COMMS_PORT")
@@ -107,14 +118,9 @@ func main() {
 	)
 
 	// ── Consume loop ──────────────────────────────────────────────────────────
-	sem := make(chan struct{}, cfg.Workers)
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
 	for {
-		select {
-		case <-ctx.Done():
-			goto shutdown
-		default:
-		}
-
 		msg, err := msgs.Next()
 		if err != nil {
 			if errors.Is(err, jetstream.ErrMsgIteratorClosed) || errors.Is(err, context.Canceled) {
@@ -125,7 +131,9 @@ func main() {
 		}
 
 		sem <- struct{}{}
+		wg.Add(1)
 		go func(m jetstream.Msg) {
+			defer wg.Done()
 			defer func() { <-sem }()
 			if procErr := h.ProcessMessage(ctx, m); procErr != nil {
 				log.Warn("comms: process error", zap.Error(procErr))
@@ -133,11 +141,8 @@ func main() {
 		}(msg)
 	}
 
-shutdown:
-	// drain semaphore
-	for i := 0; i < cfg.Workers; i++ {
-		sem <- struct{}{}
-	}
+	// Wait for all in-flight handlers to finish before shutdown.
+	wg.Wait()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

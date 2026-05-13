@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -109,9 +111,10 @@ func (s *SlackNotifier) Notify(ctx context.Context, n Notification) error {
 	if err != nil {
 		return fmt.Errorf("slack: send: %w", err)
 	}
-	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("slack: unexpected status %d", resp.StatusCode)
 	}
 	return nil
@@ -170,7 +173,8 @@ func (p *PagerDutyNotifier) Notify(ctx context.Context, n Notification) error {
 	if err != nil {
 		return fmt.Errorf("pagerduty: send: %w", err)
 	}
-	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 
 	// PD Events API v2 returns 202 Accepted on success.
 	if resp.StatusCode != http.StatusAccepted {
@@ -192,16 +196,30 @@ func NewMultiNotifier(notifiers ...Notifier) *MultiNotifier {
 	return &MultiNotifier{notifiers: notifiers}
 }
 
-// Notify calls all registered notifiers and returns a combined error if any fail.
+// Notify calls all registered notifiers concurrently and returns a combined error if any fail.
 func (m *MultiNotifier) Notify(ctx context.Context, n Notification) error {
-	var errs []error
-	for _, notifier := range m.notifiers {
-		if err := notifier.Notify(ctx, n); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if len(errs) == 0 {
+	if len(m.notifiers) == 0 {
 		return nil
 	}
-	return fmt.Errorf("multi-notifier: %d/%d failed: %v", len(errs), len(m.notifiers), errs)
+	errs := make([]error, len(m.notifiers))
+	var wg sync.WaitGroup
+	for i, notifier := range m.notifiers {
+		wg.Add(1)
+		go func(idx int, nt Notifier) {
+			defer wg.Done()
+			errs[idx] = nt.Notify(ctx, n)
+		}(i, notifier)
+	}
+	wg.Wait()
+
+	var failed []error
+	for _, err := range errs {
+		if err != nil {
+			failed = append(failed, err)
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("multi-notifier: %d/%d failed: %v", len(failed), len(m.notifiers), failed)
 }

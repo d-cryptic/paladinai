@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -126,9 +125,10 @@ func TestRunbookImport_File_NotExist(t *testing.T) {
 	h, _ := newTestRunbookHandler()
 	srv := mountRunbookRoutes(h)
 
+	// Relative path that does not exist — should get 502 FETCH_FAILED.
 	body, _ := json.Marshal(map[string]any{
 		"source": "file",
-		"path":   "/nonexistent/path/to/runbook.md",
+		"path":   "nonexistent-runbook.md",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -142,14 +142,15 @@ func TestRunbookImport_File_NotExist(t *testing.T) {
 }
 
 func TestRunbookImport_File_SingleFile(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "runbook.md")
-	_ = os.WriteFile(p, []byte("# Runbook\n\nStep 1: check logs.\n"), 0600)
+	// Use a relative path — absolute paths are rejected by the API security check.
+	relPath := "testrunbook_singlefile.md"
+	_ = os.WriteFile(relPath, []byte("# Runbook\n\nStep 1: check logs.\n"), 0600)
+	t.Cleanup(func() { _ = os.Remove(relPath) })
 
 	h, _ := newTestRunbookHandler()
 	srv := mountRunbookRoutes(h)
 
-	body, _ := json.Marshal(map[string]any{"source": "file", "path": p})
+	body, _ := json.Marshal(map[string]any{"source": "file", "path": relPath})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", "tenant-abc")

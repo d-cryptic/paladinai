@@ -131,8 +131,9 @@ func (c *Client) Upsert(ctx context.Context, collection string, points []Point) 
 }
 
 // Search performs a vector similarity search and returns up to topK results
-// ordered by score (highest first).
-func (c *Client) Search(ctx context.Context, collection string, vector []float32, topK int) ([]SearchResult, error) {
+// ordered by score (highest first). filter, when non-nil, is included as the
+// Qdrant filter clause (e.g. a must-match on tenant_id).
+func (c *Client) Search(ctx context.Context, collection string, vector []float32, topK int, filter map[string]any) ([]SearchResult, error) {
 	if topK <= 0 {
 		topK = 10
 	}
@@ -140,6 +141,9 @@ func (c *Client) Search(ctx context.Context, collection string, vector []float32
 		"vector":       vector,
 		"limit":        topK,
 		"with_payload": true,
+	}
+	if filter != nil {
+		body["filter"] = filter
 	}
 	var resp struct {
 		Result []struct {

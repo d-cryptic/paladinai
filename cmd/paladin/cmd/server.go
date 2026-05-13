@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -231,7 +232,7 @@ func prefixWriter(dst *os.File, name string) *linePrefixWriter {
 func (w *linePrefixWriter) Write(p []byte) (n int, err error) {
 	w.buf = append(w.buf, p...)
 	for {
-		idx := strings.Index(string(w.buf), "\n")
+		idx := bytes.IndexByte(w.buf, '\n')
 		if idx < 0 {
 			break
 		}

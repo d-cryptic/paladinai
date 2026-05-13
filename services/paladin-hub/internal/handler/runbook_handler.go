@@ -2,9 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,6 +35,7 @@ type RunbookRecord struct {
 type RunbookHandler struct {
 	indexer *qdrant.Indexer
 	log     *zap.Logger
+	mu      sync.RWMutex
 	// records is a simple in-memory index of imported runbooks.
 	// Production would persist this to Postgres.
 	records map[string]*RunbookRecord
@@ -103,7 +108,9 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 		rec.Chunks = n
 	}
 
+	h.mu.Lock()
 	h.records[rec.ID] = rec
+	h.mu.Unlock()
 	h.log.Info("runbook imported",
 		zap.String("id", rec.ID),
 		zap.String("tenant", tenantID),
@@ -137,6 +144,7 @@ func (h *RunbookHandler) listRunbooks(w http.ResponseWriter, r *http.Request) {
 	}
 	sourceFilter := r.URL.Query().Get("source")
 
+	h.mu.RLock()
 	out := make([]*RunbookRecord, 0, len(h.records))
 	for _, rec := range h.records {
 		if sourceFilter != "" && rec.Source != sourceFilter {
@@ -147,6 +155,7 @@ func (h *RunbookHandler) listRunbooks(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	h.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": out, "total": len(out)})
@@ -218,15 +227,22 @@ func (h *RunbookHandler) fetchContent(req importRequest) (text, title, srcPath s
 		if req.Path == "" {
 			return "", "", "", errMsg("path is required for source=file")
 		}
-		data, readErr := os.ReadFile(req.Path)
+		if filepath.IsAbs(req.Path) {
+			return "", "", "", fmt.Errorf("invalid path: absolute paths are not allowed")
+		}
+		cleaned := filepath.Clean(req.Path)
+		if strings.HasPrefix(cleaned, "..") {
+			return "", "", "", fmt.Errorf("invalid path: path traversal is not allowed")
+		}
+		data, readErr := os.ReadFile(cleaned)
 		if readErr != nil {
 			return "", "", "", readErr
 		}
-		title = req.Path
-		if idx := lastSlash(req.Path); idx >= 0 {
-			title = req.Path[idx+1:]
+		title = cleaned
+		if idx := lastSlash(cleaned); idx >= 0 {
+			title = cleaned[idx+1:]
 		}
-		return string(data), title, req.Path, nil
+		return string(data), title, cleaned, nil
 	case "github":
 		title = req.Repo
 		if req.Path != "" {

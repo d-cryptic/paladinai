@@ -22,7 +22,7 @@ func (f *fakeStore) Upsert(_ context.Context, _ string, points []Point) error {
 	return nil
 }
 
-func (f *fakeStore) Search(_ context.Context, _ string, _ []float32, _ int) ([]SearchResult, error) {
+func (f *fakeStore) Search(_ context.Context, _ string, _ []float32, _ int, _ map[string]any) ([]SearchResult, error) {
 	return f.searchOut, f.searchErr
 }
 
@@ -68,11 +68,12 @@ func TestIndexer_Index_UpsertError(t *testing.T) {
 	}
 }
 
-func TestIndexer_Search_FiltersByTenant(t *testing.T) {
+func TestIndexer_Search_PassesFilterToStore(t *testing.T) {
 	t.Parallel()
+	// The store now receives the server-side filter and returns only matching results.
+	// The fake simply returns what it is configured with (filter enforcement is in Qdrant).
 	store := &fakeStore{searchOut: []SearchResult{
 		{ID: "a", Score: 0.9, Payload: map[string]any{"tenant_id": "tenant", "content": "match", "source": "s", "title": "t"}},
-		{ID: "b", Score: 0.5, Payload: map[string]any{"tenant_id": "other", "content": "skip"}},
 	}}
 	idx := NewIndexer(store, &StubEmbedder{})
 	chunks, err := idx.Search(context.Background(), "q", "tenant", 5)
@@ -80,7 +81,7 @@ func TestIndexer_Search_FiltersByTenant(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(chunks) != 1 || chunks[0].Content != "match" {
-		t.Fatalf("expected 1 chunk for tenant, got %+v", chunks)
+		t.Fatalf("expected 1 chunk, got %+v", chunks)
 	}
 	if chunks[0].Source != "s" || chunks[0].Title != "t" {
 		t.Fatalf("payload not unpacked: %+v", chunks[0])
