@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -95,7 +96,7 @@ func (c *Client) triggerWorkflow(ctx context.Context, workflowName string, paylo
 	var result struct {
 		WorkflowRunID string `json:"workflow_run_id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&result); err != nil {
 		c.log.Warn("workflow: could not parse run ID from response", zap.Error(err))
 		return "", nil
 	}
