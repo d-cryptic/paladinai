@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/paladinai/paladinai/cmd/paladin/tui"
+	"github.com/paladinai/paladinai/internal/projectconfig"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -156,7 +158,7 @@ func runInitTUI(cmd *cobra.Command, cfg *PaladinConfig, defaultAPI, defaultAuth,
 		return fmt.Errorf("setup aborted")
 	}
 	res := wm.Result()
-	return applyAndSave(cmd, cfg, res.APIEndpoint, res.AuthEndpoint, res.Tenant, res.Token, tokenFromEnv)
+	return applyAndSaveProject(cmd, cfg, res.APIEndpoint, res.AuthEndpoint, res.Tenant, res.Token, tokenFromEnv, res.Tier, res.Integrations)
 }
 
 // runInitPrompt runs the classic line-prompt fallback (non-TTY / piped).
@@ -223,6 +225,10 @@ func runInitPrompt(cmd *cobra.Command, cfg *PaladinConfig, defaultAPI, defaultAu
 
 // applyAndSave verifies connectivity, then writes config to disk.
 func applyAndSave(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, authEndpoint, tenant, token string, tokenFromEnv bool) error {
+	return applyAndSaveProject(cmd, cfg, apiEndpoint, authEndpoint, tenant, token, tokenFromEnv, "pool", nil)
+}
+
+func applyAndSaveProject(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, authEndpoint, tenant, token string, tokenFromEnv bool, tier string, integrations []string) error {
 	activeToken := token
 	if t := os.Getenv("PALADIN_TOKEN"); t != "" {
 		activeToken = t
@@ -254,14 +260,46 @@ func applyAndSave(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, authEndpo
 	if err := saveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
+	if err := writeProjectConfig("paladin.yaml", tenant, tier, integrations); err != nil {
+		return err
+	}
 
 	fmt.Printf("\nConfig saved to %s\n", configPath())
+	fmt.Println("Project config saved to paladin.yaml")
 	fmt.Println("\nNext steps:")
 	fmt.Println("  paladin doctor             -- verify integrations")
 	fmt.Println("  paladin alert list         -- view active alerts")
 	fmt.Println("  paladin dashboard          -- open TUI dashboard")
 	printCompletionHint()
 	return nil
+}
+
+func writeProjectConfig(path, tenant, tier string, enabled []string) error {
+	cfg := projectconfig.Default(tenant, tier, "")
+	enabledSet := make(map[string]struct{}, len(enabled))
+	for _, name := range enabled {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			enabledSet[name] = struct{}{}
+		}
+	}
+	for i := range cfg.Spec.Integrations {
+		_, cfg.Spec.Integrations[i].Enabled = enabledSet[cfg.Spec.Integrations[i].Name]
+		delete(enabledSet, cfg.Spec.Integrations[i].Name)
+	}
+	customIntegrations := make([]string, 0, len(enabledSet))
+	for name := range enabledSet {
+		customIntegrations = append(customIntegrations, name)
+	}
+	sort.Strings(customIntegrations)
+	for _, name := range customIntegrations {
+		cfg.Spec.Integrations = append(cfg.Spec.Integrations, projectconfig.Integration{
+			Name:    name,
+			Version: "latest",
+			Enabled: true,
+		})
+	}
+	return projectconfig.WriteFile(path, cfg)
 }
 
 // readLine reads a trimmed line from the reader.
