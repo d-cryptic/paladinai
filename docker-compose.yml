@@ -333,6 +333,33 @@ services:
       - mock
     logging: *default-logging
 
+  # ─────────────────────────────────────────────────────
+  # OPA sidecar — RBAC + tenant boundary enforcement
+  # Policy: infra/opa/authz.rego (paladin.authz)
+  # ─────────────────────────────────────────────────────
+  opa:
+    image: openpolicyagent/opa:0.68.0
+    container_name: paladin-opa
+    command:
+      - "run"
+      - "--server"
+      - "--addr=:8181"
+      - "--log-format=json"
+      - "/policies/authz.rego"
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./infra/opa:/policies:ro
+    networks:
+      - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
   # ═════════════════════════════════════════════════════════════════════════
   # PaladinAI Go services (Stage 8)
   # Each service builds from its own Dockerfile and joins the `paladin`
@@ -355,6 +382,7 @@ services:
       VALKEY_URL: redis://valkey:6379
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      OPA_URL: http://opa:8181
       PALADIN_EDGE_PORT: "8080"
     depends_on:
       postgres:
@@ -362,6 +390,8 @@ services:
       nats:
         condition: service_healthy
       valkey:
+        condition: service_healthy
+      opa:
         condition: service_healthy
     networks:
       - paladin

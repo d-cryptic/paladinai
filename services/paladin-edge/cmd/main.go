@@ -69,6 +69,15 @@ func run() error {
 		return fmt.Errorf("JWT_SECRET: %w", err)
 	}
 
+	// OPA sidecar — optional; fail-open when OPA_URL is unset (dev/test convenience).
+	var opaClient middleware.OPAClient
+	opaEnabled := false
+	if opaURL := os.Getenv("OPA_URL"); opaURL != "" {
+		opaClient = middleware.NewHTTPOPAClient(opaURL)
+		opaEnabled = true
+		log.Info("opa: policy enforcement enabled", zap.String("url", opaURL))
+	}
+
 	rateLimiter := ratelimit.NewValkeyLimiter(rdb, conf.RateLimitRPS, log)
 	health := &handler.HealthHandler{}
 
@@ -131,6 +140,9 @@ func run() error {
 		// long-lived proxy responses (SSE, streaming JSON-RPC) are not cut short.
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.JWTMiddleware(jwtSecret, log))
+			if opaEnabled {
+				r.Use(middleware.OPAMiddleware(opaClient, true, log))
+			}
 
 			// MCP server registry — proxied to paladin-hub.
 			// /api/v1/mcp/* → paladin-hub /api/v1/*  (prefix stripped in Director)

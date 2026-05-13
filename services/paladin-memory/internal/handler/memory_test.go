@@ -308,3 +308,60 @@ func TestSetWorkingMemory_CustomTTL(t *testing.T) {
 	assert.True(t, resp.Found)
 	_ = ws // verify store was used
 }
+
+// fakeTopologyQuerier satisfies handler.TopologyQuerier.
+type fakeTopologyQuerier struct {
+	services []string
+	err      error
+}
+
+func (f *fakeTopologyQuerier) BlastRadius(_ context.Context, _, _ string, _ int) ([]string, error) {
+	return f.services, f.err
+}
+
+func TestSearchMemory_TopologyType_ReturnsBlastRadius(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandler()
+	tq := &fakeTopologyQuerier{services: []string{"payments-api", "db-primary"}}
+	h = h.WithTopology(tq)
+
+	resp, err := h.SearchMemory(context.Background(), &memoryv1.SearchMemoryRequest{
+		TenantID:    "t1",
+		Query:       "orders-service",
+		MemoryTypes: []memoryv1.MemoryType{memoryv1.MemoryTypeTopology},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 2)
+	assert.Equal(t, memoryv1.MemoryTypeTopology, resp.Results[0].Type)
+	assert.Equal(t, "payments-api", resp.Results[0].Content)
+	assert.Equal(t, "topology", resp.Results[0].Source)
+}
+
+func TestSearchMemory_TopologyType_NilQuerier(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandler()
+	// no WithTopology call — topology querier is nil
+
+	resp, err := h.SearchMemory(context.Background(), &memoryv1.SearchMemoryRequest{
+		TenantID:    "t1",
+		Query:       "orders-service",
+		MemoryTypes: []memoryv1.MemoryType{memoryv1.MemoryTypeTopology},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Results)
+}
+
+func TestSearchMemory_TopologyType_ErrorPropagates(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandler()
+	tq := &fakeTopologyQuerier{err: fmt.Errorf("falkordb unavailable")}
+	h = h.WithTopology(tq)
+
+	_, err := h.SearchMemory(context.Background(), &memoryv1.SearchMemoryRequest{
+		TenantID:    "t1",
+		Query:       "orders-service",
+		MemoryTypes: []memoryv1.MemoryType{memoryv1.MemoryTypeTopology},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "topology")
+}
