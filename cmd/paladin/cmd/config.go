@@ -10,30 +10,10 @@ import (
 	"strings"
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
+	"github.com/paladinai/paladinai/internal/projectconfig"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
-
-// paladinYAML represents the project config file (paladin.yaml).
-type paladinYAML struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Tenant string `yaml:"tenant"`
-		Tier   string `yaml:"tier"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Region       string        `yaml:"region"`
-		Integrations []Integration `yaml:"integrations"`
-	} `yaml:"spec"`
-}
-
-// Integration is a named type so it can be referenced without ambiguity.
-type Integration struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
-	Enabled bool   `yaml:"enabled"`
-}
 
 var configCmd = &cobra.Command{
 	Use:   "config",
@@ -41,7 +21,7 @@ var configCmd = &cobra.Command{
 }
 
 // validateConfig returns human-readable error strings; empty slice means valid.
-func validateConfig(cfg paladinYAML) []string {
+func validateConfig(cfg projectconfig.Config) []string {
 	var errs []string
 	if cfg.APIVersion != "paladin.io/v2" {
 		errs = append(errs, fmt.Sprintf("apiVersion: expected paladin.io/v2, got %q", cfg.APIVersion))
@@ -51,6 +31,9 @@ func validateConfig(cfg paladinYAML) []string {
 	}
 	if cfg.Metadata.Tenant == "" {
 		errs = append(errs, "metadata.tenant: must not be empty")
+	}
+	if strings.ContainsAny(cfg.Metadata.Tenant, "\r\n\x00") {
+		errs = append(errs, "metadata.tenant: contains invalid characters")
 	}
 	validTiers := map[string]bool{"pool": true, "bridge": true, "silo": true}
 	if cfg.Metadata.Tier != "" && !validTiers[cfg.Metadata.Tier] {
@@ -65,6 +48,35 @@ func validateConfig(cfg paladinYAML) []string {
 		}
 		if intg.Version == "" {
 			errs = append(errs, fmt.Sprintf("spec.integrations[%d] (%s): version must not be empty", i, intg.Name))
+		}
+	}
+	errs = append(errs, validateRouting(cfg.Spec.Routing)...)
+	return errs
+}
+
+func validateRouting(r projectconfig.Routing) []string {
+	var errs []string
+	routes := []struct {
+		name  string
+		route projectconfig.SeverityRoute
+	}{
+		{name: "p1", route: r.P1},
+		{name: "p2", route: r.P2},
+		{name: "p3", route: r.P3},
+		{name: "p4", route: r.P4},
+	}
+	validLLMTiers := map[string]bool{"A": true, "B": true, "C": true}
+	validPolicies := map[string]bool{"auto": true, "manual": true, "skip": true}
+	for _, item := range routes {
+		if item.route.LLMTier == "" && item.route.ApprovalPolicy == "" {
+			continue
+		}
+		prefix := "spec.routing." + item.name
+		if !validLLMTiers[item.route.LLMTier] {
+			errs = append(errs, fmt.Sprintf("%s.llm_tier: must be A, B, or C; got %q", prefix, item.route.LLMTier))
+		}
+		if !validPolicies[item.route.ApprovalPolicy] {
+			errs = append(errs, fmt.Sprintf("%s.approval_policy: must be auto, manual, or skip; got %q", prefix, item.route.ApprovalPolicy))
 		}
 	}
 	return errs
@@ -98,7 +110,7 @@ Returns exit code 0 on success, 1 on validation errors.`,
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 
-		var cfg paladinYAML
+		var cfg projectconfig.Config
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return fmt.Errorf("parse %s: %w", path, err)
 		}
@@ -141,7 +153,7 @@ the PaladinAI API. The control plane reconciles the desired state.`,
 			return fmt.Errorf("%s: file too large (%d bytes, max %d)", path, len(data), maxConfigBytes)
 		}
 
-		var cfg paladinYAML
+		var cfg projectconfig.Config
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return fmt.Errorf("parse %s: %w", path, err)
 		}
@@ -153,11 +165,6 @@ the PaladinAI API. The control plane reconciles the desired state.`,
 				fmt.Fprintf(os.Stderr, "  - %s\n", e)
 			}
 			return fmt.Errorf("found %d validation error(s)", len(errs))
-		}
-
-		// Reject tenant values containing control characters or CRLF to prevent header injection.
-		if strings.ContainsAny(cfg.Metadata.Tenant, "\r\n\x00") {
-			return fmt.Errorf("metadata.tenant contains invalid characters")
 		}
 
 		// Convert YAML → generic map to POST as JSON.
