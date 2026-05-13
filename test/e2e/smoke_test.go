@@ -5,8 +5,14 @@
 //
 // Requires all services running via `make up && make up-all`:
 //   - PALADIN_INGEST_URL  (default: http://localhost:9001)
+//   - PALADIN_EDGE_URL    (default: http://localhost:9002)
 //   - PALADIN_AUTH_URL   (default: http://localhost:9003)
 //   - PALADIN_HUB_URL    (default: http://localhost:8082)
+//   - PALADIN_AGENT_URL  (default: http://localhost:9006)
+//   - PALADIN_WS_URL     (default: http://localhost:9007)
+//   - PALADIN_ORCHESTRATOR_URL (default: http://localhost:9008)
+//   - PALADIN_COMMS_URL  (default: http://localhost:9009)
+//   - PALADIN_MEMORY_URL (default: http://localhost:9011)
 //
 // Run with: go test -tags e2e -timeout 120s ./test/e2e/...
 package e2e
@@ -28,9 +34,15 @@ import (
 )
 
 const (
-	defaultIngestURL = "http://localhost:9001"
-	defaultAuthURL   = "http://localhost:9003"
-	defaultHubURL    = "http://localhost:8082"
+	defaultIngestURL       = "http://localhost:9001"
+	defaultEdgeURL         = "http://localhost:9002"
+	defaultAuthURL         = "http://localhost:9003"
+	defaultHubURL          = "http://localhost:8082"
+	defaultAgentURL        = "http://localhost:9006"
+	defaultWSURL           = "http://localhost:9007"
+	defaultOrchestratorURL = "http://localhost:9008"
+	defaultCommsURL        = "http://localhost:9009"
+	defaultMemoryURL       = "http://localhost:9011"
 )
 
 func envOr(key, fallback string) string {
@@ -40,18 +52,24 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func ingestURL() string   { return envOr("PALADIN_INGEST_URL", defaultIngestURL) }
-func authURL() string     { return envOr("PALADIN_AUTH_URL", defaultAuthURL) }
-func hubURL() string      { return envOr("PALADIN_HUB_URL", defaultHubURL) }
-func adminSecret() string { return envOr("ADMIN_SECRET", "paladin-admin-secret") }
-func jwtSecret() string   { return envOr("JWT_SECRET", "paladin-dev-jwt-secret-min-32-chars!!") }
+func ingestURL() string       { return envOr("PALADIN_INGEST_URL", defaultIngestURL) }
+func edgeURL() string         { return envOr("PALADIN_EDGE_URL", defaultEdgeURL) }
+func authURL() string         { return envOr("PALADIN_AUTH_URL", defaultAuthURL) }
+func hubURL() string          { return envOr("PALADIN_HUB_URL", defaultHubURL) }
+func agentURL() string        { return envOr("PALADIN_AGENT_URL", defaultAgentURL) }
+func wsURL() string           { return envOr("PALADIN_WS_URL", defaultWSURL) }
+func orchestratorURL() string { return envOr("PALADIN_ORCHESTRATOR_URL", defaultOrchestratorURL) }
+func commsURL() string        { return envOr("PALADIN_COMMS_URL", defaultCommsURL) }
+func memoryURL() string       { return envOr("PALADIN_MEMORY_URL", defaultMemoryURL) }
+func adminSecret() string     { return envOr("ADMIN_SECRET", "paladin-admin-secret") }
+func jwtSecret() string       { return envOr("JWT_SECRET", "paladin-dev-jwt-secret-min-32-chars!!") }
 
-// waitForHealthz polls /healthz until ready or timeout.
-func waitForHealthz(t *testing.T, base string, d time.Duration) {
+// waitForEndpoint polls a service endpoint until it returns 200 or times out.
+func waitForEndpoint(t *testing.T, base, path string, d time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(base + "/healthz") //nolint:gosec,noctx
+		resp, err := http.Get(base + path) //nolint:gosec,noctx
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close() //nolint:errcheck
 			return
@@ -61,17 +79,34 @@ func waitForHealthz(t *testing.T, base string, d time.Duration) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	t.Fatalf("service at %s did not become healthy within %s", base, d)
+	t.Fatalf("service endpoint %s%s did not return 200 within %s", base, path, d)
+}
+
+func waitForHealthz(t *testing.T, base string, d time.Duration) {
+	t.Helper()
+	waitForEndpoint(t, base, "/healthz", d)
+}
+
+func waitForReadyz(t *testing.T, base string, d time.Duration) {
+	t.Helper()
+	waitForEndpoint(t, base, "/readyz", d)
 }
 
 func TestServicesHealthy(t *testing.T) {
 	for _, svc := range []struct{ name, url string }{
-		{"paladin-ingest", ingestURL()},
+		{"paladin-agent", agentURL()},
 		{"paladin-auth", authURL()},
+		{"paladin-comms", commsURL()},
+		{"paladin-edge", edgeURL()},
 		{"paladin-hub", hubURL()},
+		{"paladin-ingest", ingestURL()},
+		{"paladin-memory", memoryURL()},
+		{"paladin-orchestrator", orchestratorURL()},
+		{"paladin-ws", wsURL()},
 	} {
 		t.Run(svc.name, func(t *testing.T) {
 			waitForHealthz(t, svc.url, 10*time.Second)
+			waitForReadyz(t, svc.url, 10*time.Second)
 		})
 	}
 }
