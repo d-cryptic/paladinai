@@ -16,7 +16,25 @@ func newAuthLoginTestCmd(authURL string) *cobra.Command {
 	c.Flags().String("user-id", "", "")
 	c.Flags().String("roles", "viewer", "")
 	c.Flags().String("admin-secret", "", "")
+	c.Flags().Bool("ci", false, "")
 	return c
+}
+
+func TestAuthLoginCIModeRequiresUserID(t *testing.T) {
+	cmd := newAuthLoginTestCmd("http://auth.example.test")
+	cmd.SetArgs([]string{
+		"--tenant", "tenant-abc",
+		"--admin-secret", "admin-secret",
+		"--ci",
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := err.Error(); got != "user-id is required in CI mode — set --user-id" {
+		t.Fatalf("error = %q", got)
+	}
 }
 
 func TestAuthLoginIssuesTokenAndStoresInKeychain(t *testing.T) {
