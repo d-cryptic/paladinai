@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/paladinai/paladinai/internal/integrationpkg"
+	"github.com/paladinai/paladinai/internal/projectconfig"
 	"github.com/spf13/cobra"
 )
 
@@ -115,22 +117,30 @@ var integrationsEnableCmd = &cobra.Command{
 		}
 
 		configFile, _ := cmd.Flags().GetString("config")
+		projectFile, _ := cmd.Flags().GetString("file")
+		if projectFile == "" {
+			projectFile = "paladin.yaml"
+		}
+
 		var configData []byte
+		configMap := map[string]any(nil)
 		if configFile != "" {
 			var err error
 			configData, err = os.ReadFile(configFile)
 			if err != nil {
 				return fmt.Errorf("read config file: %w", err)
 			}
+			if err := json.Unmarshal(configData, &configMap); err != nil {
+				return fmt.Errorf("parse config JSON: %w", err)
+			}
+			if configMap == nil {
+				return fmt.Errorf("config JSON must be an object")
+			}
 		}
 
 		payload := map[string]any{"name": args[0]}
-		if configData != nil {
-			var cfg any
-			if err := json.Unmarshal(configData, &cfg); err != nil {
-				return fmt.Errorf("parse config JSON: %w", err)
-			}
-			payload["config"] = cfg
+		if configMap != nil {
+			payload["config"] = configMap
 		}
 		data, err := json.Marshal(payload)
 		if err != nil {
@@ -155,6 +165,9 @@ var integrationsEnableCmd = &cobra.Command{
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
+		if err := updateProjectIntegrationFromDefinition(cmd, projectFile, tenant, args[0], true, configMap); err != nil {
+			return err
+		}
 		fmt.Printf("Integration %q enabled.\n", args[0])
 		return nil
 	},
@@ -168,6 +181,10 @@ var integrationsDisableCmd = &cobra.Command{
 		tenant, err := requireTenant(cmd)
 		if err != nil {
 			return err
+		}
+		projectFile, _ := cmd.Flags().GetString("file")
+		if projectFile == "" {
+			projectFile = "paladin.yaml"
 		}
 		u, err := url.Parse(apiURL(cmd))
 		if err != nil {
@@ -186,6 +203,9 @@ var integrationsDisableCmd = &cobra.Command{
 		}
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
+		}
+		if err := updateProjectIntegrationFromDefinition(cmd, projectFile, tenant, args[0], false, nil); err != nil {
+			return err
 		}
 		fmt.Printf("Integration %q disabled.\n", args[0])
 		return nil
@@ -276,9 +296,82 @@ func printIntegrationDefinition(i *integrationpkg.Integration) {
 	w.Flush()
 }
 
+func updateProjectIntegrationFromDefinition(cmd *cobra.Command, path, tenant, name string, enabled bool, config map[string]any) error {
+	version := "latest"
+	projectConfig := config
+	if def, err := integrationpkg.LoadByName(integrationsDir(cmd), name); err == nil {
+		version = def.Version
+		projectConfig = nonSecretIntegrationConfig(config, def)
+	}
+	if err := updateProjectIntegration(path, tenant, name, version, enabled, projectConfig); err != nil {
+		return fmt.Errorf("update %s: %w", path, err)
+	}
+	return nil
+}
+
+func nonSecretIntegrationConfig(config map[string]any, def *integrationpkg.Integration) map[string]any {
+	if len(config) == 0 {
+		return nil
+	}
+	filtered := make(map[string]any, len(config))
+	for key, value := range config {
+		if field, ok := def.ConfigSchema[key]; ok && field.Secret {
+			continue
+		}
+		filtered[key] = value
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+func updateProjectIntegration(path, tenant, name, version string, enabled bool, config map[string]any) error {
+	if name == "" {
+		return fmt.Errorf("integration name is required")
+	}
+	cfg, err := projectconfig.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		cfg = projectconfig.Default(tenant, "", "")
+	}
+	if cfg.Metadata.Tenant == "" {
+		cfg.Metadata.Tenant = tenant
+	}
+	if version == "" {
+		version = "latest"
+	}
+
+	for i := range cfg.Spec.Integrations {
+		if cfg.Spec.Integrations[i].Name != name {
+			continue
+		}
+		cfg.Spec.Integrations[i].Enabled = enabled
+		if cfg.Spec.Integrations[i].Version == "" {
+			cfg.Spec.Integrations[i].Version = version
+		}
+		if config != nil {
+			cfg.Spec.Integrations[i].Config = config
+		}
+		return projectconfig.WriteFile(path, cfg)
+	}
+
+	cfg.Spec.Integrations = append(cfg.Spec.Integrations, projectconfig.Integration{
+		Name:    name,
+		Version: version,
+		Enabled: enabled,
+		Config:  config,
+	})
+	return projectconfig.WriteFile(path, cfg)
+}
+
 func init() {
 	integrationsCmd.PersistentFlags().String("integrations-dir", "", "Path to integrations/ directory with integration.yaml files")
 	integrationsEnableCmd.Flags().String("config", "", "Path to JSON config file for the integration")
+	integrationsEnableCmd.Flags().String("file", "", "Path to paladin.yaml (default: ./paladin.yaml)")
+	integrationsDisableCmd.Flags().String("file", "", "Path to paladin.yaml (default: ./paladin.yaml)")
 
 	integrationsCmd.AddCommand(
 		integrationsListCmd,
