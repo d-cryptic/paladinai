@@ -210,9 +210,6 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		supervisorBudget = w.triageTimeout
 	}
 
-	pctx, cancel := context.WithTimeout(ctx, w.triageTimeout)
-	defer cancel()
-
 	var result *agent.TriageResult
 	var rcaResult *agent.RCAResult
 
@@ -237,6 +234,9 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 
 	if result == nil {
 		// Direct triage path (supervisor absent or failed).
+		// Create a fresh timeout here so supervisor latency doesn't consume the triage budget.
+		pctx, pcancel := context.WithTimeout(ctx, w.triageTimeout)
+		defer pcancel()
 		var err error
 		result, err = w.triager.Triage(pctx, &env)
 		if err != nil {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -67,7 +68,7 @@ func (h *Handler) requireAdminSecret(next http.Handler) http.Handler {
 			return
 		}
 		provided := r.Header.Get("X-Admin-Secret")
-		if provided != h.adminSecret {
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(h.adminSecret)) != 1 {
 			writeError(w, http.StatusUnauthorized, "invalid admin secret")
 			return
 		}

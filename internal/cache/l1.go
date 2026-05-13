@@ -39,9 +39,12 @@ func CacheKey(payload []byte) string {
 // TriageRequest is the canonical struct used as the L1 cache lookup key.
 // Only stable, deterministic fields are included; received_at and request IDs
 // are excluded to maximise hit rate.
+// TenantID is mandatory: without it, two tenants with identical alert labels
+// would collide on the same cache key and be served each other's results.
 // encoding/json marshals map[string]string with sorted keys (Go 1.12+),
 // so Labels and Annotations produce stable output regardless of insertion order.
 type TriageRequest struct {
+	TenantID      string            `json:"tenant_id"`
 	Fingerprint   string            `json:"fingerprint"`
 	CorrelationID string            `json:"correlation_id"`
 	Title         string            `json:"title"`

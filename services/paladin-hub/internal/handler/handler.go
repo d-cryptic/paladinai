@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxRequestBodyBytes = 64 * 1024 // 64 KB
+
 // Handler wires the registry store to HTTP routes.
 type Handler struct {
 	store store.Store
@@ -45,6 +47,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req registry.RegisterRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, "INVALID_BODY", "request body must be valid JSON", http.StatusBadRequest)
 		return

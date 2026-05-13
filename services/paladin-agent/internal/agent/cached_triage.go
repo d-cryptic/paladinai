@@ -43,6 +43,7 @@ func NewCachedTriager(inner Triager, l1 cache.L1Cache, modelID string, log *zap.
 // Triage checks L1 cache first; on miss calls inner.Triage and caches result.
 func (c *CachedTriager) Triage(ctx context.Context, env *alert.AlertEnvelope) (*TriageResult, error) {
 	req := cache.TriageRequest{
+		TenantID:      env.TenantID,
 		Fingerprint:   env.Fingerprint,
 		CorrelationID: env.CorrelationID,
 		Title:         env.Title,

@@ -124,7 +124,7 @@ func (v *PagerDutyVerifier) Verify(headers http.Header, body []byte) error {
 		if !strings.HasPrefix(part, "v1=") {
 			continue
 		}
-		if strings.EqualFold(strings.TrimPrefix(part, "v1="), expected) {
+		if timingSafeEqual(strings.TrimPrefix(part, "v1="), expected) {
 			return nil
 		}
 	}
@@ -188,7 +188,8 @@ func (v *SlackVerifier) Verify(headers http.Header, body []byte) error {
 		return fmt.Errorf("webhook: invalid Slack timestamp: %w", err)
 	}
 	ts := time.Unix(tsUnix, 0)
-	if time.Since(ts) > maxAge {
+	delta := time.Since(ts)
+	if delta > maxAge || delta < -maxAge {
 		return ErrTimestampTooOld
 	}
 

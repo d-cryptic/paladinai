@@ -124,12 +124,17 @@ func (r *OAuthRefresher) refreshOne(ctx context.Context, tok OAuthToken) error {
 		return fmt.Errorf("provider %s refresh for tenant %s: %w", tok.Provider, tok.TenantID, err)
 	}
 
+	refreshToken := newRefresh
+	if refreshToken == "" {
+		// Some providers reuse the existing refresh token and return only an access token.
+		refreshToken = tok.RefreshToken
+	}
 	updated := OAuthToken{
 		TenantID:     tok.TenantID,
 		Provider:     tok.Provider,
 		VaultPath:    tok.VaultPath,
 		AccessToken:  accessToken,
-		RefreshToken: newRefresh,
+		RefreshToken: refreshToken,
 		ExpiresAt:    expiresAt,
 		Scopes:       tok.Scopes,
 	}

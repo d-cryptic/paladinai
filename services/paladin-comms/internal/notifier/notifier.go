@@ -112,7 +112,7 @@ func (s *SlackNotifier) Notify(ctx context.Context, n Notification) error {
 	if err != nil {
 		return fmt.Errorf("slack: send: %w", err)
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	resp.Body.Close()
 
 	if resp.StatusCode/100 != 2 {
@@ -174,7 +174,7 @@ func (p *PagerDutyNotifier) Notify(ctx context.Context, n Notification) error {
 	if err != nil {
 		return fmt.Errorf("pagerduty: send: %w", err)
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	resp.Body.Close()
 
 	// PD Events API v2 returns 202 Accepted on success.

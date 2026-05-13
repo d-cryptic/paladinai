@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"sort"
 	"strings"
 	"time"
@@ -122,6 +123,12 @@ func labelCoverage(labels map[string]string) float64 {
 	return float64(count) / float64(len(correlationKeys))
 }
 
+// writeCorrelField writes a length-prefixed field to h to prevent separator collisions.
+// "a|b" and "a" with value "b" cannot produce the same hash.
+func writeCorrelField(h hash.Hash, s string) {
+	fmt.Fprintf(h, "%d:%s\x00", len(s), s)
+}
+
 // groupKey builds a stable hash key from the correlation label values.
 // Alerts with the same group key are in the same incident group.
 //
@@ -140,9 +147,10 @@ func (c *Correlator) groupKey(env *alert.AlertEnvelope) string {
 			zap.String("fingerprint", env.Fingerprint),
 			zap.String("tenant", env.TenantID),
 		)
-		parts := []string{"tenant:" + env.TenantID, "fp=" + env.Fingerprint}
-		h := sha256.Sum256([]byte(strings.Join(parts, "|")))
-		return "paladin:corr:" + hex.EncodeToString(h[:16])
+		h := sha256.New()
+		writeCorrelField(h, env.TenantID)
+		writeCorrelField(h, env.Fingerprint)
+		return "paladin:corr:" + hex.EncodeToString(h.Sum(nil)[:16])
 	}
 
 	labelParts := make([]string, 0, len(correlationKeys))
@@ -159,9 +167,12 @@ func (c *Correlator) groupKey(env *alert.AlertEnvelope) string {
 		labelParts = append(labelParts, "fp="+env.Fingerprint)
 	}
 
-	parts := append([]string{"tenant:" + env.TenantID}, labelParts...)
-	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return "paladin:corr:" + hex.EncodeToString(h[:16])
+	h := sha256.New()
+	writeCorrelField(h, env.TenantID)
+	for _, p := range labelParts {
+		writeCorrelField(h, p)
+	}
+	return "paladin:corr:" + hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 // newCorrelationID generates a human-readable correlation ID.

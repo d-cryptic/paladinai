@@ -63,7 +63,7 @@ func (e *HTTPEmbedder) Embed(ctx context.Context, text string) ([]float32, error
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return nil, fmt.Errorf("embedder: status %d: %s", resp.StatusCode, string(b))
 	}
 

@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxRunbookRecords = 50_000
+
 // RunbookRecord is the metadata record returned by list and import.
 type RunbookRecord struct {
 	ID        string    `json:"id"`
@@ -86,6 +88,7 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req importRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB for runbook imports
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, "INVALID_BODY", "request body must be valid JSON", http.StatusBadRequest)
 		return
@@ -123,7 +126,9 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.mu.Lock()
-	h.records[tenantID+":"+rec.ID] = rec
+	if len(h.records) < maxRunbookRecords {
+		h.records[tenantID+":"+rec.ID] = rec
+	}
 	h.mu.Unlock()
 	h.log.Info("runbook imported",
 		zap.String("id", rec.ID),
@@ -192,6 +197,7 @@ func (h *RunbookHandler) searchRunbooks(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req searchRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonErr(w, "INVALID_BODY", "request body must be valid JSON", http.StatusBadRequest)
 		return
@@ -247,16 +253,21 @@ func (h *RunbookHandler) fetchContent(req importRequest) (text, title, srcPath s
 		}
 		// Jail reads to runbookBaseDir. Join strips leading ../ via filepath.Clean
 		// internally, then we verify the absolute result stays inside the base.
+		// EvalSymlinks resolves symlinks so a symlink pointing outside the jail is rejected.
 		joined := filepath.Join(h.runbookBaseDir, req.Path)
 		abs, absErr := filepath.Abs(joined)
 		if absErr != nil {
 			return "", "", "", fmt.Errorf("invalid path: %w", absErr)
 		}
+		realPath, symlinkErr := filepath.EvalSymlinks(abs)
+		if symlinkErr != nil {
+			return "", "", "", fmt.Errorf("invalid path: %w", symlinkErr)
+		}
 		base := h.runbookBaseDir + string(os.PathSeparator)
-		if abs != h.runbookBaseDir && !strings.HasPrefix(abs, base) {
+		if realPath != h.runbookBaseDir && !strings.HasPrefix(realPath, base) {
 			return "", "", "", errors.New("invalid path: must be within the configured runbook base directory")
 		}
-		data, readErr := os.ReadFile(abs)
+		data, readErr := os.ReadFile(realPath)
 		if readErr != nil {
 			return "", "", "", readErr
 		}
