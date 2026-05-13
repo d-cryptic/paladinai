@@ -241,10 +241,7 @@ func main() {
 		incHandler.Routes(r)
 	})
 
-	agentPort := os.Getenv("PALADIN_AGENT_PORT")
-	if agentPort == "" {
-		agentPort = "9004"
-	}
+	agentPort := agentHTTPPort()
 	httpSrv := &http.Server{
 		Addr:         ":" + agentPort,
 		Handler:      r,
@@ -287,4 +284,11 @@ func main() {
 	}
 
 	log.Info("paladin-agent stopped")
+}
+
+func agentHTTPPort() string {
+	if port := os.Getenv("PALADIN_AGENT_PORT"); port != "" {
+		return port
+	}
+	return "9006"
 }
