@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -99,14 +100,22 @@ func run() error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	serveErr := make(chan error, 1)
 	go func() {
 		log.Info("paladin-auth listening", zap.Int("port", conf.Server.Port))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server error", zap.Error(err))
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
 		}
+		close(serveErr)
 	}()
 
-	<-quit
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			return fmt.Errorf("server: %w", err)
+		}
+	case <-quit:
+	}
 	log.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
 	defer cancel()

@@ -22,55 +22,33 @@ type fakePgErr struct {
 func (e *fakePgErr) Error() string    { return e.msg }
 func (e *fakePgErr) SQLState() string { return e.state }
 
-func TestContainsCode_MatchesSQLState(t *testing.T) {
-	err := &fakePgErr{state: "23505", msg: "duplicate key"}
-	assert.True(t, containsCode(err, "23505"))
-	assert.False(t, containsCode(err, "23502"))
-}
-
-func TestContainsCode_NonPgErrorReturnsFalse(t *testing.T) {
-	err := errors.New("plain error")
-	assert.False(t, containsCode(err, "23505"))
-}
-
-func TestContainsCode_WrappedPgError(t *testing.T) {
-	inner := &fakePgErr{state: "23505"}
-	wrapped := errors.Join(errors.New("outer"), inner)
-	assert.True(t, containsCode(wrapped, "23505"))
-}
-
-func TestContainsMsg_NilReturnsFalse(t *testing.T) {
-	assert.False(t, containsMsg(nil, "anything"))
-}
-
-func TestContainsMsg_FindsSubstring(t *testing.T) {
-	err := errors.New("ERROR: duplicate key violates unique constraint")
-	assert.True(t, containsMsg(err, "unique"))
-	assert.True(t, containsMsg(err, "ERROR"))
-	assert.False(t, containsMsg(err, "absent"))
-}
-
-func TestContainsMsg_EmptySubstring(t *testing.T) {
-	err := errors.New("anything")
-	// empty substring matches at position 0
-	assert.True(t, containsMsg(err, ""))
-}
-
 func TestIsUniqueViolation_NilReturnsFalse(t *testing.T) {
 	assert.False(t, isUniqueViolation(nil))
 }
 
 func TestIsUniqueViolation_CodeMatch(t *testing.T) {
-	err := &fakePgErr{state: "23505", msg: "x"}
+	err := &fakePgErr{state: "23505", msg: "duplicate key"}
 	assert.True(t, isUniqueViolation(err))
 }
 
-func TestIsUniqueViolation_MsgMatch(t *testing.T) {
+func TestIsUniqueViolation_WrongCode(t *testing.T) {
+	err := &fakePgErr{state: "23502", msg: "not-null violation"}
+	assert.False(t, isUniqueViolation(err))
+}
+
+func TestIsUniqueViolation_WrappedPgError(t *testing.T) {
+	inner := &fakePgErr{state: "23505"}
+	wrapped := errors.Join(errors.New("outer"), inner)
+	assert.True(t, isUniqueViolation(wrapped))
+}
+
+func TestIsUniqueViolation_PlainErrorNoMatch(t *testing.T) {
+	// Without a pgErr SQLState, plain errors are not treated as unique violations.
 	err := errors.New("duplicate key violates unique constraint")
-	assert.True(t, isUniqueViolation(err))
+	assert.False(t, isUniqueViolation(err))
 }
 
-func TestIsUniqueViolation_NoMatch(t *testing.T) {
+func TestIsUniqueViolation_UnrelatedError(t *testing.T) {
 	err := errors.New("unrelated error")
 	assert.False(t, isUniqueViolation(err))
 }

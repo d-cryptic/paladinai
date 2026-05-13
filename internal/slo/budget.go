@@ -139,7 +139,6 @@ func Summary(b Budget, r BurnRateResult) string {
 	}
 
 	totalBudget, _ := b.ErrorBudget()
-	_ = totalBudget
 
 	minutes := func(d time.Duration) float64 { return d.Minutes() }
 

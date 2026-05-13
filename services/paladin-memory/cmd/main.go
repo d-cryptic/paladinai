@@ -138,11 +138,11 @@ func main() {
 			log.Warn("topology: invalid FALKORDB_URL, skipping", zap.Error(fdbErr))
 		} else {
 			fdb := redis.NewClient(fdbOpts)
-			defer fdb.Close() //nolint:errcheck
 			if pingErr := fdb.Ping(ctx).Err(); pingErr != nil {
 				log.Warn("topology: falkordb ping failed, skipping", zap.Error(pingErr))
 				_ = fdb.Close()
 			} else {
+				defer fdb.Close() //nolint:errcheck
 				graphName := fmt.Sprintf("topology:%s", "global")
 				topoStore := topology.NewFalkorDBStore(fdb, graphName)
 				h.WithTopology(topoStore)

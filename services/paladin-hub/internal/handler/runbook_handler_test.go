@@ -43,7 +43,7 @@ func (s *stubPointStore) Search(_ context.Context, _ string, _ []float32, topK i
 func newTestRunbookHandler() (*handler.RunbookHandler, *stubPointStore) {
 	store := &stubPointStore{}
 	indexer := qdrant.NewIndexer(store, &qdrant.StubEmbedder{})
-	return handler.NewRunbookHandler(indexer, zap.NewNop()), store
+	return handler.NewRunbookHandler(indexer, zap.NewNop(), ""), store
 }
 
 func mountRunbookRoutes(h *handler.RunbookHandler) http.Handler {

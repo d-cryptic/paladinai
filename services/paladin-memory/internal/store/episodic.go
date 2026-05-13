@@ -88,7 +88,8 @@ func (p *PostgresEpisodicStore) Search(ctx context.Context, tenantID, query stri
 	if topK <= 0 {
 		topK = 10
 	}
-	like := "%" + strings.ToLower(query) + "%"
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(query))
+	like := "%" + escaped + "%"
 	rows, err := p.pool.Query(ctx, `
 		SELECT id::text, tenant_id::text, incident_id::text, fingerprint,
 			   summary, COALESCE(root_cause, ''), COALESCE(resolution, ''),

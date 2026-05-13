@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -33,20 +34,33 @@ type RunbookRecord struct {
 // RunbookHandler serves runbook import, list, and search routes.
 // It is intentionally separate from the MCP server registry handler.
 type RunbookHandler struct {
-	indexer *qdrant.Indexer
-	log     *zap.Logger
-	mu      sync.RWMutex
-	// records is a simple in-memory index of imported runbooks.
+	indexer        *qdrant.Indexer
+	log            *zap.Logger
+	mu             sync.RWMutex
+	runbookBaseDir string // absolute path; file imports are jailed to this dir
+	// records is a simple in-memory index of imported runbooks, keyed by tenantID+":"+id.
 	// Production would persist this to Postgres.
 	records map[string]*RunbookRecord
 }
 
 // NewRunbookHandler constructs a RunbookHandler backed by a qdrant.Indexer.
-func NewRunbookHandler(indexer *qdrant.Indexer, log *zap.Logger) *RunbookHandler {
+// baseDir is the directory from which runbook file imports are served.
+// If empty, the process working directory is used.
+func NewRunbookHandler(indexer *qdrant.Indexer, log *zap.Logger, baseDir string) *RunbookHandler {
+	if baseDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			baseDir = cwd
+		}
+	}
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		absBase = baseDir
+	}
 	return &RunbookHandler{
-		indexer: indexer,
-		log:     log,
-		records: make(map[string]*RunbookRecord),
+		indexer:        indexer,
+		log:            log,
+		runbookBaseDir: absBase,
+		records:        make(map[string]*RunbookRecord),
 	}
 }
 
@@ -109,7 +123,7 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.mu.Lock()
-	h.records[rec.ID] = rec
+	h.records[tenantID+":"+rec.ID] = rec
 	h.mu.Unlock()
 	h.log.Info("runbook imported",
 		zap.String("id", rec.ID),
@@ -145,8 +159,12 @@ func (h *RunbookHandler) listRunbooks(w http.ResponseWriter, r *http.Request) {
 	sourceFilter := r.URL.Query().Get("source")
 
 	h.mu.RLock()
-	out := make([]*RunbookRecord, 0, len(h.records))
-	for _, rec := range h.records {
+	out := make([]*RunbookRecord, 0, limit)
+	prefix := tenantID + ":"
+	for key, rec := range h.records {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
 		if sourceFilter != "" && rec.Source != sourceFilter {
 			continue
 		}
@@ -225,24 +243,25 @@ func (h *RunbookHandler) fetchContent(req importRequest) (text, title, srcPath s
 	switch req.Source {
 	case "file":
 		if req.Path == "" {
-			return "", "", "", errMsg("path is required for source=file")
+			return "", "", "", errors.New("path is required for source=file")
 		}
-		if filepath.IsAbs(req.Path) {
-			return "", "", "", fmt.Errorf("invalid path: absolute paths are not allowed")
+		// Jail reads to runbookBaseDir. Join strips leading ../ via filepath.Clean
+		// internally, then we verify the absolute result stays inside the base.
+		joined := filepath.Join(h.runbookBaseDir, req.Path)
+		abs, absErr := filepath.Abs(joined)
+		if absErr != nil {
+			return "", "", "", fmt.Errorf("invalid path: %w", absErr)
 		}
-		cleaned := filepath.Clean(req.Path)
-		if strings.HasPrefix(cleaned, "..") {
-			return "", "", "", fmt.Errorf("invalid path: path traversal is not allowed")
+		base := h.runbookBaseDir + string(os.PathSeparator)
+		if abs != h.runbookBaseDir && !strings.HasPrefix(abs, base) {
+			return "", "", "", errors.New("invalid path: must be within the configured runbook base directory")
 		}
-		data, readErr := os.ReadFile(cleaned)
+		data, readErr := os.ReadFile(abs)
 		if readErr != nil {
 			return "", "", "", readErr
 		}
-		title = cleaned
-		if idx := lastSlash(cleaned); idx >= 0 {
-			title = cleaned[idx+1:]
-		}
-		return string(data), title, cleaned, nil
+		title = filepath.Base(abs)
+		return string(data), title, abs, nil
 	case "github":
 		title = req.Repo
 		if req.Path != "" {
@@ -262,21 +281,6 @@ func (h *RunbookHandler) fetchContent(req importRequest) (text, title, srcPath s
 		text = "# " + title + "\n\nNotion runbook content placeholder. Configure NOTION_TOKEN in production."
 		return text, title, srcPath, nil
 	default:
-		return "", "", "", errMsg("unsupported source: " + req.Source)
+		return "", "", "", fmt.Errorf("unsupported source: %s", req.Source)
 	}
 }
-
-func lastSlash(s string) int {
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == '/' || s[i] == '\\' {
-			return i
-		}
-	}
-	return -1
-}
-
-type strErr string
-
-func (e strErr) Error() string { return string(e) }
-
-func errMsg(s string) error { return strErr(s) }

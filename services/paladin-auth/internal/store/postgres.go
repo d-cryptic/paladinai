@@ -109,29 +109,12 @@ func scanTenant(row pgx.Row) (*Tenant, error) {
 	return t, nil
 }
 
-// isUniqueViolation checks for Postgres unique constraint violation (code 23505).
+// isUniqueViolation checks for Postgres unique constraint violation (SQLSTATE 23505).
 func isUniqueViolation(err error) bool {
-	return err != nil && (containsCode(err, "23505") || containsMsg(err, "unique"))
-}
-
-func containsCode(err error, code string) bool {
-	type pgErr interface{ SQLState() string }
-	var pe pgErr
-	if errors.As(err, &pe) {
-		return pe.SQLState() == code
-	}
-	return false
-}
-
-func containsMsg(err error, substr string) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	for i := 0; i+len(substr) <= len(msg); i++ {
-		if msg[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	type pgErr interface{ SQLState() string }
+	var pe pgErr
+	return errors.As(err, &pe) && pe.SQLState() == "23505"
 }

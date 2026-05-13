@@ -116,7 +116,7 @@ func main() {
 		}
 
 		indexer := qdrant.NewIndexer(pointStore, embedder)
-		rbHandler = handler.NewRunbookHandler(indexer, log)
+		rbHandler = handler.NewRunbookHandler(indexer, log, os.Getenv("RUNBOOK_BASE_DIR"))
 	}
 
 	r := chi.NewRouter()

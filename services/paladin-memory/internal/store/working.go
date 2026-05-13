@@ -71,6 +71,9 @@ func (s *RedisWorkingStore) Scan(ctx context.Context, tenantID, sessionID, prefi
 		out    []string
 	)
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("memory: working scan: %w", err)
+		}
 		keys, next, err := s.client.Scan(ctx, cursor, pattern, int64(limit)).Result()
 		if err != nil {
 			return nil, fmt.Errorf("memory: working scan: %w", err)

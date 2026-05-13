@@ -29,9 +29,9 @@ var ErrConfusedDeputy = errors.New("tenantguard: tool params must not include te
 // params is the map of tool call arguments to inspect.
 // Returns ErrConfusedDeputy if any forbidden key is found.
 func CheckToolParams(params map[string]string) error {
-	for _, forbidden := range forbiddenParamKeys {
-		if _, exists := params[forbidden]; exists {
-			return fmt.Errorf("%w: key %q is forbidden in tool params", ErrConfusedDeputy, forbidden)
+	for k := range params {
+		if isForbiddenKey(k) {
+			return fmt.Errorf("%w: key %q is forbidden in tool params", ErrConfusedDeputy, k)
 		}
 	}
 	return nil
@@ -40,12 +40,24 @@ func CheckToolParams(params map[string]string) error {
 // CheckToolParamsAny is like CheckToolParams but accepts map[string]any,
 // which is common when unmarshalling JSON tool arguments.
 func CheckToolParamsAny(params map[string]any) error {
-	for _, forbidden := range forbiddenParamKeys {
-		if _, exists := params[forbidden]; exists {
-			return fmt.Errorf("%w: key %q is forbidden in tool params", ErrConfusedDeputy, forbidden)
+	for k := range params {
+		if isForbiddenKey(k) {
+			return fmt.Errorf("%w: key %q is forbidden in tool params", ErrConfusedDeputy, k)
 		}
 	}
 	return nil
+}
+
+// isForbiddenKey returns true when the key matches any forbidden tenant-scoping
+// pattern, case-insensitively, so "Tenant_ID" and "TENANTID" are also caught.
+func isForbiddenKey(key string) bool {
+	lower := strings.ToLower(key)
+	for _, forbidden := range forbiddenParamKeys {
+		if lower == forbidden {
+			return true
+		}
+	}
+	return false
 }
 
 // WrapAlertContent wraps alert description text in trusted-boundary XML tags.
