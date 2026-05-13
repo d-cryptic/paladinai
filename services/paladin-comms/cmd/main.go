@@ -81,10 +81,7 @@ func main() {
 	defer msgs.Stop()
 
 	// ── Health endpoint ───────────────────────────────────────────────────────
-	commsPort := os.Getenv("PALADIN_COMMS_PORT")
-	if commsPort == "" {
-		commsPort = "9007" // 9005 is used by paladin-orchestrator
-	}
+	commsPort := commsHTTPPort()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -147,4 +144,11 @@ shutdown:
 	}
 
 	log.Info("paladin-comms stopped")
+}
+
+func commsHTTPPort() string {
+	if port := os.Getenv("PALADIN_COMMS_PORT"); port != "" {
+		return port
+	}
+	return "9009"
 }

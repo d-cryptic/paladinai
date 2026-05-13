@@ -14,5 +14,5 @@ RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S paladin && adduser -S -G paladin paladin
 COPY --from=builder /bin/paladin-comms /paladin-comms
 USER paladin
-EXPOSE 9007
+EXPOSE 9009
 ENTRYPOINT ["/paladin-comms"]
