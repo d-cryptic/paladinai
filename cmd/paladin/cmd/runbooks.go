@@ -85,23 +85,42 @@ Examples:
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 
-		// Parse and show the import result.
-		var result struct {
-			Imported int    `json:"imported"`
-			JobID    string `json:"job_id"`
-			Message  string `json:"message"`
-		}
+		var result runbooksImportResult
+		result.Source = source
 		if err := json.Unmarshal(body, &result); err != nil {
+			if outputFormat(cmd) == "json" {
+				return json.NewEncoder(os.Stdout).Encode(runbooksImportResult{
+					Source:  source,
+					Message: string(body),
+				})
+			}
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
-		if result.JobID != "" {
-			fmt.Printf("Import started (job: %s). Runbooks will be embedded in the background.\n", result.JobID)
-		} else {
-			fmt.Printf("Imported %d runbook(s) from %s.\n", result.Imported, source)
+		return writeRunbooksImportResult(cmd, result)
+	},
+}
+
+type runbooksImportResult struct {
+	Source   string `json:"source"`
+	Imported int    `json:"imported"`
+	JobID    string `json:"job_id,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
+func writeRunbooksImportResult(cmd *cobra.Command, result runbooksImportResult) error {
+	if outputFormat(cmd) == "json" {
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fmt.Errorf("write import result: %w", err)
 		}
 		return nil
-	},
+	}
+	if result.JobID != "" {
+		fmt.Printf("Import started (job: %s). Runbooks will be embedded in the background.\n", result.JobID)
+	} else {
+		fmt.Printf("Imported %d runbook(s) from %s.\n", result.Imported, result.Source)
+	}
+	return nil
 }
 
 // paladin runbooks list
