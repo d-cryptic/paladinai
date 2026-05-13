@@ -19,7 +19,8 @@ Use it to query active alerts, manage incidents, register MCP servers,
 and launch the interactive TUI dashboard.
 
 Environment variables:
-  PALADIN_API_URL   Base URL of paladin-hub/edge (default: http://localhost:9002)
+  PALADIN_API_URL   Base URL of paladin-edge (default: http://localhost:9002)
+  PALADIN_AUTH_URL  Base URL of paladin-auth (default: http://localhost:9003)
   PALADIN_TENANT    Tenant ID for all requests
   PALADIN_TOKEN     API authentication token`,
 }
