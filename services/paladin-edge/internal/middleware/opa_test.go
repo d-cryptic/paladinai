@@ -109,7 +109,7 @@ func TestOPAMiddleware_HTTPMethodToAction(t *testing.T) {
 	}{
 		{http.MethodGet, "incidents:read"},
 		{http.MethodHead, "incidents:read"},
-		{http.MethodPost, "incidents:update"},
+		{http.MethodPost, "incidents:create"},
 		{http.MethodPut, "incidents:update"},
 		{http.MethodPatch, "incidents:update"},
 		{http.MethodDelete, "incidents:delete"},

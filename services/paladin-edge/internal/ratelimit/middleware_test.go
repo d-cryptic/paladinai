@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paladinai/paladinai/internal/auth"
 	"github.com/paladinai/paladinai/services/paladin-edge/internal/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,7 +44,8 @@ func okHandler() http.Handler {
 func newRequest(tenantID string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
 	if tenantID != "" {
-		r.Header.Set("X-Tenant-ID", tenantID)
+		ctx := auth.WithTenantID(r.Context(), tenantID)
+		r = r.WithContext(ctx)
 	}
 	return r
 }
@@ -169,7 +171,7 @@ func TestMiddleware_LimitHeaderReflectsConfiguredLimit(t *testing.T) {
 
 type errLimitStore struct{ err error }
 
-func (e *errLimitStore) IncrWithExpire(_ string, _ time.Duration) (int, error) {
+func (e *errLimitStore) IncrWithExpire(_ context.Context, _ string, _ time.Duration) (int, error) {
 	return 0, e.err
 }
 

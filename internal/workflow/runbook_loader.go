@@ -36,12 +36,12 @@ import (
 
 // RunbookDefinition is the full YAML schema for a runbook file.
 type RunbookDefinition struct {
-	ID          string              `yaml:"id"`
-	Name        string              `yaml:"name"`
-	Version     string              `yaml:"version"`
-	Description string              `yaml:"description"`
-	Tags        []string            `yaml:"tags"`
-	Steps       []RunbookStepDef    `yaml:"steps"`
+	ID          string           `yaml:"id"`
+	Name        string           `yaml:"name"`
+	Version     string           `yaml:"version"`
+	Description string           `yaml:"description"`
+	Tags        []string         `yaml:"tags"`
+	Steps       []RunbookStepDef `yaml:"steps"`
 }
 
 // RunbookStepDef is the YAML schema for one runbook step.
@@ -92,7 +92,12 @@ func NewRunbookLoader(dir string) *RunbookLoader {
 
 // LoadByID loads the runbook definition with the given ID from dir.
 // It searches for a file named {id}.yaml or {id}.yml.
+// id must contain only alphanumeric characters, hyphens, and underscores
+// to prevent path traversal attacks.
 func (l *RunbookLoader) LoadByID(id string) (RunbookDefinition, error) {
+	if err := validateRunbookID(id); err != nil {
+		return RunbookDefinition{}, err
+	}
 	for _, ext := range []string{".yaml", ".yml"} {
 		path := filepath.Join(l.dir, id+ext)
 		def, err := LoadRunbookFile(path)
@@ -104,6 +109,26 @@ func (l *RunbookLoader) LoadByID(id string) (RunbookDefinition, error) {
 		}
 	}
 	return RunbookDefinition{}, fmt.Errorf("runbook %q not found in %s", id, l.dir)
+}
+
+// validateRunbookID rejects IDs that could cause path traversal.
+// Only alphanumeric characters, hyphens, underscores, and dots (but not leading dots) are allowed.
+func validateRunbookID(id string) error {
+	if id == "" {
+		return fmt.Errorf("runbook id must not be empty")
+	}
+	if strings.ContainsAny(id, "/\\") {
+		return fmt.Errorf("runbook id %q contains invalid path separator", id)
+	}
+	if strings.Contains(id, "..") {
+		return fmt.Errorf("runbook id %q contains invalid sequence", id)
+	}
+	for _, c := range id {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' && c != '.' {
+			return fmt.Errorf("runbook id %q contains invalid character %q", id, c)
+		}
+	}
+	return nil
 }
 
 // LoadAll loads all runbook YAML files from dir and returns them indexed by ID.
@@ -124,7 +149,9 @@ func (l *RunbookLoader) LoadAll() (map[string]RunbookDefinition, error) {
 		path := filepath.Join(l.dir, name)
 		def, err := LoadRunbookFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("load %s: %w", path, err)
+			// Skip unparseable files rather than aborting the full load;
+			// a bad file should not hide all other runbooks.
+			continue
 		}
 		result[def.ID] = def
 	}

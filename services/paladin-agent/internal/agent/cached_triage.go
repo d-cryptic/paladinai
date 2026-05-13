@@ -74,17 +74,23 @@ func (c *CachedTriager) Triage(ctx context.Context, env *alert.AlertEnvelope) (*
 		)
 	} else if cached != nil {
 		var result TriageResult
-		if err := json.Unmarshal(cached, &result); err == nil {
+		unmarshalErr := json.Unmarshal(cached, &result)
+		if unmarshalErr == nil {
+			prefix := ""
+			const pfxLen = len("llm:l1:")
+			if len(key) >= pfxLen+16 {
+				prefix = key[pfxLen : pfxLen+16]
+			}
 			c.log.Debug("l1 cache hit",
 				zap.String("fingerprint", env.Fingerprint),
-				zap.String("key_prefix", key[len("llm:l1:"):len("llm:l1:")+16]),
+				zap.String("key_prefix", prefix),
 			)
 			return &result, nil
 		}
 		// Corrupted or stale format — log and fall through to LLM.
 		c.log.Warn("l1 cache: unmarshal failed for cached entry, bypassing",
 			zap.String("fingerprint", env.Fingerprint),
-			zap.Error(err),
+			zap.Error(unmarshalErr),
 		)
 	}
 

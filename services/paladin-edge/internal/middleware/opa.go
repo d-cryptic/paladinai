@@ -150,7 +150,7 @@ func httpMethodToAction(method string) string {
 	case http.MethodGet, http.MethodHead:
 		return "incidents:read"
 	case http.MethodPost:
-		return "incidents:update"
+		return "incidents:create"
 	case http.MethodPut, http.MethodPatch:
 		return "incidents:update"
 	case http.MethodDelete:

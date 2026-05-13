@@ -20,7 +20,7 @@ const (
 
 func issueTestToken(t *testing.T, secret, tenantID, userID string, roles []string, ttl time.Duration) string {
 	t.Helper()
-	tok, err := auth.IssueToken([]byte(secret), tenantID, userID, roles, ttl)
+	tok, err := auth.IssueToken([]byte(secret), tenantID, userID, roles, nil, ttl)
 	require.NoError(t, err)
 	return tok
 }
@@ -56,7 +56,7 @@ func TestIssueToken_Success(t *testing.T) {
 }
 
 func TestIssueToken_WeakSecretReturnsError(t *testing.T) {
-	_, err := auth.IssueToken([]byte(weakSecret), "t1", "u1", nil, time.Hour)
+	_, err := auth.IssueToken([]byte(weakSecret), "t1", "u1", nil, nil, time.Hour)
 	assert.ErrorIs(t, err, auth.ErrWeakSecret)
 }
 

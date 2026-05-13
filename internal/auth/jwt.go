@@ -67,7 +67,8 @@ func ValidateSecret(secret []byte) error {
 }
 
 // IssueToken mints a short-lived HS256 JWT for a tenant user.
-func IssueToken(secret []byte, tenantID, userID string, roles []string, ttl time.Duration) (string, error) {
+// Pass nil for scopes to issue a token with no scope restrictions.
+func IssueToken(secret []byte, tenantID, userID string, roles, scopes []string, ttl time.Duration) (string, error) {
 	if err := ValidateSecret(secret); err != nil {
 		return "", err
 	}
@@ -75,6 +76,7 @@ func IssueToken(secret []byte, tenantID, userID string, roles []string, ttl time
 	claims := Claims{
 		TenantID: tenantID,
 		Roles:    roles,
+		Scopes:   scopes,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   userID,

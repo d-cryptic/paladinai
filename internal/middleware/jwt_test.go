@@ -19,7 +19,7 @@ const testSecret = "test-secret-32-bytes-for-hs256!!"
 
 func issueToken(t *testing.T, tenantID, userID string, roles []string, ttl time.Duration) string {
 	t.Helper()
-	tok, err := auth.IssueToken([]byte(testSecret), tenantID, userID, roles, ttl)
+	tok, err := auth.IssueToken([]byte(testSecret), tenantID, userID, roles, nil, ttl)
 	require.NoError(t, err)
 	return tok
 }
@@ -97,7 +97,7 @@ func TestJWTMiddleware_ExpiredToken_Returns401(t *testing.T) {
 
 func TestJWTMiddleware_WrongSecret_Returns401(t *testing.T) {
 	other := strings.Repeat("z", 32)
-	tok, err := auth.IssueToken([]byte(other), "t1", "u1", nil, time.Hour)
+	tok, err := auth.IssueToken([]byte(other), "t1", "u1", nil, nil, time.Hour)
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)

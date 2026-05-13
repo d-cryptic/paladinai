@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/paladinai/paladinai/internal/auth"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -17,7 +18,7 @@ import (
 // Store is the minimal interface for the rate-limit counter.
 // Decoupled from go-redis for testability.
 type Store interface {
-	IncrWithExpire(key string, window time.Duration) (count int, err error)
+	IncrWithExpire(ctx context.Context, key string, window time.Duration) (count int, err error)
 }
 
 // Limiter is the rate-limiting interface consumed by HTTP middleware.
@@ -58,7 +59,7 @@ func (l *ValkeyLimiter) Allow(ctx context.Context, tenantID string) (bool, int, 
 	now := time.Now()
 	resetAt := now.Truncate(l.window).Add(l.window)
 
-	count, err := l.store.IncrWithExpire(key, l.window)
+	count, err := l.store.IncrWithExpire(ctx, key, l.window)
 	if err != nil {
 		// Fail open — don't block real traffic on store errors.
 		l.log.Error("rate limit store error, failing open",
@@ -80,8 +81,7 @@ type valkeyStore struct {
 	rdb *redis.Client
 }
 
-func (s *valkeyStore) IncrWithExpire(key string, window time.Duration) (int, error) {
-	ctx := context.Background()
+func (s *valkeyStore) IncrWithExpire(ctx context.Context, key string, window time.Duration) (int, error) {
 	pipe := s.rdb.Pipeline()
 	incrCmd := pipe.Incr(ctx, key)
 	pipe.ExpireNX(ctx, key, window)
@@ -92,12 +92,14 @@ func (s *valkeyStore) IncrWithExpire(key string, window time.Duration) (int, err
 }
 
 // Middleware returns an HTTP middleware that enforces rate limits per tenant.
-// The tenant ID is read from the X-Tenant-ID header (set by the auth layer upstream).
+// The tenant ID is read from the auth context (set by JWTMiddleware upstream),
+// not from the X-Tenant-ID header, to prevent tenant-ID spoofing.
 func Middleware(limiter Limiter, log *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tenantID := r.Header.Get("X-Tenant-ID")
-			if tenantID == "" {
+			tenantID, ok := auth.TenantIDFromContext(r.Context())
+			if !ok || tenantID == "" {
+				// No authenticated tenant — pass through; auth middleware will reject.
 				next.ServeHTTP(w, r)
 				return
 			}

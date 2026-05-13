@@ -88,7 +88,7 @@ func newMemLimitStore() *memLimitStore {
 	return &memLimitStore{entries: make(map[string]*memEntry)}
 }
 
-func (m *memLimitStore) IncrWithExpire(key string, window time.Duration) (int, error) {
+func (m *memLimitStore) IncrWithExpire(_ context.Context, key string, window time.Duration) (int, error) {
 	e, ok := m.entries[key]
 	if !ok || time.Now().After(e.expiry) {
 		m.entries[key] = &memEntry{count: 1, expiry: time.Now().Add(window)}

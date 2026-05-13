@@ -18,7 +18,7 @@ var testSecret = []byte("test-secret-32-bytes-long-enough!")
 
 func newToken(t *testing.T, tenantID, userID string, roles []string, ttl time.Duration) string {
 	t.Helper()
-	tok, err := auth.IssueToken(testSecret, tenantID, userID, roles, ttl)
+	tok, err := auth.IssueToken(testSecret, tenantID, userID, roles, nil, ttl)
 	require.NoError(t, err)
 	return tok
 }
@@ -55,7 +55,7 @@ func TestJWTMiddleware_Expired(t *testing.T) {
 }
 
 func TestJWTMiddleware_WrongSecret(t *testing.T) {
-	tok, err := auth.IssueToken([]byte("other-secret-32-bytes-padding!!x"), "t1", "u1", nil, time.Hour)
+	tok, err := auth.IssueToken([]byte("other-secret-32-bytes-padding!!x"), "t1", "u1", nil, nil, time.Hour)
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)

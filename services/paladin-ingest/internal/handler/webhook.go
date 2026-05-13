@@ -164,7 +164,10 @@ func (h *WebhookHandler) handleWebhook(
 
 		isDup, dupErr := h.dedup.IsDuplicate(r.Context(), &env)
 		if dupErr != nil {
-			h.log.Error("dedup check failed",
+			// Fail-open: publish the alert even when dedup check is unavailable
+			// so alerts are not silently dropped during Valkey degradation.
+			// Increment failed for observability (dedup partial failure), but still publish.
+			h.log.Error("dedup check failed, publishing anyway",
 				zap.String("fingerprint", env.Fingerprint),
 				zap.Error(dupErr),
 			)

@@ -89,21 +89,39 @@ func (s *Store) Record(tenantID, severity, title string, alertCount int, labels 
 
 // RecordFromEnvelope creates an incident record from an AlertEnvelope.
 // The raw envelope JSON is stored for future replay publishing.
+// The entire operation (create + set RawEnvelope) runs under a single lock
+// to prevent a reader from seeing the incident before the envelope is attached.
 func (s *Store) RecordFromEnvelope(env *alert.AlertEnvelope, severity string, result json.RawMessage) *Incident {
 	title := env.Labels["alertname"]
 	if title == "" {
 		title = "Unnamed Incident"
 	}
-	inc := s.Record(env.TenantID, severity, title, 1, env.Labels, result)
-	// Store the raw envelope so replays can re-publish it to NATS unchanged.
-	if raw, err := json.Marshal(env); err == nil {
-		s.mu.Lock()
-		if i, ok := s.incidents[inc.ID]; ok {
-			i.RawEnvelope = raw
-		}
-		s.mu.Unlock()
+
+	// Marshal outside the lock — json.Marshal does not touch shared state.
+	raw, marshalErr := json.Marshal(env)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	inc := &Incident{
+		ID:           uuid.New().String(),
+		TenantID:     env.TenantID,
+		Status:       StatusOpen,
+		Severity:     severity,
+		Title:        title,
+		AlertCount:   1,
+		TriageResult: result,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		Labels:       copyLabels(env.Labels),
 	}
-	return inc
+	if marshalErr == nil {
+		inc.RawEnvelope = raw
+	}
+	s.incidents[inc.ID] = inc
+	cp := *inc
+	cp.Labels = copyLabels(inc.Labels)
+	return &cp
 }
 
 // Get returns the incident with the given ID or nil.
@@ -115,6 +133,7 @@ func (s *Store) Get(id string) *Incident {
 		return nil
 	}
 	cp := *inc
+	cp.Labels = copyLabels(inc.Labels)
 	return &cp
 }
 
@@ -131,6 +150,7 @@ func (s *Store) List(tenantID, status string, limit int) []*Incident {
 			continue
 		}
 		cp := *inc
+		cp.Labels = copyLabels(inc.Labels)
 		out = append(out, &cp)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -165,7 +185,7 @@ func (s *Store) StartReplay(sourceID, tenantID string) (*Incident, error) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 		ReplayOf:   sourceID,
-		Labels:     src.Labels,
+		Labels:     copyLabels(src.Labels),
 	}
 	s.incidents[replay.ID] = replay
 	return replay, nil
@@ -323,6 +343,19 @@ func jsonErrAgent(w http.ResponseWriter, code, msg string, status int) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]string{"code": code, "message": msg},
 	})
+}
+
+// copyLabels returns a deep copy of a labels map to prevent callers from
+// mutating the stored incident's label set.
+func copyLabels(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 // RunContextKey is used to pass the replay context via chi middleware.

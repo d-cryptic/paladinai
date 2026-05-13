@@ -167,6 +167,7 @@ func (h *Handler) issueToken(w http.ResponseWriter, r *http.Request) {
 		TenantID string   `json:"tenant_id"`
 		UserID   string   `json:"user_id"`
 		Roles    []string `json:"roles"`
+		Scopes   []string `json:"scopes,omitempty"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -203,7 +204,7 @@ func (h *Handler) issueToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.IssueToken(h.jwtSecret, body.TenantID, body.UserID, body.Roles, h.tokenTTL)
+	token, err := auth.IssueToken(h.jwtSecret, body.TenantID, body.UserID, body.Roles, body.Scopes, h.tokenTTL)
 	if err != nil {
 		h.log.Error("issue token", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "failed to sign token")

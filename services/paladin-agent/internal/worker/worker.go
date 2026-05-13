@@ -203,51 +203,77 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	pctx, cancel := context.WithTimeout(ctx, w.triageTimeout)
 	defer cancel()
 
-	result, err := w.triager.Triage(pctx, &env)
-	if err != nil {
-		if deliveries >= maxDeliveries {
-			w.log.Error("worker: triage failed at max deliveries, routing to DLQ",
+	var result *agent.TriageResult
+	var rcaResult *agent.RCAResult
+
+	if w.supervisor != nil {
+		// Stage 3 path: classify → route → triage/rca via supervisor.
+		state := &agent.IncidentState{TenantID: env.TenantID, Alert: env}
+		st, supErr := w.supervisor.Process(pctx, state)
+		if supErr != nil {
+			w.log.Warn("worker: supervisor failed, falling back to direct triage",
 				zap.String("fingerprint", env.Fingerprint),
-				zap.Uint64("deliveries", deliveries),
-				zap.Error(err),
+				zap.Error(supErr),
 			)
-			w.publishDLQ(ctx, &env, err)
-			_ = msg.Term()
-			return
+			// fall through to direct triage below
+		} else {
+			result = st.TriageResult
+			rcaResult = st.RCAResult
 		}
-		delay := nakDelay(deliveries)
-		w.log.Warn("worker: triage failed, nacking with backoff",
-			zap.String("fingerprint", env.Fingerprint),
-			zap.Duration("delay", delay),
-			zap.Error(err),
-		)
-		if nakErr := msg.NakWithDelay(delay); nakErr != nil {
-			w.log.Warn("worker: NakWithDelay failed", zap.Error(nakErr))
-		}
-		return
 	}
 
-	// Optionally run RCA after triage. On failure, fall back to triage-only publish.
-	var rcaResult *agent.RCAResult
-	if w.rcaAnalyzer != nil {
-		timeout := w.rcaTimeout
-		if timeout <= 0 {
-			timeout = w.triageTimeout
-		}
-		rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
-		rcaResult, err = w.rcaAnalyzer.Analyze(rcaCtx, &env, result)
-		rcaCancel() // cancel immediately; do not defer (timer would run until handleMsg returns)
+	if result == nil {
+		// Direct triage path (supervisor absent or failed).
+		var err error
+		result, err = w.triager.Triage(pctx, &env)
 		if err != nil {
-			w.log.Warn("worker: rca failed, publishing triage-only result",
+			if deliveries >= maxDeliveries {
+				w.log.Error("worker: triage failed at max deliveries, routing to DLQ",
+					zap.String("fingerprint", env.Fingerprint),
+					zap.Uint64("deliveries", deliveries),
+					zap.Error(err),
+				)
+				w.publishDLQ(ctx, &env, err)
+				_ = msg.Term()
+				return
+			}
+			delay := nakDelay(deliveries)
+			w.log.Warn("worker: triage failed, nacking with backoff",
 				zap.String("fingerprint", env.Fingerprint),
+				zap.Duration("delay", delay),
 				zap.Error(err),
 			)
-			rcaResult = nil // ensure fallback to triaged subject
+			if nakErr := msg.NakWithDelay(delay); nakErr != nil {
+				w.log.Warn("worker: NakWithDelay failed", zap.Error(nakErr))
+			}
+			return
+		}
+
+		// Optionally run RCA after triage. On failure, fall back to triage-only publish.
+		if w.rcaAnalyzer != nil {
+			timeout := w.rcaTimeout
+			if timeout <= 0 {
+				timeout = w.triageTimeout
+			}
+			rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
+			rcaResult, err = w.rcaAnalyzer.Analyze(rcaCtx, &env, result)
+			rcaCancel() // cancel immediately; do not defer (timer would run until handleMsg returns)
+			if err != nil {
+				w.log.Warn("worker: rca failed, publishing triage-only result",
+					zap.String("fingerprint", env.Fingerprint),
+					zap.Error(err),
+				)
+				rcaResult = nil // ensure fallback to triaged subject
+			}
 		}
 	}
 
 	// Publish downstream before Acking.
 	if err := w.publishCombined(ctx, &env, result, rcaResult); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			_ = msg.Nak()
+			return
+		}
 		w.log.Error("worker: publish result failed, nacking",
 			zap.String("fingerprint", env.Fingerprint),
 			zap.Error(err),
@@ -336,6 +362,15 @@ func nakDelay(deliveries uint64) time.Duration {
 // ProcessEnvelope runs the full pipeline (triage, optional RCA) for a single envelope.
 // Exported for tests that bypass the NATS consumer.
 func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) error {
+	if w.supervisor != nil {
+		state := &agent.IncidentState{TenantID: env.TenantID, Alert: *env}
+		st, err := w.supervisor.Process(ctx, state)
+		if err != nil {
+			return fmt.Errorf("ProcessEnvelope: supervisor: %w", err)
+		}
+		return w.publishCombined(ctx, env, st.TriageResult, st.RCAResult)
+	}
+
 	triage, err := w.triager.Triage(ctx, env)
 	if err != nil {
 		return err
