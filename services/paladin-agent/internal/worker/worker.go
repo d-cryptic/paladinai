@@ -142,7 +142,11 @@ func (w *Worker) Run(ctx context.Context, js jetstream.JetStream, consumerName s
 	for {
 		select {
 		case <-ctx.Done():
-			wg.Wait() // drain in-flight handlers before returning
+			cc.Stop() // unblock producer goroutine
+			for m := range msgCh {
+				_ = m.Nak()
+			}
+			wg.Wait()
 			return ctx.Err()
 		case msg, ok := <-msgCh:
 			if !ok {
@@ -199,6 +203,13 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		deliveries = md.NumDelivered
 	}
 
+	// Supervisor covers classify+triage+RCA in one pipeline, so budget the sum.
+	// Direct path uses triageTimeout for triage and rcaTimeout separately.
+	supervisorBudget := w.triageTimeout + w.rcaTimeout
+	if supervisorBudget <= 0 {
+		supervisorBudget = w.triageTimeout
+	}
+
 	pctx, cancel := context.WithTimeout(ctx, w.triageTimeout)
 	defer cancel()
 
@@ -207,8 +218,11 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 
 	if w.supervisor != nil {
 		// Stage 3 path: classify → route → triage/rca via supervisor.
+		// Use a wider timeout that covers the combined pipeline.
+		supCtx, supCancel := context.WithTimeout(ctx, supervisorBudget)
+		defer supCancel()
 		state := &agent.IncidentState{TenantID: env.TenantID, Alert: env}
-		st, supErr := w.supervisor.Process(pctx, state)
+		st, supErr := w.supervisor.Process(supCtx, state)
 		if supErr != nil {
 			w.log.Warn("worker: supervisor failed, falling back to direct triage",
 				zap.String("fingerprint", env.Fingerprint),

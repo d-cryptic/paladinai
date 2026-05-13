@@ -246,7 +246,8 @@ func (c *MemL3) Set(ctx context.Context, tenantID, toolName string, args any, re
 		return err
 	}
 	c.mu.Lock()
-	if len(c.entries) < memMaxEntries {
+	_, exists := c.entries[key]
+	if exists || len(c.entries) < memMaxEntries {
 		c.entries[key] = memEntry{value: result, expiresAt: time.Now().Add(L3TTL(toolName))}
 	}
 	c.mu.Unlock()

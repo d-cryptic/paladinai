@@ -229,6 +229,8 @@ func prefixWriter(dst *os.File, name string) *linePrefixWriter {
 	return &linePrefixWriter{dst: dst, prefix: fmt.Sprintf("[%-20s] ", name)}
 }
 
+const linePrefixWriterMaxBuf = 64 * 1024
+
 func (w *linePrefixWriter) Write(p []byte) (n int, err error) {
 	w.buf = append(w.buf, p...)
 	for {
@@ -241,6 +243,13 @@ func (w *linePrefixWriter) Write(p []byte) (n int, err error) {
 		if w.dst != nil {
 			_, _ = fmt.Fprint(w.dst, w.prefix+line)
 		}
+	}
+	// Prevent unbounded growth from a misbehaving child that never writes newlines.
+	if len(w.buf) > linePrefixWriterMaxBuf {
+		if w.dst != nil {
+			_, _ = fmt.Fprint(w.dst, w.prefix+string(w.buf))
+		}
+		w.buf = w.buf[:0]
 	}
 	return len(p), nil
 }

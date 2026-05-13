@@ -92,9 +92,16 @@ func (h *Hub) Broadcast(tenantID, severity, service string, msg []byte) {
 // If the client has been unsubscribed (c.done closed) the message is discarded.
 // Slow clients (full buffer) are also dropped rather than blocked.
 func trySend(c *Client, msg []byte) {
+	// Check done first before attempting send — avoids delivering to a client
+	// whose pump has already exited (non-deterministic select would let both
+	// arms race when done is closed and Send has space simultaneously).
 	select {
 	case <-c.done:
-		// client unsubscribed between collection and send — discard
+		return
+	default:
+	}
+	select {
+	case <-c.done:
 	case c.Send <- msg:
 	default:
 		// slow client — drop this frame rather than block
@@ -106,11 +113,17 @@ func trySend(c *Client, msg []byte) {
 // drain WebSocket connections within the shutdown timeout.
 func (h *Hub) CloseAll() {
 	h.mu.Lock()
+	snap := make([]*Client, 0, len(h.clients))
 	for c := range h.clients {
-		delete(h.clients, c)
+		snap = append(snap, c)
+	}
+	h.clients = make(map[*Client]struct{})
+	h.mu.Unlock()
+	// Close done channels outside the lock so pump goroutines that re-enter
+	// Unsubscribe on teardown cannot deadlock on h.mu.
+	for _, c := range snap {
 		close(c.done)
 	}
-	h.mu.Unlock()
 }
 
 // Len returns the number of connected clients.

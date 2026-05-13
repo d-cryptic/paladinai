@@ -7,6 +7,7 @@
 package cache
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -14,11 +15,11 @@ import (
 // ModelCostProfile holds the per-model pricing used to estimate savings.
 // Prices are in USD per million tokens (matching OpenRouter / Anthropic pricing).
 type ModelCostProfile struct {
-	Name             string
-	InputPricePerM   float64 // USD per 1M input tokens
-	OutputPricePerM  float64 // USD per 1M output tokens
-	AvgInputTokens   int     // typical input size for this query type
-	AvgOutputTokens  int     // typical output size for this query type
+	Name            string
+	InputPricePerM  float64 // USD per 1M input tokens
+	OutputPricePerM float64 // USD per 1M output tokens
+	AvgInputTokens  int     // typical input size for this query type
+	AvgOutputTokens int     // typical output size for this query type
 }
 
 // Predefined profiles matching Stage 9 §18 estimates.
@@ -57,9 +58,9 @@ type CacheHitEvent struct {
 // CostAttributor accumulates cache hit events per tenant. Thread-safe.
 // Callers flush accumulated totals to persistent storage on their own schedule.
 type CostAttributor struct {
-	mu      sync.Mutex
-	totals  map[string]float64 // tenantID → total USD saved
-	hitCnt  map[string]int     // tenantID → total hit count
+	mu     sync.Mutex
+	totals map[string]float64 // tenantID → total USD saved
+	hitCnt map[string]int     // tenantID → total hit count
 }
 
 // NewCostAttributor returns a ready-to-use CostAttributor.
@@ -109,4 +110,32 @@ func (c *CostAttributor) Flush() map[string]float64 {
 	c.totals = make(map[string]float64)
 	c.hitCnt = make(map[string]int)
 	return out
+}
+
+// Run periodically flushes accumulated cost totals by calling persistFn with
+// the snapshot. It blocks until ctx is cancelled. Callers that need automated
+// flushing should run this in a background goroutine.
+func (c *CostAttributor) Run(ctx context.Context, interval time.Duration, persistFn func(map[string]float64)) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			// Final flush on shutdown. Run in a goroutine so a slow persistFn
+			// cannot block shutdown indefinitely.
+			if snap := c.Flush(); len(snap) > 0 {
+				done := make(chan struct{})
+				go func() { persistFn(snap); close(done) }()
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+				}
+			}
+			return
+		case <-t.C:
+			if snap := c.Flush(); len(snap) > 0 {
+				persistFn(snap)
+			}
+		}
+	}
 }

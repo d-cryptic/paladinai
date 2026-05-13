@@ -27,10 +27,22 @@ func (c *NATSChecker) Check(ctx context.Context) error {
 		return fmt.Errorf("nats: not connected (status: %s)", c.conn.Status())
 	}
 
-	if _, err := c.conn.RTT(); err != nil {
-		return fmt.Errorf("nats: RTT failed: %w", err)
+	// RTT does not accept a context, so run it in a goroutine and race against ctx.
+	type rttResult struct{ err error }
+	ch := make(chan rttResult, 1)
+	go func() {
+		_, err := c.conn.RTT()
+		ch <- rttResult{err: err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return fmt.Errorf("nats: RTT failed: %w", r.err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("nats: RTT check timed out: %w", ctx.Err())
 	}
-	return nil
 }
 
 // ValkeyChecker pings the Valkey/Redis server.

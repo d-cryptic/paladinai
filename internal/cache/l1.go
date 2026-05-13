@@ -123,7 +123,8 @@ func (c *MemL1) Get(_ context.Context, key string) ([]byte, error) {
 
 func (c *MemL1) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {
 	c.mu.Lock()
-	if len(c.entries) < memMaxEntries {
+	_, exists := c.entries[key]
+	if exists || len(c.entries) < memMaxEntries {
 		c.entries[key] = memEntry{value: value, expiresAt: time.Now().Add(ttl)}
 	}
 	c.mu.Unlock()
