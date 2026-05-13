@@ -173,15 +173,19 @@ func TestPublishDLQ_ValidatesInputs(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tenant")
 
+	_, err = client.PublishDLQ(ctx, "bad.tenant", "paladin.alerts.x", []byte("x"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tenant")
+
 	_, err = client.PublishDLQ(ctx, "tenant", "", []byte("x"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "originalSubject")
 }
 
-// TestPublishDLQ_EscapesDotsInOriginalSubject verifies the escape rule by
+// TestPublishDLQ_EscapesOriginalSubject verifies the escape rule by
 // inspecting the actual subject the message lands on. We use a core NATS
 // subscriber on the dlq.> wildcard to capture it.
-func TestPublishDLQ_EscapesDotsInOriginalSubject(t *testing.T) {
+func TestPublishDLQ_EscapesOriginalSubject(t *testing.T) {
 	url, stop := startInProcessJetStream(t)
 	defer stop()
 
@@ -205,7 +209,7 @@ func TestPublishDLQ_EscapesDotsInOriginalSubject(t *testing.T) {
 	defer client.Close()
 
 	_, err = client.PublishDLQ(context.Background(), "acme",
-		"paladin.alerts.correlated.acme.alertmanager", []byte("x"))
+		"paladin.alerts.>.acme.*", []byte("x"))
 	require.NoError(t, err)
 
 	select {
@@ -215,7 +219,9 @@ func TestPublishDLQ_EscapesDotsInOriginalSubject(t *testing.T) {
 			"DLQ subject must start with dlq.<tenant>.: %s", subject)
 		assert.False(t, strings.Contains(subject[len("dlq.acme."):], "."),
 			"original-subject token must not contain dots: %s", subject)
-		assert.Contains(t, subject, "paladin_alerts_correlated_acme_alertmanager")
+		assert.NotContains(t, subject[len("dlq.acme."):], "*")
+		assert.NotContains(t, subject[len("dlq.acme."):], ">")
+		assert.Contains(t, subject, "paladin_alerts___acme__")
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not receive DLQ message")
 	}

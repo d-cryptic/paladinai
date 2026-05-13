@@ -229,13 +229,13 @@ func (c *Client) Publish(ctx context.Context, subject string, data []byte) (*jet
 // where dots in the original subject are replaced with underscores so the
 // whole original subject collapses into a single NATS token.
 func (c *Client) PublishDLQ(ctx context.Context, tenant, originalSubject string, data []byte) (*jetstream.PubAck, error) {
-	if tenant == "" {
-		return nil, fmt.Errorf("publish dlq: tenant must not be empty")
+	if err := validateToken(tenant); err != nil {
+		return nil, fmt.Errorf("publish dlq tenant: %w", err)
 	}
 	if originalSubject == "" {
 		return nil, fmt.Errorf("publish dlq: originalSubject must not be empty")
 	}
-	escaped := strings.ReplaceAll(originalSubject, ".", "_")
+	escaped := strings.NewReplacer(".", "_", "*", "_", ">", "_").Replace(originalSubject)
 	subject := fmt.Sprintf("dlq.%s.%s", tenant, escaped)
 	return c.Publish(ctx, subject, data)
 }
