@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const defaultAPIURL = "http://localhost:9002"
+
 var rootCmd = &cobra.Command{
 	Use:   "paladin",
 	Short: "PaladinAI CLI — manage alerts, incidents, and MCP servers",
@@ -17,7 +19,7 @@ Use it to query active alerts, manage incidents, register MCP servers,
 and launch the interactive TUI dashboard.
 
 Environment variables:
-  PALADIN_API_URL   Base URL of paladin-hub/edge (default: http://localhost:8080)
+  PALADIN_API_URL   Base URL of paladin-hub/edge (default: http://localhost:9002)
   PALADIN_TENANT    Tenant ID for all requests
   PALADIN_TOKEN     API authentication token`,
 }
@@ -28,7 +30,7 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().String("api-url", envStr("PALADIN_API_URL", "http://localhost:8080"), "PaladinAI API base URL")
+	rootCmd.PersistentFlags().String("api-url", envStr("PALADIN_API_URL", defaultAPIURL), "PaladinAI API base URL")
 	rootCmd.PersistentFlags().String("tenant", os.Getenv("PALADIN_TENANT"), "Tenant ID")
 	rootCmd.PersistentFlags().String("token", os.Getenv("PALADIN_TOKEN"), "Bearer token for authentication")
 	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
@@ -77,7 +79,7 @@ func optToken(cmd *cobra.Command) string {
 func apiURL(cmd *cobra.Command) string {
 	f := cmd.Flag("api-url")
 	if f == nil {
-		return "http://localhost:8080"
+		return defaultAPIURL
 	}
 	return f.Value.String()
 }
