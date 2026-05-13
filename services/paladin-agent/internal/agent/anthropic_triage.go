@@ -32,12 +32,16 @@ type AnthropicTriager struct {
 }
 
 // WithPromptStore attaches a hot-reloadable prompt store.
+// Must be called before the triager is used (construction time only; not safe
+// for concurrent access once Triage() is being invoked).
 func (a *AnthropicTriager) WithPromptStore(p PromptProvider) *AnthropicTriager {
 	a.ps = p
 	return a
 }
 
 // WithRAG attaches a runbook retrieval pipeline for context injection.
+// Must be called before the triager is used (construction time only; not safe
+// for concurrent access once Triage() is being invoked).
 func (a *AnthropicTriager) WithRAG(r *RAGContextBuilder) *AnthropicTriager {
 	a.rag = r
 	return a
@@ -54,6 +58,9 @@ func NewAnthropicTriager(client *anthropicpkg.Client, log *zap.Logger) *Anthropi
 // Triage classifies the alert using Anthropic's native API with automatic
 // prompt cache injection. Falls back to a degraded result on non-JSON output.
 func (a *AnthropicTriager) Triage(ctx context.Context, env *alert.AlertEnvelope) (*TriageResult, error) {
+	if env == nil {
+		return nil, fmt.Errorf("anthropic triage: nil envelope")
+	}
 	alertJSON, err := json.Marshal(map[string]any{
 		"title":       env.Title,
 		"severity":    string(env.Severity),

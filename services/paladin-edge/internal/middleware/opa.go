@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -79,6 +80,7 @@ func (c *httpOPAClient) Allow(ctx context.Context, input OPAInput) (bool, error)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return false, fmt.Errorf("opa: unexpected status %d", resp.StatusCode)
 	}
 
@@ -98,8 +100,16 @@ func (c *httpOPAClient) Allow(ctx context.Context, input OPAInput) (bool, error)
 func OPAMiddleware(client OPAClient, failOpen bool, log *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tenantID, _ := auth.TenantIDFromContext(r.Context())
+			tenantID, ok := auth.TenantIDFromContext(r.Context())
+			if !ok || tenantID == "" {
+				// JWTMiddleware must run before OPAMiddleware; reject unauthenticated requests.
+				writeJSONError(w, http.StatusUnauthorized, "missing authentication context")
+				return
+			}
 			roles := auth.RolesFromContext(r.Context())
+			if roles == nil {
+				roles = []string{}
+			}
 
 			action := httpMethodToAction(r.Method)
 			input := OPAInput{

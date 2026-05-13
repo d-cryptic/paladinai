@@ -34,6 +34,9 @@ func NewRAGContextBuilder(r RunbookRetriever, log *zap.Logger) *RAGContextBuilde
 // Build retrieves relevant runbook chunks and formats them as context.
 // Returns an empty string if retrieval fails or returns no results.
 func (b *RAGContextBuilder) Build(ctx context.Context, env *alert.AlertEnvelope) string {
+	if env == nil {
+		return ""
+	}
 	query := fmt.Sprintf("%s %s", env.Title, env.Description)
 	chunks, err := b.retriever.Search(ctx, query, env.TenantID, b.topK)
 	if err != nil {
