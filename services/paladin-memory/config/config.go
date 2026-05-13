@@ -11,6 +11,8 @@ import (
 type Config struct {
 	// GRPCAddr is the gRPC listener address (e.g. ":9010").
 	GRPCAddr string
+	// HTTPAddr is the health/metrics listener address (e.g. ":9011").
+	HTTPAddr string
 	// DatabaseURL is the PostgreSQL DSN for episodic memory storage. Required.
 	DatabaseURL string
 	// ValkeyURL is the Redis/Valkey URL for working memory storage.
@@ -34,6 +36,7 @@ func Load() (*Config, error) {
 	}
 	c := &Config{
 		GRPCAddr:     getEnv("GRPC_ADDR", ":9010"),
+		HTTPAddr:     getEnv("MEMORY_HTTP_ADDR", ":9011"),
 		DatabaseURL:  dbURL,
 		ValkeyURL:    getEnv("VALKEY_URL", "redis://localhost:6379"),
 		WorkingTTL:   getEnvInt("WORKING_MEMORY_TTL_SECONDS", 1800),

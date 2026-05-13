@@ -5,8 +5,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,6 +26,7 @@ import (
 	memcfg "github.com/paladinai/paladinai/services/paladin-memory/config"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // sanitizeDSN returns only the host+dbname from a Postgres DSN for safe logging.
@@ -159,9 +162,18 @@ func main() {
 	grpcServer := grpc.NewServer()
 	memoryv1.RegisterMemoryServiceServer(grpcServer, h)
 
+	httpSrv := memoryHealthServer(cfg.HTTPAddr, pool, rdb)
+	go func() {
+		log.Info("paladin-memory HTTP listening", zap.String("addr", cfg.HTTPAddr))
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("HTTP server error", zap.Error(err))
+		}
+	}()
+
 	go func() {
 		log.Info("paladin-memory listening",
 			zap.String("grpc_addr", cfg.GRPCAddr),
+			zap.String("http_addr", cfg.HTTPAddr),
 			zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
 		)
 		if err := grpcServer.Serve(lis); err != nil {
@@ -172,6 +184,12 @@ func main() {
 
 	<-ctx.Done()
 	log.Info("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error("HTTP shutdown error", zap.Error(err))
+	}
+	cancel()
 
 	stopped := make(chan struct{})
 	go func() {
@@ -185,4 +203,36 @@ func main() {
 		grpcServer.Stop()
 	}
 	log.Info("paladin-memory stopped")
+}
+
+func memoryHealthServer(addr string, pool *pgxpool.Pool, rdb *redis.Client) *http.Server {
+	return &http.Server{
+		Addr:         addr,
+		Handler:      memoryHealthHandler(pool.Ping, func(ctx context.Context) error { return rdb.Ping(ctx).Err() }),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+}
+
+func memoryHealthHandler(pgPing func(context.Context) error, valkeyPing func(context.Context) error) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := pgPing(ctx); err != nil {
+			http.Error(w, "postgres unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := valkeyPing(ctx); err != nil {
+			http.Error(w, "valkey unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.Handle("/metrics", promhttp.Handler())
+	return mux
 }
