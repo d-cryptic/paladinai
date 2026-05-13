@@ -235,7 +235,7 @@ func applyAndSaveProject(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, au
 	}
 
 	fmt.Println("\nVerifying connectivity...")
-	if _, err := client.Get(cmd.Context(), apiEndpoint+"/healthz", client.Options{
+	if _, err := client.Get(cmd.Context(), apiEndpoint+"/readyz", client.Options{
 		TenantID: tenant,
 		Token:    activeToken,
 	}); err != nil {
