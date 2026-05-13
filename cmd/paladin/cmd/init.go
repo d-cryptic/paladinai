@@ -338,6 +338,7 @@ var doctorCmd = &cobra.Command{
   ok  Authenticated    -- token is valid and non-expired
   ok  Tenant           -- tenant is configured
   ok  Agent            -- paladin-agent service is reachable
+  ok  Memory           -- paladin-memory readiness probe responds
   ok  Integrations     -- registered MCP servers pass health checks
 
 Flags:
@@ -405,6 +406,26 @@ func infraTCPCheck(rawURL string, defaultPort int) func() error {
 		defer conn.Close()
 		return nil
 	}
+}
+
+func localHTTPBase(raw string, defaultPort int) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = fmt.Sprintf(":%d", defaultPort)
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		return strings.TrimRight(raw, "/")
+	}
+	if strings.HasPrefix(raw, ":") {
+		return "http://localhost" + raw
+	}
+	if _, _, err := net.SplitHostPort(raw); err == nil {
+		return "http://" + raw
+	}
+	if !strings.Contains(raw, ":") {
+		return fmt.Sprintf("http://%s:%d", raw, defaultPort)
+	}
+	return "http://" + raw
 }
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
@@ -528,6 +549,14 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		{
 			name: "Qdrant reachable",
 			fn:   infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333),
+		},
+		{
+			name: "paladin-memory ready",
+			fn: func() error {
+				memoryBase := localHTTPBase(envStr("MEMORY_HTTP_ADDR", ":9011"), 9011)
+				_, err := client.Get(cmd.Context(), memoryBase+"/readyz", client.Options{})
+				return err
+			},
 		},
 		{
 			name: "paladin-comms reachable",
