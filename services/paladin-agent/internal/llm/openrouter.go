@@ -33,12 +33,13 @@ func (s Secret) Reveal() string               { return string(s) }
 
 // Config holds OpenRouter credentials and model names per tier.
 type Config struct {
-	// BaseURL must be HTTPS. Providing http:// will return an error from New.
-	BaseURL    string
-	APIKey     Secret
-	ModelTierA string
-	ModelTierB string
-	ModelTierC string
+	// BaseURL must be HTTPS unless AllowInsecureBaseURL is set for local mocks.
+	BaseURL              string
+	APIKey               Secret
+	AllowInsecureBaseURL bool
+	ModelTierA           string
+	ModelTierB           string
+	ModelTierC           string
 }
 
 // Client wraps per-tier Eino chat models backed by OpenRouter.
@@ -49,7 +50,9 @@ type Client struct {
 // New creates an LLM Client with one model per tier.
 // Returns an error if the base URL is not HTTPS or any model fails to initialise.
 func New(ctx context.Context, cfg Config) (*Client, error) {
-	if !strings.HasPrefix(cfg.BaseURL, "https://") {
+	usesHTTPS := strings.HasPrefix(cfg.BaseURL, "https://")
+	usesAllowedHTTP := cfg.AllowInsecureBaseURL && strings.HasPrefix(cfg.BaseURL, "http://")
+	if !usesHTTPS && !usesAllowedHTTP {
 		return nil, fmt.Errorf("llm: BaseURL must use HTTPS, got %q", cfg.BaseURL)
 	}
 

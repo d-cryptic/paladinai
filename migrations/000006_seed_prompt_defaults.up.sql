@@ -19,4 +19,5 @@ OUTPUT: JSON only: {"step_completed":"...","next_step":"...","status":"running|p
 ('comms', '*', 1, 'You are PaladinAI''s communications agent. Draft clear incident communications.
 
 CONSTRAINTS: Be factual. Never speculate. Use provided data only.
-OUTPUT: JSON only: {"slack_message":"...","severity":"...","affected":"...","eta":"unknown"}', true, 'initial v1 comms prompt');
+OUTPUT: JSON only: {"slack_message":"...","severity":"...","affected":"...","eta":"unknown"}', true, 'initial v1 comms prompt')
+ON CONFLICT (agent_name, model_id, version) DO NOTHING;

@@ -27,7 +27,7 @@ test.describe("Full alert pipeline golden path", () => {
 
     // 2. Issue JWT.
     const tokenResp = await edgeCtx.post("/api/v1/auth/tokens", {
-      data: { tenant_id: tenant.id, user_id: "playwright-pipeline-user" },
+      data: { tenant_id: tenant.id, user_id: "playwright-pipeline-user", roles: ["admin"] },
       headers: { "X-Admin-Secret": ADMIN_SECRET },
     });
     expect(tokenResp.status()).toBe(200);

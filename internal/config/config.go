@@ -45,6 +45,8 @@ func LoadBase() (Base, error) {
 type LLM struct {
 	GatewayURL    string
 	OpenRouterKey string
+	// AllowInsecureGateway permits http:// gateways for local mocks only.
+	AllowInsecureGateway bool
 	// Default model tiers (see stage 9 for full routing table)
 	TierA string // fast, cheap: qwen/qwen3-1.7b
 	TierB string // balanced: qwen/qwen3-8b
@@ -57,11 +59,12 @@ func LoadLLM() (LLM, error) {
 		return LLM{}, fmt.Errorf("OPENROUTER_API_KEY is required")
 	}
 	return LLM{
-		GatewayURL:    getEnv("LLM_GATEWAY_URL", "https://openrouter.ai/api/v1"),
-		OpenRouterKey: key,
-		TierA:         getEnv("LLM_TIER_A", "qwen/qwen3-1.7b"),
-		TierB:         getEnv("LLM_TIER_B", "qwen/qwen3-8b"),
-		TierC:         getEnv("LLM_TIER_C", "deepseek/deepseek-v3"),
+		GatewayURL:           getEnv("LLM_GATEWAY_URL", "https://openrouter.ai/api/v1"),
+		OpenRouterKey:        key,
+		AllowInsecureGateway: getEnvBool("LLM_ALLOW_INSECURE_GATEWAY", false),
+		TierA:                getEnv("LLM_TIER_A", "qwen/qwen3-1.7b"),
+		TierB:                getEnv("LLM_TIER_B", "qwen/qwen3-8b"),
+		TierC:                getEnv("LLM_TIER_C", "deepseek/deepseek-v3"),
 	}, nil
 }
 
@@ -98,6 +101,16 @@ func getEnvInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err == nil {
+			return parsed
 		}
 	}
 	return fallback

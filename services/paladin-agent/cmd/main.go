@@ -100,11 +100,12 @@ func main() {
 
 	// ── LLM client ───────────────────────────────────────────────────────────
 	llmClient, err := llm.New(ctx, llm.Config{
-		BaseURL:    cfg.LLM.GatewayURL,
-		APIKey:     llm.Secret(cfg.LLM.OpenRouterKey),
-		ModelTierA: cfg.LLM.TierA,
-		ModelTierB: cfg.LLM.TierB,
-		ModelTierC: cfg.LLM.TierC,
+		BaseURL:              cfg.LLM.GatewayURL,
+		APIKey:               llm.Secret(cfg.LLM.OpenRouterKey),
+		AllowInsecureBaseURL: cfg.LLM.AllowInsecureGateway,
+		ModelTierA:           cfg.LLM.TierA,
+		ModelTierB:           cfg.LLM.TierB,
+		ModelTierC:           cfg.LLM.TierC,
 	})
 	if err != nil {
 		log.Fatal("llm client init failed", zap.Error(err))

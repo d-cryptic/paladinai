@@ -40,7 +40,7 @@ logs: ## Tail all service logs
 build-images: ## Build Docker images for all PaladinAI services
 	docker compose build $(SERVICES)
 
-up-services: up ## Start infra + all PaladinAI services
+up-services: up migrate-up ## Start infra + all PaladinAI services
 	docker compose up -d $(SERVICES)
 
 logs-services: ## Follow logs from all PaladinAI services
@@ -96,10 +96,10 @@ dev-ingest: ## Run paladin-ingest with hot reload (air)
 # ─── Database ────────────────────────────────────────────────────────────────
 
 migrate-up: ## Run all pending migrations
-	migrate -path migrations -database "$(DATABASE_URL)" up
+	docker compose run --rm migrate
 
 migrate-down: ## Rollback last migration
-	migrate -path migrations -database "$(DATABASE_URL)" down 1
+	docker compose run --rm migrate -path=/migrations -database="postgres://paladin:$${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable" down 1
 
 # ─── Hatchet ─────────────────────────────────────────────────────────────────
 
@@ -123,10 +123,10 @@ integration-test: ## Run integration tests (requires NATS, Valkey, Postgres)
 	go test -tags integration -timeout 120s ./...
 
 playwright-install: ## Install Playwright and its browser dependencies
-	cd test/playwright && bun install && bun playwright install --with-deps chromium
+	cd test/playwright && bun install && bunx playwright install --with-deps chromium
 
 playwright: ## Run Playwright API tests (requires all services running via make up)
-	cd test/playwright && bun playwright test --project=api
+	cd test/playwright && bun run test:api
 
 playwright-ci: ## Run Playwright in CI mode (headless, GitHub reporter)
-	cd test/playwright && bun playwright test --project=api --reporter=github
+	cd test/playwright && bun run test:ci

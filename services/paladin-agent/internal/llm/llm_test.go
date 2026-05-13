@@ -89,6 +89,20 @@ func TestNew_HTTPBaseURLReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "HTTPS")
 }
 
+func TestNew_HTTPBaseURLSucceedsWhenExplicitlyAllowed(t *testing.T) {
+	cfg := llm.Config{
+		BaseURL:              "http://mock-llm:1080/api/v1",
+		APIKey:               llm.Secret("local-key"),
+		AllowInsecureBaseURL: true,
+		ModelTierA:           "model-a",
+		ModelTierB:           "model-b",
+		ModelTierC:           "model-c",
+	}
+	client, err := llm.New(context.Background(), cfg)
+	require.NoError(t, err)
+	assert.NotNil(t, client)
+}
+
 func TestNew_EmptyBaseURLReturnsError(t *testing.T) {
 	cfg := llm.Config{
 		BaseURL:    "",
