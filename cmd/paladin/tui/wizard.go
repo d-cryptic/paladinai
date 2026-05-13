@@ -4,8 +4,10 @@ package tui
 
 import (
 	"fmt"
+	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -671,6 +673,8 @@ func (m DeployModel) View() string {
 
 // ── Step 6: Doctor (inline health check) ──────────────────────────────────────
 
+var doctorHTTPClient = &http.Client{Timeout: 5 * time.Second}
+
 // DoctorModel runs a quick inline health check at the end of the wizard.
 type DoctorModel struct {
 	spinner     spinner.Model
@@ -700,12 +704,29 @@ type doctorCheckMsg struct {
 func (m DoctorModel) Init() tea.Cmd {
 	ep := m.apiEndpoint
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
-		out, err := exec.Command("curl", "-sf", ep+"/healthz").Output()
-		if err != nil || len(out) == 0 {
-			return doctorCheckMsg{healthy: false, message: "API not reachable at " + ep}
-		}
-		return doctorCheckMsg{healthy: true, message: "API reachable at " + ep}
+		return checkDoctorReadiness(ep)
 	})
+}
+
+func checkDoctorReadiness(endpoint string) doctorCheckMsg {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return doctorCheckMsg{healthy: false, message: "API endpoint is not configured"}
+	}
+
+	req, err := http.NewRequest(http.MethodGet, endpoint+"/readyz", nil)
+	if err != nil {
+		return doctorCheckMsg{healthy: false, message: "API readiness URL is invalid: " + err.Error()}
+	}
+	resp, err := doctorHTTPClient.Do(req)
+	if err != nil {
+		return doctorCheckMsg{healthy: false, message: "API not ready at " + endpoint}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return doctorCheckMsg{healthy: false, message: fmt.Sprintf("API not ready at %s: HTTP %d", endpoint, resp.StatusCode)}
+	}
+	return doctorCheckMsg{healthy: true, message: "API ready at " + endpoint}
 }
 
 func (m DoctorModel) Update(msg tea.Msg) (DoctorModel, tea.Cmd) {
