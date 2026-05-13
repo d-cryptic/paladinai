@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,29 @@ import (
 	"github.com/paladinai/paladinai/internal/cache"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 )
+
+// errorL1 is an L1Cache that fails both Get and Set, exercising the
+// degraded cache-tier path in CachedTriager.Triage.
+type errorL1 struct{}
+
+func (errorL1) Get(_ context.Context, _ string) ([]byte, error) {
+	return nil, errors.New("valkey down")
+}
+
+func (errorL1) Set(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+	return errors.New("valkey down")
+}
+
+// corruptL1 returns invalid JSON bytes from Get — exercises the unmarshal-error branch.
+type corruptL1 struct{}
+
+func (corruptL1) Get(_ context.Context, _ string) ([]byte, error) {
+	return []byte("not valid json"), nil
+}
+
+func (corruptL1) Set(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+	return nil
+}
 
 // countingTriager counts how many times Triage is called.
 type countingTriager struct {
@@ -81,6 +105,28 @@ func TestCachedTriager_InnerErrorPropagated(t *testing.T) {
 
 	_, err := ct.Triage(context.Background(), newEnvelope("fp-err", "corr-err"))
 	assert.ErrorIs(t, err, assert.AnError)
+}
+
+func TestCachedTriager_GetErrorFallsThroughToInner(t *testing.T) {
+	inner := &countingTriager{result: &agent.TriageResult{ConfirmedSeverity: "P2"}}
+	ct := agent.NewCachedTriager(inner, errorL1{}, "model-a", zap.NewNop())
+
+	env := newEnvelope("fp-err-get", "corr-err-get")
+	result, err := ct.Triage(context.Background(), env)
+	require.NoError(t, err, "L1 Get error must not fail the request")
+	assert.Equal(t, "P2", result.ConfirmedSeverity)
+	assert.Equal(t, int64(1), inner.calls.Load(), "inner must be called when L1 errors")
+}
+
+func TestCachedTriager_CorruptCachedEntryFallsThrough(t *testing.T) {
+	inner := &countingTriager{result: &agent.TriageResult{ConfirmedSeverity: "P3"}}
+	ct := agent.NewCachedTriager(inner, corruptL1{}, "model-a", zap.NewNop())
+
+	env := newEnvelope("fp-corrupt", "corr-corrupt")
+	result, err := ct.Triage(context.Background(), env)
+	require.NoError(t, err)
+	assert.Equal(t, "P3", result.ConfirmedSeverity)
+	assert.Equal(t, int64(1), inner.calls.Load(), "corrupt cache should fall through to inner")
 }
 
 func TestCachedTriager_ModelIDChangesKey(t *testing.T) {
