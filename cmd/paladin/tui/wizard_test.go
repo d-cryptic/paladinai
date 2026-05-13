@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -296,6 +299,41 @@ func TestDeployModel_ReadyThenEnter(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(stepCompleteMsg); !ok {
 		t.Errorf("expected stepCompleteMsg, got %T", msg)
+	}
+}
+
+func TestCheckDoctorReadiness_UsesReadyz(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	msg := checkDoctorReadiness(srv.URL + "/")
+	if !msg.healthy {
+		t.Fatalf("healthy = false, message = %q", msg.message)
+	}
+	if gotPath != "/readyz" {
+		t.Fatalf("path = %q, want /readyz", gotPath)
+	}
+	if !strings.Contains(msg.message, "API ready") {
+		t.Fatalf("message = %q, want ready message", msg.message)
+	}
+}
+
+func TestCheckDoctorReadiness_NonOKFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	msg := checkDoctorReadiness(srv.URL)
+	if msg.healthy {
+		t.Fatal("healthy = true, want false")
+	}
+	if !strings.Contains(msg.message, "HTTP 503") {
+		t.Fatalf("message = %q, want status detail", msg.message)
 	}
 }
 
