@@ -449,7 +449,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9002/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9002/readyz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -482,7 +482,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9001/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9001/readyz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -514,7 +514,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9003/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9003/readyz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -549,7 +549,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8082/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/readyz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -580,7 +580,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9007/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9007/readyz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -604,7 +604,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PALADIN_ORCHESTRATOR_PORT: "9008"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9008/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9008/readyz"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -656,7 +656,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9006/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9006/readyz"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -691,7 +691,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9009/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9009/readyz"]
       interval: 15s
       timeout: 5s
       retries: 3
