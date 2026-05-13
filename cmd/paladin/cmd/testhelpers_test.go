@@ -48,6 +48,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	// cobra/pflag retain flag values between runs of the same command object.
 	resetBoolFlag(doctorCmd.Flags(), "json")
 	resetBoolFlag(doctorCmd.Flags(), "quiet")
+	resetBoolFlag(rootCmd.PersistentFlags(), "ci")
 	rootCmd.SilenceErrors = false
 
 	w.Close() // signal EOF to the drain goroutine

@@ -90,6 +90,17 @@ func isCIMode(cmd *cobra.Command) bool {
 	if f := cmd.Flag("ci"); f != nil && f.Value.String() == "true" {
 		return true
 	}
+	if f := cmd.InheritedFlags().Lookup("ci"); f != nil && f.Value.String() == "true" {
+		return true
+	}
+	if root := cmd.Root(); root != nil {
+		if f := root.PersistentFlags().Lookup("ci"); f != nil && f.Value.String() == "true" {
+			return true
+		}
+	}
+	if f := cmd.Flags().Lookup("ci"); f != nil && f.Value.String() == "true" {
+		return true
+	}
 	return os.Getenv("PALADIN_CI") != ""
 }
 
