@@ -101,6 +101,97 @@ func TestAuthLoginIssuesTokenAndStoresInKeychain(t *testing.T) {
 	}
 }
 
+func TestWriteAuthLoginResult_CIModeJSONDoesNotExposeToken(t *testing.T) {
+	cmd := newAuthLoginTestCmd("http://auth.example.test")
+	if err := cmd.Flags().Set("ci", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := captureStdout(t, func() {
+		err := writeAuthLoginResult(cmd, "tenant-abc", authLoginResponse{
+			Token:     "issued-token",
+			ExpiresIn: 3600,
+			TokenType: "Bearer",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var result authLoginResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Authenticated || result.Status != "authenticated" || result.TenantID != "tenant-abc" {
+		t.Fatalf("unexpected login result: %+v", result)
+	}
+	if result.ExpiresIn != 3600 || result.TokenType != "Bearer" {
+		t.Fatalf("unexpected token metadata: %+v", result)
+	}
+	if strings.Contains(stdout, "issued-token") {
+		t.Fatalf("login output exposed token: %s", stdout)
+	}
+}
+
+func TestWriteAuthLoginResult_HumanOutput(t *testing.T) {
+	cmd := newAuthLoginTestCmd("http://auth.example.test")
+
+	stdout := captureStdout(t, func() {
+		if err := writeAuthLoginResult(cmd, "tenant-abc", authLoginResponse{ExpiresIn: 3600}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(stdout, "Logged in successfully.") || !strings.Contains(stdout, "Tenant: tenant-abc") {
+		t.Fatalf("stdout = %q, want human login summary", stdout)
+	}
+}
+
+func TestWriteAuthLogoutResult_CIModeJSON(t *testing.T) {
+	cmd := newAuthLoginTestCmd("http://auth.example.test")
+	if err := cmd.Flags().Set("ci", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := captureStdout(t, func() {
+		if err := writeAuthLogoutResult(cmd, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var result authLogoutResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Authenticated || !result.LoggedOut || result.Status != "logged_out" {
+		t.Fatalf("unexpected logout result: %+v", result)
+	}
+	if strings.Contains(stdout, "Logged out.") {
+		t.Fatalf("stdout = %q, want json only", stdout)
+	}
+}
+
+func TestWriteAuthLogoutResult_CIModeJSONWhenNotAuthenticated(t *testing.T) {
+	cmd := newAuthLoginTestCmd("http://auth.example.test")
+	if err := cmd.Flags().Set("ci", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := captureStdout(t, func() {
+		if err := writeAuthLogoutResult(cmd, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var result authLogoutResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Authenticated || result.LoggedOut || result.Status != "not_authenticated" {
+		t.Fatalf("unexpected logout result: %+v", result)
+	}
+}
+
 func TestWriteAuthStatusResult_CIModeJSON(t *testing.T) {
 	cmd := newAuthLoginTestCmd("http://auth.example.test")
 	if err := cmd.Flags().Set("ci", "true"); err != nil {
