@@ -71,6 +71,11 @@ func TestRootAPIURLFlagDefaultsToLocalEdge(t *testing.T) {
 	assert.Equal(t, defaultAPIURL, flag.DefValue)
 }
 
+func TestRootLongDocumentsAuthEnvURL(t *testing.T) {
+	assert.Contains(t, rootCmd.Long, "PALADIN_AUTH_URL")
+	assert.Contains(t, rootCmd.Long, "http://localhost:9003")
+}
+
 func TestEnvStr_ReturnsFallbackWhenEnvUnset(t *testing.T) {
 	t.Setenv("PALADIN_TEST_VAR", "")
 	assert.Equal(t, "default", envStr("PALADIN_TEST_VAR", "default"))
