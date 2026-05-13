@@ -491,7 +491,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9004/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9007/healthz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -562,6 +562,12 @@ services:
         condition: service_healthy
     networks:
       - paladin
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9006/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     logging: *default-logging
 
@@ -572,7 +578,7 @@ services:
     image: ghcr.io/paladinai/comms:dev
     container_name: paladin-comms
     ports:
-      - "9007:9007"
+      - "9009:9009"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-development}
@@ -582,7 +588,7 @@ services:
       COMMS_MIN_SEVERITY: ${COMMS_MIN_SEVERITY:-P2}
       COMMS_WORKERS: ${COMMS_WORKERS:-4}
       COMMS_CONSUMER_NAME: paladin-comms
-      PALADIN_COMMS_PORT: "9007"
+      PALADIN_COMMS_PORT: "9009"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
       nats:
@@ -592,7 +598,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9007/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9009/healthz"]
       interval: 15s
       timeout: 5s
       retries: 3
