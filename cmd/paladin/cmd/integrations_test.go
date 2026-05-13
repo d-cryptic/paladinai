@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -125,4 +126,44 @@ func TestNonSecretIntegrationConfig_RemovesSecretSchemaFields(t *testing.T) {
 	require.NotNil(t, filtered)
 	assert.Equal(t, "https://grafana.example.com", filtered["url"])
 	assert.NotContains(t, filtered, "api_key")
+}
+
+func TestWriteIntegrationActionResult_CIModeJSON(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, true)
+
+	stdout := captureStdout(t, func() {
+		require.NoError(t, writeIntegrationActionResult(cmd, integrationActionResult{
+			Action:      "enable",
+			Name:        "loki",
+			Tenant:      "tenant-a",
+			Enabled:     true,
+			ProjectFile: "paladin.yaml",
+			Response:    json.RawMessage(`{"status":"enabled"}`),
+		}))
+	})
+
+	var result integrationActionResult
+	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
+	assert.Equal(t, "enable", result.Action)
+	assert.Equal(t, "loki", result.Name)
+	assert.Equal(t, "tenant-a", result.Tenant)
+	assert.True(t, result.Enabled)
+	assert.Equal(t, "paladin.yaml", result.ProjectFile)
+	assert.JSONEq(t, `{"status":"enabled"}`, string(result.Response))
+	assert.NotContains(t, stdout, "Integration")
+}
+
+func TestWriteIntegrationActionResult_HumanOutput(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, false)
+
+	stdout := captureStdout(t, func() {
+		require.NoError(t, writeIntegrationActionResult(cmd, integrationActionResult{
+			Action:      "disable",
+			Name:        "loki",
+			Tenant:      "tenant-a",
+			ProjectFile: "paladin.yaml",
+		}))
+	})
+
+	assert.Equal(t, "Integration \"loki\" disabled.\n", stdout)
 }
