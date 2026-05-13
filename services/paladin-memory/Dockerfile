@@ -14,5 +14,5 @@ RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S paladin && adduser -S -G paladin paladin
 COPY --from=builder /bin/paladin-memory /paladin-memory
 USER paladin
-EXPOSE 9010
+EXPOSE 9010 9011
 ENTRYPOINT ["/paladin-memory"]

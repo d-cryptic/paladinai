@@ -667,14 +667,16 @@ services:
     container_name: paladin-memory
     ports:
       - "9010:9010"
+      - "9011:9011"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-development}
+      GRPC_ADDR: ":9010"
+      MEMORY_HTTP_ADDR: ":9011"
       DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
       VALKEY_URL: redis://valkey:6379
       QDRANT_URL: http://qdrant:6333
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PALADIN_MEMORY_PORT: "9010"
     depends_on:
       postgres:
         condition: service_healthy
@@ -686,3 +688,9 @@ services:
       - paladin
     restart: unless-stopped
     logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9011/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
