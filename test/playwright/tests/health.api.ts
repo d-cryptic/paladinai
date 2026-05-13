@@ -5,10 +5,15 @@
 import { test, expect, request } from "@playwright/test";
 
 const SERVICES: Record<string, string> = {
-  "paladin-edge": process.env.PALADIN_EDGE_URL || "http://localhost:9002",
-  "paladin-ingest": process.env.PALADIN_INGEST_URL || "http://localhost:9001",
+  "paladin-agent": process.env.PALADIN_AGENT_URL || "http://localhost:9006",
   "paladin-auth": process.env.PALADIN_AUTH_URL || "http://localhost:9003",
+  "paladin-comms": process.env.PALADIN_COMMS_URL || "http://localhost:9009",
+  "paladin-edge": process.env.PALADIN_EDGE_URL || "http://localhost:9002",
   "paladin-hub": process.env.PALADIN_HUB_URL || "http://localhost:8082",
+  "paladin-ingest": process.env.PALADIN_INGEST_URL || "http://localhost:9001",
+  "paladin-memory": process.env.PALADIN_MEMORY_URL || "http://localhost:9011",
+  "paladin-orchestrator": process.env.PALADIN_ORCHESTRATOR_URL || "http://localhost:9008",
+  "paladin-ws": process.env.PALADIN_WS_URL || "http://localhost:9007",
 };
 
 for (const [name, baseURL] of Object.entries(SERVICES)) {

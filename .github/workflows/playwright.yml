@@ -57,13 +57,25 @@ jobs:
       PALADIN_EDGE_PORT: "9002"
       PALADIN_AUTH_PORT: "9003"
       PALADIN_HUB_PORT: "8082"
+      PALADIN_AGENT_PORT: "9006"
+      PALADIN_WS_PORT: "9007"
+      PALADIN_ORCHESTRATOR_PORT: "9008"
+      PALADIN_COMMS_PORT: "9009"
+      GRPC_ADDR: ":9010"
+      MEMORY_HTTP_ADDR: ":9011"
       PALADIN_EDGE_URL: "http://localhost:9002"
       PALADIN_INGEST_URL: "http://localhost:9001"
       PALADIN_AUTH_URL: "http://localhost:9003"
       PALADIN_HUB_URL: "http://localhost:8082"
+      PALADIN_AGENT_URL: "http://localhost:9006"
+      PALADIN_WS_URL: "http://localhost:9007"
+      PALADIN_ORCHESTRATOR_URL: "http://localhost:9008"
+      PALADIN_COMMS_URL: "http://localhost:9009"
+      PALADIN_MEMORY_URL: "http://localhost:9011"
       HUB_URL: "http://localhost:8082"
       INGEST_URL: "http://localhost:9001"
       AUTH_URL: "http://localhost:9003"
+      AGENT_URL: "http://localhost:9006"
       RUNBOOK_FIXTURE_HOST: "127.0.0.1"
       RUNBOOK_FILE_PATH: "test/fixtures/runbooks/db-failover.md"
 
@@ -89,25 +101,56 @@ jobs:
           exit 1
 
       - name: Build all services
-        run: go build -o bin/paladin-ingest ./services/paladin-ingest/cmd && go build -o bin/paladin-edge ./services/paladin-edge/cmd && go build -o bin/paladin-auth ./services/paladin-auth/cmd && go build -o bin/paladin-hub ./services/paladin-hub/cmd
+        run: |
+          go build -o bin/paladin-ingest ./services/paladin-ingest/cmd
+          go build -o bin/paladin-edge ./services/paladin-edge/cmd
+          go build -o bin/paladin-auth ./services/paladin-auth/cmd
+          go build -o bin/paladin-hub ./services/paladin-hub/cmd
+          go build -o bin/paladin-agent ./services/paladin-agent/cmd
+          go build -o bin/paladin-memory ./services/paladin-memory/cmd
+          go build -o bin/paladin-ws ./services/paladin-ws/cmd
+          go build -o bin/paladin-orchestrator ./services/paladin-orchestrator/cmd
+          go build -o bin/paladin-comms ./services/paladin-comms/cmd/main.go
 
       - name: Start paladin services
         run: |
           ./bin/paladin-ingest &
           ./bin/paladin-auth &
           ./bin/paladin-hub &
+          OPENROUTER_API_KEY=playwright-openrouter-key LLM_ALLOW_INSECURE_GATEWAY=true ./bin/paladin-agent &
+          ./bin/paladin-memory &
+          ./bin/paladin-ws &
+          ./bin/paladin-orchestrator &
+          ./bin/paladin-comms &
           sleep 2
           ./bin/paladin-edge &
           sleep 2
 
       - name: Wait for services to be ready
         run: |
-          for url in http://localhost:9001/healthz http://localhost:9003/healthz http://localhost:8082/healthz http://localhost:9002/healthz; do
+          for url in \
+            http://localhost:9001/readyz \
+            http://localhost:9002/readyz \
+            http://localhost:9003/readyz \
+            http://localhost:8082/readyz \
+            http://localhost:9006/readyz \
+            http://localhost:9007/readyz \
+            http://localhost:9008/readyz \
+            http://localhost:9009/readyz \
+            http://localhost:9011/readyz; do
+            ready=false
             for i in $(seq 1 15); do
-              curl -sf $url && break
+              if curl -sf $url; then
+                ready=true
+                break
+              fi
               echo "Waiting for $url..."
               sleep 2
             done
+            if [ "$ready" != "true" ]; then
+              echo "$url did not become ready"
+              exit 1
+            fi
           done
 
       - name: Install Playwright
