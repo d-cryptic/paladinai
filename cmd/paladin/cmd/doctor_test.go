@@ -381,6 +381,29 @@ func TestDoctorCmd_QuietMode_ProducesNoOutput(t *testing.T) {
 	assert.Empty(t, strings.TrimSpace(output), "--quiet mode must produce no stdout output")
 }
 
+func TestDoctorCmd_CIMode_ProducesNoOutputByDefault(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"--ci",
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+		})
+		_ = rootCmd.Execute()
+	})
+
+	assert.Empty(t, strings.TrimSpace(output), "--ci doctor should default to exit-code-only output")
+}
+
 func TestDoctorCmd_QuietMode_JSONModeAreMutuallyUsable(t *testing.T) {
 	// Both --json and --quiet can be parsed without error (json takes precedence in output).
 	require.NoError(t, doctorCmd.Flags().Set("json", "false"))

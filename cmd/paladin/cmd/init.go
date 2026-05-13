@@ -446,6 +446,9 @@ func isPort(raw string) bool {
 func runDoctor(cmd *cobra.Command, _ []string) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	quietMode, _ := cmd.Flags().GetBool("quiet")
+	if isCIMode(cmd) && !jsonMode && !quietMode {
+		quietMode = true
+	}
 
 	cfg, cfgErr := loadConfig()
 	if cfgErr != nil && !quietMode && !jsonMode {
