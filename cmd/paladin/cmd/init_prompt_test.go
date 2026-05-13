@@ -41,7 +41,7 @@ func TestRunInitPrompt_AcceptsDefaults(t *testing.T) {
 	t.Setenv("PALADIN_TOKEN", "")
 	t.Setenv("PALADIN_TENANT", "")
 
-	// Fake API server that serves /healthz.
+	// Fake API server that serves /readyz.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -204,6 +204,25 @@ func TestApplyAndSave_WritesConfig(t *testing.T) {
 	}
 	if projectCfg.Metadata.Tenant != "test-tenant" {
 		t.Errorf("project tenant = %q, want %q", projectCfg.Metadata.Tenant, "test-tenant")
+	}
+}
+
+func TestApplyAndSave_VerifiesReadinessEndpoint(t *testing.T) {
+	setupInitTest(t)
+	t.Setenv("PALADIN_TOKEN", "")
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := &PaladinConfig{}
+	_ = applyAndSave(initCmd, cfg, srv.URL, "http://localhost:9003", "test-tenant", "tok-xyz", false)
+
+	if gotPath != "/readyz" {
+		t.Fatalf("verification path = %q, want /readyz", gotPath)
 	}
 }
 
