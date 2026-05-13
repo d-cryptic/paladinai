@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/paladinai/paladinai/internal/projectconfig"
 )
 
 // ── runInitPrompt ─────────────────────────────────────────────────────────────
@@ -25,9 +27,17 @@ func simulatePrompt(lines ...string) *os.File {
 	return r
 }
 
+func setupInitTest(t *testing.T) (string, string) {
+	t.Helper()
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Chdir(projectDir)
+	return homeDir, projectDir
+}
+
 func TestRunInitPrompt_AcceptsDefaults(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	_, projectDir := setupInitTest(t)
 	t.Setenv("PALADIN_TOKEN", "")
 	t.Setenv("PALADIN_TENANT", "")
 
@@ -65,11 +75,20 @@ func TestRunInitPrompt_AcceptsDefaults(t *testing.T) {
 	if loaded.APIEndpoint != srv.URL {
 		t.Errorf("APIEndpoint = %q, want %q", loaded.APIEndpoint, srv.URL)
 	}
+	projectCfg, err := projectconfig.ReadFile(filepath.Join(projectDir, "paladin.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile paladin.yaml: %v", err)
+	}
+	if projectCfg.Metadata.Tenant != "default-tenant" {
+		t.Errorf("project tenant = %q, want %q", projectCfg.Metadata.Tenant, "default-tenant")
+	}
+	if projectCfg.Metadata.Tier != "pool" {
+		t.Errorf("project tier = %q, want %q", projectCfg.Metadata.Tier, "pool")
+	}
 }
 
 func TestRunInitPrompt_CustomAPIURL(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	_, projectDir := setupInitTest(t)
 	t.Setenv("PALADIN_TOKEN", "")
 	t.Setenv("PALADIN_TENANT", "")
 
@@ -113,11 +132,17 @@ func TestRunInitPrompt_CustomAPIURL(t *testing.T) {
 	if stored != "my-token" {
 		t.Errorf("stored token = %q, want %q", stored, "my-token")
 	}
+	projectCfg, err := projectconfig.ReadFile(filepath.Join(projectDir, "paladin.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile paladin.yaml: %v", err)
+	}
+	if projectCfg.Metadata.Tenant != "acme-corp" {
+		t.Errorf("project tenant = %q, want %q", projectCfg.Metadata.Tenant, "acme-corp")
+	}
 }
 
 func TestRunInitPrompt_InvalidAPIURL_Returns_Error(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setupInitTest(t)
 	t.Setenv("PALADIN_TOKEN", "")
 	t.Setenv("PALADIN_TENANT", "")
 
@@ -141,8 +166,7 @@ func TestRunInitPrompt_InvalidAPIURL_Returns_Error(t *testing.T) {
 // ── applyAndSave ──────────────────────────────────────────────────────────────
 
 func TestApplyAndSave_WritesConfig(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	_, projectDir := setupInitTest(t)
 	t.Setenv("PALADIN_TOKEN", "")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -174,11 +198,17 @@ func TestApplyAndSave_WritesConfig(t *testing.T) {
 	if stored != "tok-xyz" {
 		t.Errorf("stored token = %q, want %q", stored, "tok-xyz")
 	}
+	projectCfg, err := projectconfig.ReadFile(filepath.Join(projectDir, "paladin.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile paladin.yaml: %v", err)
+	}
+	if projectCfg.Metadata.Tenant != "test-tenant" {
+		t.Errorf("project tenant = %q, want %q", projectCfg.Metadata.Tenant, "test-tenant")
+	}
 }
 
 func TestApplyAndSave_TokenFromEnv_NotWrittenToDisk(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	homeDir, _ := setupInitTest(t)
 	t.Setenv("PALADIN_TOKEN", "env-token")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -189,7 +219,7 @@ func TestApplyAndSave_TokenFromEnv_NotWrittenToDisk(t *testing.T) {
 	cfg := &PaladinConfig{}
 	_ = applyAndSave(initCmd, cfg, srv.URL, "http://localhost:9003", "tenant-x", "disk-token", true)
 
-	data, err := os.ReadFile(filepath.Join(dir, ".paladin", "config.yaml"))
+	data, err := os.ReadFile(filepath.Join(homeDir, ".paladin", "config.yaml"))
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
@@ -199,8 +229,7 @@ func TestApplyAndSave_TokenFromEnv_NotWrittenToDisk(t *testing.T) {
 }
 
 func TestApplyAndSave_UnreachableServer_ContinuesWithWarning(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setupInitTest(t)
 	t.Setenv("PALADIN_TOKEN", "")
 
 	cfg := &PaladinConfig{}
@@ -218,6 +247,55 @@ func TestApplyAndSave_UnreachableServer_ContinuesWithWarning(t *testing.T) {
 	}
 	if loaded.DefaultTenant != "t1" {
 		t.Errorf("DefaultTenant = %q, want %q", loaded.DefaultTenant, "t1")
+	}
+}
+
+func TestApplyAndSaveProject_WritesSelectedIntegrations(t *testing.T) {
+	_, projectDir := setupInitTest(t)
+	t.Setenv("PALADIN_TOKEN", "")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	err := applyAndSaveProject(
+		initCmd,
+		&PaladinConfig{},
+		srv.URL,
+		"http://localhost:9003",
+		"tenant-bridge",
+		"tok-xyz",
+		false,
+		"bridge",
+		[]string{"slack", "custom-webhook", "prometheus"},
+	)
+	if err != nil {
+		t.Fatalf("applyAndSaveProject: %v", err)
+	}
+
+	projectCfg, err := projectconfig.ReadFile(filepath.Join(projectDir, "paladin.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile paladin.yaml: %v", err)
+	}
+	if projectCfg.Metadata.Tenant != "tenant-bridge" {
+		t.Errorf("project tenant = %q, want tenant-bridge", projectCfg.Metadata.Tenant)
+	}
+	if projectCfg.Metadata.Tier != "bridge" {
+		t.Errorf("project tier = %q, want bridge", projectCfg.Metadata.Tier)
+	}
+
+	enabled := make(map[string]bool)
+	for _, integration := range projectCfg.Spec.Integrations {
+		enabled[integration.Name] = integration.Enabled
+	}
+	for _, name := range []string{"prometheus", "slack", "custom-webhook"} {
+		if !enabled[name] {
+			t.Errorf("integration %q should be enabled", name)
+		}
+	}
+	if enabled["grafana"] {
+		t.Error("grafana should remain disabled when it was not selected")
 	}
 }
 
