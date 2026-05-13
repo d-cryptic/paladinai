@@ -26,7 +26,7 @@ test.beforeAll(async () => {
   tenantID = tenant.id;
 
   const tokenResp = await edgeCtx.post("/api/v1/auth/tokens", {
-    data: { tenant_id: tenantID, user_id: "playwright-mcp-user" },
+    data: { tenant_id: tenantID, user_id: "playwright-mcp-user", roles: ["admin"] },
     headers: { "X-Admin-Secret": ADMIN_SECRET },
   });
   expect(tokenResp.status()).toBe(200);

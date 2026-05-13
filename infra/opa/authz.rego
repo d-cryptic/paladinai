@@ -9,6 +9,8 @@
 #   input.resource.tenant_id string — tenant owning the requested resource
 package paladin.authz
 
+import future.keywords.in
+
 default allow = false
 
 # Admins can do anything within their tenant.

@@ -23,7 +23,7 @@ func clearBaseEnv(t *testing.T) {
 func clearLLMEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"OPENROUTER_API_KEY", "LLM_GATEWAY_URL",
-		"LLM_TIER_A", "LLM_TIER_B", "LLM_TIER_C"} {
+		"LLM_ALLOW_INSECURE_GATEWAY", "LLM_TIER_A", "LLM_TIER_B", "LLM_TIER_C"} {
 		t.Setenv(k, "")
 	}
 }
@@ -85,9 +85,23 @@ func TestLoadLLM_DefaultTiersWhenUnset(t *testing.T) {
 
 	assert.Equal(t, "sk-test", llm.OpenRouterKey)
 	assert.Equal(t, "https://openrouter.ai/api/v1", llm.GatewayURL)
+	assert.False(t, llm.AllowInsecureGateway)
 	assert.Equal(t, "qwen/qwen3-1.7b", llm.TierA)
 	assert.Equal(t, "qwen/qwen3-8b", llm.TierB)
 	assert.Equal(t, "deepseek/deepseek-v3", llm.TierC)
+}
+
+func TestLoadLLM_AllowsExplicitInsecureGatewayForLocalMocks(t *testing.T) {
+	clearLLMEnv(t)
+	t.Setenv("OPENROUTER_API_KEY", "sk-local")
+	t.Setenv("LLM_GATEWAY_URL", "http://mock-llm:1080/api/v1")
+	t.Setenv("LLM_ALLOW_INSECURE_GATEWAY", "true")
+
+	llm, err := config.LoadLLM()
+	require.NoError(t, err)
+
+	assert.Equal(t, "http://mock-llm:1080/api/v1", llm.GatewayURL)
+	assert.True(t, llm.AllowInsecureGateway)
 }
 
 func TestLoadLLM_EnvVarsOverrideTiers(t *testing.T) {

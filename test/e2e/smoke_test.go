@@ -211,6 +211,7 @@ func TestIngestPipeline_AlertmanagerWebhook(t *testing.T) {
 	require.NoError(t, err)
 	ingestReq.Header.Set("Content-Type", "application/json")
 	ingestReq.Header.Set("Authorization", "Bearer "+tokenResp.Token)
+	ingestReq.Header.Set("X-Tenant-ID", createResp.Tenant.ID)
 
 	ingestResp, err := http.DefaultClient.Do(ingestReq)
 	require.NoError(t, err)
@@ -227,8 +228,9 @@ func TestHubRegistry_ListServers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hubURL()+"/api/v1/servers", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hubURL()+"/api/v1/mcp/servers", nil)
 	require.NoError(t, err)
+	req.Header.Set("X-Tenant-ID", "e2e-hub-tenant")
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

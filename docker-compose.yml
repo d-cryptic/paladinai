@@ -35,7 +35,6 @@ services:
       - "8222"
       - "--store_dir=/data"
       - "--cluster_name=paladin"
-      - "--max_payload=8MB"
     ports:
       - "4222:4222"   # client
       - "8222:8222"   # monitoring
@@ -78,6 +77,21 @@ services:
     logging: *default-logging
     restart: unless-stopped
 
+  migrate:
+    image: migrate/migrate:v4.18.1
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable"
+      - "up"
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paladin
+    restart: "no"
+
   # ─────────────────────────────────────────────────────
   # Redis Stack — Redis-compatible L1/L2/L3 cache with Search for L2 vectors
   # ─────────────────────────────────────────────────────
@@ -85,6 +99,7 @@ services:
     image: redis/redis-stack-server:7.2.0-v19
     container_name: paladin-valkey
     command:
+      - "redis-stack-server"
       - "--maxmemory"
       - "512mb"
       - "--maxmemory-policy"
@@ -123,7 +138,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:6333/readyz"]
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/6333'"]
       interval: 5s
       timeout: 3s
       retries: 15
@@ -327,8 +342,6 @@ services:
       MOCKSERVER_LOG_LEVEL: WARN
     networks:
       - paladin
-    profiles:
-      - mock
     logging: *default-logging
 
   # ─────────────────────────────────────────────────────
@@ -351,7 +364,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+      test: ["CMD", "/opa", "eval", "-d", "/policies/authz.rego", "1"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -371,7 +384,7 @@ services:
     image: ghcr.io/paladinai/edge:dev
     container_name: paladin-edge
     ports:
-      - "8080:8080"
+      - "9002:9002"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-development}
@@ -379,9 +392,13 @@ services:
       NATS_URL: nats://nats:4222
       VALKEY_URL: redis://valkey:6379
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:-paladin-dev-jwt-secret-min-32-chars!!}
       OPA_URL: http://opa:8181
-      PALADIN_EDGE_PORT: "8080"
+      AUTH_URL: http://paladin-auth:9003
+      INGEST_URL: http://paladin-ingest:9001
+      HUB_URL: http://paladin-hub:8082
+      AGENT_URL: http://paladin-agent:9006
+      PALADIN_EDGE_PORT: "9002"
     depends_on:
       postgres:
         condition: service_healthy
@@ -394,7 +411,7 @@ services:
     networks:
       - paladin
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9002/healthz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -447,7 +464,8 @@ services:
       ENV: ${ENV:-development}
       DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
       VALKEY_URL: redis://valkey:6379
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:-paladin-dev-jwt-secret-min-32-chars!!}
+      ADMIN_SECRET: ${ADMIN_SECRET:-paladin-admin-secret}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PALADIN_AUTH_PORT: "9003"
     depends_on:
@@ -473,17 +491,22 @@ services:
     container_name: paladin-hub
     ports:
       - "8082:8082"
+    volumes:
+      - ./test/fixtures/runbooks:/fixtures/runbooks:ro
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-development}
       DATABASE_URL: postgres://paladin:${PG_PASSWORD:-paladin}@postgres:5432/paladin?sslmode=disable
       VALKEY_URL: redis://valkey:6379
+      QDRANT_URL: http://qdrant:6333
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PALADIN_HUB_PORT: "8082"
     depends_on:
       postgres:
         condition: service_healthy
       valkey:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     networks:
       - paladin
@@ -508,7 +531,7 @@ services:
       ENV: ${ENV:-development}
       NATS_URL: nats://nats:4222
       VALKEY_URL: redis://valkey:6379
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:-paladin-dev-jwt-secret-min-32-chars!!}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PALADIN_WS_PORT: "9007"
     depends_on:
@@ -574,7 +597,9 @@ services:
       NATS_URL: nats://nats:4222
       VALKEY_URL: redis://valkey:6379
       QDRANT_URL: http://qdrant:6333
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-paladin-dev-openrouter-key}
+      LLM_GATEWAY_URL: ${LLM_GATEWAY_URL:-http://mock-llm:1080/api/v1}
+      LLM_ALLOW_INSECURE_GATEWAY: ${LLM_ALLOW_INSECURE_GATEWAY:-true}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-5-haiku-20241022}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
@@ -588,6 +613,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      mock-llm:
+        condition: service_started
     networks:
       - paladin
     healthcheck:

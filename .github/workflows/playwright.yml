@@ -64,6 +64,8 @@ jobs:
       HUB_URL: "http://localhost:8082"
       INGEST_URL: "http://localhost:9001"
       AUTH_URL: "http://localhost:9003"
+      RUNBOOK_FIXTURE_HOST: "127.0.0.1"
+      RUNBOOK_FILE_PATH: "test/fixtures/runbooks/db-failover.md"
 
     steps:
       - uses: actions/checkout@v4
@@ -109,10 +111,10 @@ jobs:
           done
 
       - name: Install Playwright
-        run: cd test/playwright && bun install && bun playwright install --with-deps chromium
+        run: cd test/playwright && bun install && bunx playwright install --with-deps chromium
 
       - name: Run Playwright API tests
-        run: cd test/playwright && bun playwright test --project=api --reporter=github
+        run: cd test/playwright && bun run test:ci
 
       - name: Upload Playwright report
         if: always()

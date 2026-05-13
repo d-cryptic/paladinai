@@ -3,19 +3,20 @@
  * Tests the paladin-hub runbook API via paladin-edge (JWT-protected).
  */
 import { test, expect, request } from "@playwright/test";
-import { writeFileSync, mkdirSync } from "fs";
 import { createServer, Server } from "http";
-import { join } from "path";
-import { tmpdir } from "os";
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "paladin-admin-secret";
 const EDGE_URL = process.env.PALADIN_EDGE_URL || "http://localhost:9002";
 const HUB_URL = process.env.PALADIN_HUB_URL || "http://localhost:8082";
+const RUNBOOK_FIXTURE_HOST =
+  process.env.RUNBOOK_FIXTURE_HOST || (process.env.CI ? "127.0.0.1" : "host.docker.internal");
+const RUNBOOK_FILE_PATH =
+  process.env.RUNBOOK_FILE_PATH ||
+  (process.env.CI ? "test/fixtures/runbooks/db-failover.md" : "/fixtures/runbooks/db-failover.md");
 
 let tenantSlug: string;
 let tenantID: string;
 let jwtToken: string;
-let runbookFilePath: string;
 let runbookServer: Server;
 let remoteRunbookURL: string;
 
@@ -34,13 +35,13 @@ This fixture verifies HTTP-backed runbook imports without depending on an extern
 `);
   });
   await new Promise<void>((resolve) => {
-    runbookServer.listen(0, "127.0.0.1", resolve);
+    runbookServer.listen(0, "0.0.0.0", resolve);
   });
   const address = runbookServer.address();
   if (!address || typeof address === "string") {
     throw new Error("runbook fixture server did not expose a TCP address");
   }
-  remoteRunbookURL = `http://127.0.0.1:${address.port}/runbook.md`;
+  remoteRunbookURL = `http://${RUNBOOK_FIXTURE_HOST}:${address.port}/runbook.md`;
 
   tenantSlug = `runbook-test-${Date.now()}`;
   const edgeCtx = await request.newContext({ baseURL: EDGE_URL });
@@ -54,7 +55,7 @@ This fixture verifies HTTP-backed runbook imports without depending on an extern
   tenantID = tenant.id;
 
   const tokenResp = await edgeCtx.post("/api/v1/auth/tokens", {
-    data: { tenant_id: tenantID, user_id: "playwright-runbook-user" },
+    data: { tenant_id: tenantID, user_id: "playwright-runbook-user", roles: ["admin"] },
     headers: { "X-Admin-Secret": ADMIN_SECRET },
   });
   expect(tokenResp.status()).toBe(200);
@@ -62,45 +63,6 @@ This fixture verifies HTTP-backed runbook imports without depending on an extern
   jwtToken = body.token;
   await edgeCtx.dispose();
 
-  // Create a temp runbook file for file-source tests.
-  const dir = join(tmpdir(), "paladin-pw-test");
-  mkdirSync(dir, { recursive: true });
-  runbookFilePath = join(dir, "db-failover.md");
-  writeFileSync(
-    runbookFilePath,
-    `# Database Failover Runbook
-
-## Overview
-This runbook covers the steps to promote a Postgres replica when the primary fails.
-
-## Prerequisites
-- Access to the bastion host
-- PagerDuty on-call rotation access
-- RDS console access
-
-## Steps
-
-### Step 1: Detect the Failure
-- Check CloudWatch: RDS_DatabaseConnections drops to 0
-- Confirm via: \`psql -h db-primary -c "SELECT 1"\`
-
-### Step 2: Promote the Replica
-\`\`\`bash
-aws rds promote-read-replica --db-instance-identifier db-replica-01
-\`\`\`
-
-### Step 3: Update DNS
-- Update \`db.internal\` CNAME from \`db-primary-01\` to \`db-replica-01\`
-- TTL should be 30s for faster failover
-
-### Step 4: Notify Stakeholders
-- Page on-call engineer
-- Post in #incidents channel
-
-## Rollback
-If the replica promotion fails, contact the database team immediately.
-`
-  );
 });
 
 test.afterAll(async () => {
@@ -130,7 +92,7 @@ test.describe("Runbook import via paladin-hub direct", () => {
   test("import from file source indexes content", async () => {
     const ctx = await request.newContext({ baseURL: HUB_URL });
     const resp = await ctx.post("/api/v1/runbooks/import", {
-      data: { source: "file", path: runbookFilePath },
+      data: { source: "file", path: RUNBOOK_FILE_PATH },
       headers: { "X-Tenant-ID": tenantSlug },
     });
     expect(resp.status()).toBe(201);
@@ -202,7 +164,7 @@ test.describe("Runbook search via paladin-hub direct", () => {
     // Import a file runbook so search has indexed content.
     const ctx = await request.newContext({ baseURL: HUB_URL });
     await ctx.post("/api/v1/runbooks/import", {
-      data: { source: "file", path: runbookFilePath },
+      data: { source: "file", path: RUNBOOK_FILE_PATH },
       headers: { "X-Tenant-ID": tenantSlug },
     });
     await ctx.dispose();

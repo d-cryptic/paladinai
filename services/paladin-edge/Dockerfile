@@ -14,5 +14,5 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
     addgroup -S paladin && adduser -S -G paladin paladin
 COPY --from=builder /bin/paladin-edge /paladin-edge
 USER paladin
-EXPOSE 8080
+EXPOSE 9002
 ENTRYPOINT ["/paladin-edge"]
