@@ -11,10 +11,7 @@ import (
 	"github.com/paladinai/paladinai/internal/cache"
 )
 
-const (
-	defaultL1TTL      = 30 * time.Minute
-	cacheWriteTimeout = 2 * time.Second
-)
+const cacheWriteTimeout = 2 * time.Second
 
 // Triager is the narrow interface for anything that triages an alert.
 // Satisfied by TriageAgent and CachedTriager (and test fakes in worker).
@@ -29,7 +26,6 @@ type CachedTriager struct {
 	inner   Triager
 	l1      cache.L1Cache
 	modelID string
-	ttl     time.Duration
 	log     *zap.Logger
 }
 
@@ -40,7 +36,6 @@ func NewCachedTriager(inner Triager, l1 cache.L1Cache, modelID string, log *zap.
 		inner:   inner,
 		l1:      l1,
 		modelID: modelID,
-		ttl:     defaultL1TTL,
 		log:     log,
 	}
 }
@@ -107,9 +102,12 @@ func (c *CachedTriager) Triage(ctx context.Context, env *alert.AlertEnvelope) (*
 		c.log.Warn("l1 cache: marshal failed, skipping write", zap.Error(merr))
 		return result, nil
 	}
+	// Use negative-aware TTL: negative LLM responses get a shorter TTL so
+	// the cache doesn't serve stale "unknown/uncertain" results for too long.
+	ttl := cache.TTLForResponse(cache.QueryTypeTriage, string(b))
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cacheWriteTimeout)
 	defer cancel()
-	if serr := c.l1.Set(writeCtx, key, b, c.ttl); serr != nil {
+	if serr := c.l1.Set(writeCtx, key, b, ttl); serr != nil {
 		c.log.Warn("l1 cache: set failed", zap.Error(serr))
 	}
 

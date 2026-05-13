@@ -178,6 +178,10 @@ func (p *Pipeline) Run(ctx context.Context, js jetstream.JetStream, consumerName
 	for {
 		select {
 		case <-ctx.Done():
+			cc.Stop() // close iterator so the producer goroutine can exit
+			for m := range msgCh {
+				_ = m.Nak()
+			}
 			return ctx.Err()
 		case msg, ok := <-msgCh:
 			if !ok {

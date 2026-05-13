@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,7 +47,7 @@ func L3TTL(toolName string) time.Duration {
 		return ttl
 	}
 	// fall back to server-level TTL (e.g. "mcp-github:unknown_op" → "mcp-github")
-	if idx := indexByte(toolName, ':'); idx > 0 {
+	if idx := strings.IndexByte(toolName, ':'); idx > 0 {
 		if ttl, ok := l3TTLTable[toolName[:idx]]; ok {
 			return ttl
 		}
@@ -54,14 +55,6 @@ func L3TTL(toolName string) time.Duration {
 	return l3DefaultTTL
 }
 
-func indexByte(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
-}
 
 // secretPatterns detects secret-like values in tool results.
 // Results matching any pattern are returned to the caller but not written to L3.
@@ -232,7 +225,13 @@ func (c *MemL3) Get(ctx context.Context, tenantID, toolName string, args any) ([
 	c.mu.RLock()
 	e, ok := c.entries[key]
 	c.mu.RUnlock()
-	if !ok || time.Now().After(e.expiresAt) {
+	if !ok {
+		return nil, nil
+	}
+	if time.Now().After(e.expiresAt) {
+		c.mu.Lock()
+		delete(c.entries, key)
+		c.mu.Unlock()
 		return nil, nil
 	}
 	return e.value, nil
@@ -247,7 +246,9 @@ func (c *MemL3) Set(ctx context.Context, tenantID, toolName string, args any, re
 		return err
 	}
 	c.mu.Lock()
-	c.entries[key] = memEntry{value: result, expiresAt: time.Now().Add(L3TTL(toolName))}
+	if len(c.entries) < memMaxEntries {
+		c.entries[key] = memEntry{value: result, expiresAt: time.Now().Add(L3TTL(toolName))}
+	}
 	c.mu.Unlock()
 	return nil
 }

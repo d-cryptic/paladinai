@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -270,7 +269,9 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 
 	// Publish downstream before Acking.
 	if err := w.publishCombined(ctx, &env, result, rcaResult); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		ctxErr := ctx.Err()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(ctxErr, context.Canceled) || errors.Is(ctxErr, context.DeadlineExceeded) {
 			_ = msg.Nak()
 			return
 		}
@@ -334,12 +335,16 @@ func (w *Worker) publishCombined(ctx context.Context, env *alert.AlertEnvelope, 
 }
 
 func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triageErr error) {
-	payload, _ := json.Marshal(map[string]any{
+	payload, marshalErr := json.Marshal(map[string]any{
 		"fingerprint":    env.Fingerprint,
 		"tenant_id":      env.TenantID,
 		"correlation_id": env.CorrelationID,
 		"error":          triageErr.Error(),
 	})
+	if marshalErr != nil {
+		w.log.Error("worker: DLQ marshal failed", zap.Error(marshalErr))
+		return
+	}
 	subject := fmt.Sprintf(dlqSubjectFmt, env.TenantID)
 	if _, err := w.pub.Publish(ctx, subject, payload); err != nil {
 		w.log.Error("worker: DLQ publish failed", zap.Error(err))
@@ -348,15 +353,15 @@ func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triag
 
 // nakDelay returns exponential backoff for NATS Nak: 10s, 30s, 90s, 270s, capped at 10m.
 func nakDelay(deliveries uint64) time.Duration {
-	const (
-		base     = 10.0      // seconds
-		maxDelay = 10 * 60.0 // seconds
-	)
-	d := base * math.Pow(3, float64(deliveries))
-	if d > maxDelay {
-		d = maxDelay
+	const maxDelay = 10 * time.Minute
+	delay := 10 * time.Second
+	for i := uint64(0); i < deliveries; i++ {
+		delay *= 3
+		if delay > maxDelay {
+			return maxDelay
+		}
 	}
-	return time.Duration(d) * time.Second
+	return delay
 }
 
 // ProcessEnvelope runs the full pipeline (triage, optional RCA) for a single envelope.

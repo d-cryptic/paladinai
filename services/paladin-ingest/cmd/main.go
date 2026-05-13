@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -45,7 +44,8 @@ func run() error {
 	defer log.Sync() //nolint:errcheck
 
 	// Telemetry
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	otel, err := telemetry.Init(ctx, "paladin-ingest", conf.Base.ServiceVersion, conf.Base.OtelEndpoint, log)
 	if err != nil {
 		return fmt.Errorf("telemetry: %w", err)
@@ -59,12 +59,16 @@ func run() error {
 	}
 	defer natsClient.Close()
 
-	// Valkey (Redis-compatible)
-	valkeyAddr, err := parseRedisAddr(conf.Base.ValkeyURL)
+	// Valkey (Redis-compatible) — parse full URL to preserve TLS, auth, and DB.
+	rdbOpts, err := redis.ParseURL(conf.Base.ValkeyURL)
 	if err != nil {
-		return fmt.Errorf("valkey URL: %w", err)
+		// Fall back to treating the value as a bare host:port.
+		rdbOpts = &redis.Options{Addr: conf.Base.ValkeyURL}
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: valkeyAddr})
+	if rdbOpts.Addr == "" {
+		rdbOpts.Addr = "localhost:6379"
+	}
+	rdb := redis.NewClient(rdbOpts)
 	if _, err := rdb.Ping(ctx).Result(); err != nil {
 		return fmt.Errorf("valkey ping: %w", err)
 	}
@@ -106,9 +110,6 @@ func run() error {
 	}
 
 	// Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
 	go func() {
 		log.Info("paladin-ingest listening", zap.Int("port", conf.Server.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -116,7 +117,7 @@ func run() error {
 		}
 	}()
 
-	<-quit
+	<-ctx.Done()
 	log.Info("shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
@@ -135,19 +136,3 @@ func (v *valkeyStormStore) ExpireNX(ctx context.Context, key string, ttl time.Du
 	return v.rdb.ExpireNX(ctx, key, ttl).Result()
 }
 
-// parseRedisAddr extracts the host:port from a Redis/Valkey URL.
-// Handles redis://, rediss://, valkey://, and bare host:port.
-func parseRedisAddr(rawURL string) (string, error) {
-	if rawURL == "" {
-		return "localhost:6379", nil
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("parse %q: %w", rawURL, err)
-	}
-	if u.Host != "" {
-		return u.Host, nil // host already includes port
-	}
-	// Bare host:port with no scheme
-	return rawURL, nil
-}

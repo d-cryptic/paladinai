@@ -36,6 +36,7 @@ type Incident struct {
 	Severity     string          `json:"severity"`
 	Title        string          `json:"title"`
 	AlertCount   int             `json:"alert_count"`
+	Fingerprint  string          `json:"fingerprint,omitempty"`
 	TriageResult json.RawMessage `json:"triage_result,omitempty"`
 	// RawEnvelope stores the original AlertEnvelope JSON so replays can
 	// re-publish to NATS without synthesizing a fake envelope from labels.
@@ -110,6 +111,7 @@ func (s *Store) RecordFromEnvelope(env *alert.AlertEnvelope, severity string, re
 		Severity:     severity,
 		Title:        title,
 		AlertCount:   1,
+		Fingerprint:  env.Fingerprint,
 		TriageResult: result,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -249,9 +251,9 @@ func (h *Handler) Routes(r chi.Router) {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.Header.Get("X-Tenant-ID")
+	tenantID := r.Header.Get("X-Tenant-ID") // read from trusted header set by edge proxy
 	if tenantID == "" {
-		jsonErrAgent(w, "INVALID_TENANT", "missing X-Tenant-ID header", http.StatusBadRequest)
+		jsonErrAgent(w, "INVALID_TENANT", "missing tenant context", http.StatusUnauthorized)
 		return
 	}
 	status := r.URL.Query().Get("status")
@@ -303,7 +305,7 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
-		subject := replaySubject(tenantID, src.Labels["fingerprint"])
+		subject := replaySubject(tenantID, src.Fingerprint)
 		pubCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := h.replayPub.Publish(pubCtx, subject, src.RawEnvelope); err != nil {

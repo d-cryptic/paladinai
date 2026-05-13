@@ -106,7 +106,7 @@ func (b Budget) ComputeBurnRate(currentErrorRate float64, remainingBudget time.D
 	var timeToExhaustion time.Duration
 	if burnRate > 0 {
 		// rate per hour = burnRate × (total_budget / period_hours)
-		budgetPerHour := float64(totalBudget) / float64(b.Period/time.Hour)
+		budgetPerHour := float64(totalBudget) / b.Period.Hours()
 		consumptionPerHour := burnRate * budgetPerHour
 		if consumptionPerHour > 0 {
 			timeToExhaustion = time.Duration(float64(remainingBudget) / consumptionPerHour * float64(time.Hour))

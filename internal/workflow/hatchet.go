@@ -88,7 +88,7 @@ func (c *Client) triggerWorkflow(ctx context.Context, workflowName string, paylo
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("workflow: hatchet returned %d for %s", resp.StatusCode, workflowName)
 	}
 

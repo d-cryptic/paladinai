@@ -84,6 +84,10 @@ func (c *ValkeyL1) Set(ctx context.Context, key string, value []byte, ttl time.D
 	return c.rdb.Set(ctx, key, value, ttl).Err()
 }
 
+// memMaxEntries is the maximum number of entries MemL1/MemL3 will hold.
+// New writes are silently dropped when the cap is reached to prevent test OOMs.
+const memMaxEntries = 10_000
+
 // MemL1 is a thread-safe in-memory L1 cache used in unit tests.
 // Expired entries are only evicted on Get; there is no background sweeper.
 type MemL1 struct {
@@ -105,7 +109,13 @@ func (c *MemL1) Get(_ context.Context, key string) ([]byte, error) {
 	c.mu.RLock()
 	e, ok := c.entries[key]
 	c.mu.RUnlock()
-	if !ok || time.Now().After(e.expiresAt) {
+	if !ok {
+		return nil, nil
+	}
+	if time.Now().After(e.expiresAt) {
+		c.mu.Lock()
+		delete(c.entries, key)
+		c.mu.Unlock()
 		return nil, nil
 	}
 	return e.value, nil
@@ -113,7 +123,9 @@ func (c *MemL1) Get(_ context.Context, key string) ([]byte, error) {
 
 func (c *MemL1) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {
 	c.mu.Lock()
-	c.entries[key] = memEntry{value: value, expiresAt: time.Now().Add(ttl)}
+	if len(c.entries) < memMaxEntries {
+		c.entries[key] = memEntry{value: value, expiresAt: time.Now().Add(ttl)}
+	}
 	c.mu.Unlock()
 	return nil
 }
