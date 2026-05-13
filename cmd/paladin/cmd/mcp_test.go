@@ -204,6 +204,20 @@ func TestMCPHeartbeat_Success(t *testing.T) {
 	assert.Contains(t, out, "Heartbeat sent")
 }
 
+func TestMCPHeartbeat_CIModeForcesJSONOutput(t *testing.T) {
+	hub := newHubStub(t)
+
+	out, err := runMCP(t, "--ci", "mcp", "heartbeat", "srv-1", "--tenant", "t1", "--api-url", hub.URL)
+	require.NoError(t, err)
+
+	var result mcpActionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "srv-1", result.ServerID)
+	assert.True(t, result.HeartbeatSent)
+	assert.JSONEq(t, `{"status":"ok"}`, string(result.Response))
+	assert.NotContains(t, out, "Heartbeat sent")
+}
+
 func TestMCPHeartbeat_NotFound(t *testing.T) {
 	hub := newHubStub(t)
 
@@ -235,4 +249,40 @@ func TestMCPList_CIModeForcesJSONOutput(t *testing.T) {
 	assert.Contains(t, out, `"data"`)
 	assert.Contains(t, out, `"srv-1"`)
 	assert.NotContains(t, out, "NAME\tENDPOINT")
+}
+
+func TestMCPRegister_CIModeForcesJSONOutput(t *testing.T) {
+	hub := newHubStub(t)
+
+	out, err := runMCP(t,
+		"--ci",
+		"mcp", "register",
+		"--tenant", "t1",
+		"--api-url", hub.URL,
+		"--id", "new-srv",
+		"--name", "New Server",
+		"--endpoint", "https://new.example.com",
+		"--capabilities", "read,write",
+	)
+	require.NoError(t, err)
+
+	var result mcpActionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "new-srv", result.ServerID)
+	assert.True(t, result.Registered)
+	assert.JSONEq(t, `{"data":{"id":"new-srv"}}`, string(result.Response))
+	assert.NotContains(t, out, "registered successfully")
+}
+
+func TestMCPDeregister_CIModeForcesJSONOutput(t *testing.T) {
+	hub := newHubStub(t)
+
+	out, err := runMCP(t, "--ci", "mcp", "deregister", "srv-1", "--tenant", "t1", "--api-url", hub.URL)
+	require.NoError(t, err)
+
+	var result mcpActionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "srv-1", result.ServerID)
+	assert.True(t, result.Deregistered)
+	assert.NotContains(t, out, "MCP server")
 }
