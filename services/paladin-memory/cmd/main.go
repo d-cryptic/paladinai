@@ -44,7 +44,8 @@ func main() {
 
 	log, err := logger.New("paladin-memory")
 	if err != nil {
-		panic(err)
+		boot, _ := zap.NewProduction()
+		boot.Fatal("logger init failed", zap.Error(err))
 	}
 	defer log.Sync() //nolint:errcheck
 
