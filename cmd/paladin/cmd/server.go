@@ -17,21 +17,56 @@ import (
 
 // serviceSpec describes one service process in the all-in-one stack.
 type serviceSpec struct {
-	name   string
-	binary string // binary name under bin/ or $PATH
-	port   string // informational only, for startup message
+	name        string
+	binary      string            // binary name under bin/ or $PATH
+	port        string            // informational only, for startup message
+	envDefaults map[string]string // applied only when the caller has not set the key
 }
 
 // defaultServices is the ordered list of services started by `paladin server`.
 // Ingest and edge start last so NATS consumers are ready before traffic arrives.
 var defaultServices = []serviceSpec{
 	{name: "paladin-hub", binary: "paladin-hub", port: "8082"},
-	{name: "paladin-memory", binary: "paladin-memory", port: "8083"},
-	{name: "paladin-auth", binary: "paladin-auth", port: "8084"},
-	{name: "paladin-orchestrator", binary: "paladin-orchestrator", port: "8085"},
-	{name: "paladin-agent", binary: "paladin-agent", port: "8086"},
+	{
+		name:   "paladin-memory",
+		binary: "paladin-memory",
+		port:   "9010 grpc / 9011 http",
+		envDefaults: map[string]string{
+			"GRPC_ADDR":        ":9010",
+			"MEMORY_HTTP_ADDR": ":9011",
+		},
+	},
+	{name: "paladin-auth", binary: "paladin-auth", port: "9003"},
+	{name: "paladin-ws", binary: "paladin-ws", port: "9007"},
+	{name: "paladin-orchestrator", binary: "paladin-orchestrator", port: "9008"},
+	{
+		name:   "paladin-agent",
+		binary: "paladin-agent",
+		port:   "9006",
+		envDefaults: map[string]string{
+			"PALADIN_AGENT_PORT": "9006",
+		},
+	},
+	{
+		name:   "paladin-comms",
+		binary: "paladin-comms",
+		port:   "9009",
+		envDefaults: map[string]string{
+			"PALADIN_COMMS_PORT": "9009",
+		},
+	},
 	{name: "paladin-ingest", binary: "paladin-ingest", port: "9001"},
-	{name: "paladin-edge", binary: "paladin-edge", port: "9002"},
+	{
+		name:   "paladin-edge",
+		binary: "paladin-edge",
+		port:   "9002",
+		envDefaults: map[string]string{
+			"AUTH_URL":   "http://localhost:9003",
+			"INGEST_URL": "http://localhost:9001",
+			"HUB_URL":    "http://localhost:8082",
+			"AGENT_URL":  "http://localhost:9006",
+		},
+	},
 }
 
 var serverCmd = &cobra.Command{
@@ -50,10 +85,12 @@ All services inherit the current environment. Set external service URLs via:
 
 Services started:
   paladin-hub         :8082
-  paladin-memory      :8083
-  paladin-auth        :8084
-  paladin-orchestrator :8085
-  paladin-agent       :8086
+  paladin-memory      :9010 grpc / :9011 http
+  paladin-auth        :9003
+  paladin-ws          :9007
+  paladin-orchestrator :9008
+  paladin-agent       :9006
+  paladin-comms       :9009
   paladin-ingest      :9001
   paladin-edge        :9002`,
 	RunE: runServer,
@@ -101,7 +138,7 @@ func runServer(cmd *cobra.Command, _ []string) error {
 		c := exec.CommandContext(ctx, binPath) //nolint:gosec
 		c.Stdout = prefixWriter(os.Stdout, svc.name)
 		c.Stderr = prefixWriter(os.Stderr, svc.name)
-		c.Env = os.Environ()
+		c.Env = withDefaultEnv(os.Environ(), svc.envDefaults)
 
 		if err := c.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "  [ERROR] %s: %v\n", svc.name, err)
@@ -212,6 +249,26 @@ func filterServices(all []serviceSpec, only []string) []serviceSpec {
 	for _, svc := range all {
 		if set[strings.ToLower(svc.name)] {
 			out = append(out, svc)
+		}
+	}
+	return out
+}
+
+func withDefaultEnv(base []string, defaults map[string]string) []string {
+	if len(defaults) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(base))
+	for _, kv := range base {
+		key, _, ok := strings.Cut(kv, "=")
+		if ok {
+			seen[key] = true
+		}
+	}
+	out := append([]string{}, base...)
+	for key, value := range defaults {
+		if !seen[key] {
+			out = append(out, key+"="+value)
 		}
 	}
 	return out

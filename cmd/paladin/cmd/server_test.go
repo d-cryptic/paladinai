@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -78,5 +79,69 @@ func TestDefaultServices_HaveRequiredFields(t *testing.T) {
 		if svc.port == "" {
 			t.Errorf("service %s has empty port", svc.name)
 		}
+	}
+}
+
+func TestDefaultServices_IncludeAllRuntimeServices(t *testing.T) {
+	want := []string{
+		"paladin-hub",
+		"paladin-memory",
+		"paladin-auth",
+		"paladin-ws",
+		"paladin-orchestrator",
+		"paladin-agent",
+		"paladin-comms",
+		"paladin-ingest",
+		"paladin-edge",
+	}
+	got := make([]string, 0, len(defaultServices))
+	for _, svc := range defaultServices {
+		got = append(got, svc.name)
+	}
+	if !slices.Equal(want, got) {
+		t.Fatalf("default service order mismatch:\nwant %v\n got %v", want, got)
+	}
+}
+
+func TestDefaultServices_UseCurrentLocalPorts(t *testing.T) {
+	want := map[string]string{
+		"paladin-hub":          "8082",
+		"paladin-memory":       "9010 grpc / 9011 http",
+		"paladin-auth":         "9003",
+		"paladin-ws":           "9007",
+		"paladin-orchestrator": "9008",
+		"paladin-agent":        "9006",
+		"paladin-comms":        "9009",
+		"paladin-ingest":       "9001",
+		"paladin-edge":         "9002",
+	}
+	for _, svc := range defaultServices {
+		if svc.port != want[svc.name] {
+			t.Errorf("%s port = %q, want %q", svc.name, svc.port, want[svc.name])
+		}
+	}
+}
+
+func TestWithDefaultEnv_AppendsMissingDefaults(t *testing.T) {
+	got := withDefaultEnv([]string{"EXISTING=1"}, map[string]string{
+		"PALADIN_AGENT_PORT": "9006",
+	})
+	if !slices.Contains(got, "EXISTING=1") {
+		t.Fatalf("base env missing from result: %v", got)
+	}
+	if !slices.Contains(got, "PALADIN_AGENT_PORT=9006") {
+		t.Fatalf("default env missing from result: %v", got)
+	}
+}
+
+func TestWithDefaultEnv_PreservesCallerValue(t *testing.T) {
+	got := withDefaultEnv([]string{"PALADIN_AGENT_PORT=19106"}, map[string]string{
+		"PALADIN_AGENT_PORT": "9006",
+	})
+	if !slices.Contains(got, "PALADIN_AGENT_PORT=19106") {
+		t.Fatalf("caller env missing from result: %v", got)
+	}
+	if slices.Contains(got, "PALADIN_AGENT_PORT=9006") {
+		t.Fatalf("default overwrote caller env: %v", got)
 	}
 }
