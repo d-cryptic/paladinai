@@ -4,8 +4,10 @@ on:
   push:
     branches: [v2, main]
     paths:
+      - "test/e2e/**"
       - "test/playwright/**"
       - "services/**"
+      - "Makefile"
       - ".github/workflows/playwright.yml"
   pull_request:
     branches: [v2, main]
@@ -155,6 +157,11 @@ jobs:
 
       - name: Install Playwright
         run: cd test/playwright && bun install && bunx playwright install --with-deps chromium
+
+      - name: Run Go E2E tests
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: make e2e
 
       - name: Run Playwright API tests
         run: cd test/playwright && bun run test:ci
