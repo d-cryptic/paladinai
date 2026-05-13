@@ -26,15 +26,14 @@ func skipIfNoNetwork(t *testing.T) {
 }
 
 // newHubStub is a minimal fake paladin-hub for CLI command tests.
-// It validates the X-Tenant-ID header so we can verify the CLI forwards it.
+// It validates that requests carry either unauthenticated tenant context or a bearer token.
 func newHubStub(t *testing.T) *httptest.Server {
 	t.Helper()
 	skipIfNoNetwork(t)
 	mux := http.NewServeMux()
 
-	// requireTenantHeader returns false and writes 400 when header is missing.
-	requireTenantHeader := func(w http.ResponseWriter, r *http.Request) bool {
-		if r.Header.Get("X-Tenant-ID") == "" {
+	requireAuthContext := func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Header.Get("X-Tenant-ID") == "" && r.Header.Get("Authorization") == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return false
 		}
@@ -42,7 +41,7 @@ func newHubStub(t *testing.T) *httptest.Server {
 	}
 
 	mux.HandleFunc("GET /api/v1/mcp/servers", func(w http.ResponseWriter, r *http.Request) {
-		if !requireTenantHeader(w, r) {
+		if !requireAuthContext(w, r) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -59,7 +58,7 @@ func newHubStub(t *testing.T) *httptest.Server {
 	})
 
 	mux.HandleFunc("GET /api/v1/mcp/servers/{serverID}", func(w http.ResponseWriter, r *http.Request) {
-		if !requireTenantHeader(w, r) {
+		if !requireAuthContext(w, r) {
 			return
 		}
 		id := r.PathValue("serverID")
@@ -82,7 +81,7 @@ func newHubStub(t *testing.T) *httptest.Server {
 	})
 
 	mux.HandleFunc("POST /api/v1/mcp/servers", func(w http.ResponseWriter, r *http.Request) {
-		if !requireTenantHeader(w, r) {
+		if !requireAuthContext(w, r) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -91,14 +90,14 @@ func newHubStub(t *testing.T) *httptest.Server {
 	})
 
 	mux.HandleFunc("DELETE /api/v1/mcp/servers/{serverID}", func(w http.ResponseWriter, r *http.Request) {
-		if !requireTenantHeader(w, r) {
+		if !requireAuthContext(w, r) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
-		if !requireTenantHeader(w, r) {
+		if !requireAuthContext(w, r) {
 			return
 		}
 		id := r.PathValue("serverID")

@@ -133,3 +133,36 @@ func TestCommandTokenFallsBackToKeychain(t *testing.T) {
 		t.Fatalf("token = %q, want stored-token", got)
 	}
 }
+
+func TestCommandOptionsOmitTenantWhenTokenConfigured(t *testing.T) {
+	cmd := newTestCmd("tenant-slug", "jwt-token", "")
+
+	opts, err := commandOptions(cmd, "tenant-slug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Token != "jwt-token" {
+		t.Fatalf("Token = %q, want jwt-token", opts.Token)
+	}
+	if opts.TenantID != "" {
+		t.Fatalf("TenantID = %q, want empty when token is configured", opts.TenantID)
+	}
+}
+
+func TestCommandOptionsIncludeTenantWithoutToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PALADIN_TOKEN", "")
+	withSecretStore(t, &fakeSecretStore{})
+	cmd := newTestCmd("tenant-slug", "", "")
+
+	opts, err := commandOptions(cmd, "tenant-slug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Token != "" {
+		t.Fatalf("Token = %q, want empty", opts.Token)
+	}
+	if opts.TenantID != "tenant-slug" {
+		t.Fatalf("TenantID = %q, want tenant-slug", opts.TenantID)
+	}
+}

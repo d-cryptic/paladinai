@@ -91,6 +91,28 @@ func TestAlertWSURL_NoFilters_NoQueryParams(t *testing.T) {
 	}
 }
 
+func TestTailAuthHeaders_OmitTenantWhenTokenConfigured(t *testing.T) {
+	header := tailAuthHeaders("tenant-slug", "jwt-token")
+
+	if got := header.Get("Authorization"); got != "Bearer jwt-token" {
+		t.Fatalf("Authorization = %q, want Bearer jwt-token", got)
+	}
+	if got := header.Get("X-Tenant-ID"); got != "" {
+		t.Fatalf("X-Tenant-ID = %q, want empty when token is configured", got)
+	}
+}
+
+func TestTailAuthHeaders_IncludeTenantWithoutToken(t *testing.T) {
+	header := tailAuthHeaders("tenant-slug", "")
+
+	if got := header.Get("X-Tenant-ID"); got != "tenant-slug" {
+		t.Fatalf("X-Tenant-ID = %q, want tenant-slug", got)
+	}
+	if got := header.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization = %q, want empty", got)
+	}
+}
+
 func TestPrintEvent_TruncatesLongFields(t *testing.T) {
 	ev := AlertEvent{
 		Severity: "p1",
