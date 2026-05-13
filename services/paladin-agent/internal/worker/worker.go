@@ -113,7 +113,9 @@ func (w *Worker) Run(ctx context.Context, js jetstream.JetStream, consumerName s
 	if err != nil {
 		return fmt.Errorf("worker consumer messages %s: %w", consumerName, err)
 	}
-	defer cc.Stop()
+	var stopOnce sync.Once
+	stop := func() { stopOnce.Do(cc.Stop) }
+	defer stop()
 
 	// Bounded worker pool — semaphore limits concurrency.
 	sem := make(chan struct{}, w.concurrency)
@@ -142,7 +144,7 @@ func (w *Worker) Run(ctx context.Context, js jetstream.JetStream, consumerName s
 	for {
 		select {
 		case <-ctx.Done():
-			cc.Stop() // unblock producer goroutine
+			stop() // unblock producer goroutine
 			for m := range msgCh {
 				_ = m.Nak()
 			}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -164,8 +165,8 @@ func (h *RunbookHandler) listRunbooks(w http.ResponseWriter, r *http.Request) {
 	sourceFilter := r.URL.Query().Get("source")
 
 	h.mu.RLock()
-	out := make([]*RunbookRecord, 0, limit)
 	prefix := tenantID + ":"
+	all := make([]*RunbookRecord, 0, 64)
 	for key, rec := range h.records {
 		if !strings.HasPrefix(key, prefix) {
 			continue
@@ -173,12 +174,17 @@ func (h *RunbookHandler) listRunbooks(w http.ResponseWriter, r *http.Request) {
 		if sourceFilter != "" && rec.Source != sourceFilter {
 			continue
 		}
-		out = append(out, rec)
-		if len(out) >= limit {
-			break
-		}
+		all = append(all, rec)
 	}
 	h.mu.RUnlock()
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt.After(all[j].CreatedAt)
+	})
+	out := all
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": out, "total": len(out)})

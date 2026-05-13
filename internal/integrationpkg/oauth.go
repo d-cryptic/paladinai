@@ -14,6 +14,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // OAuthToken represents a stored OAuth credential set for one tenant+provider.
@@ -56,16 +58,21 @@ type OAuthRefresher struct {
 	store     TokenStore
 	refresher HTTPRefresher
 	alertFn   AlertFunc
+	log       *zap.Logger
 	interval  time.Duration // how often to scan (default: 15min)
 	lookahead time.Duration // refresh tokens expiring within this window (default: 30min)
 }
 
 // NewOAuthRefresher creates a refresher with sensible defaults.
-func NewOAuthRefresher(store TokenStore, refresher HTTPRefresher, alertFn AlertFunc) *OAuthRefresher {
+func NewOAuthRefresher(store TokenStore, refresher HTTPRefresher, alertFn AlertFunc, log *zap.Logger) *OAuthRefresher {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &OAuthRefresher{
 		store:     store,
 		refresher: refresher,
 		alertFn:   alertFn,
+		log:       log,
 		interval:  15 * time.Minute,
 		lookahead: 30 * time.Minute,
 	}
@@ -104,7 +111,7 @@ func (r *OAuthRefresher) Run(ctx context.Context) {
 func (r *OAuthRefresher) runCycle(ctx context.Context) {
 	tokens, err := r.store.ListExpiring(ctx, r.lookahead)
 	if err != nil {
-		// Non-fatal: log would happen at the call site via injected logger.
+		r.log.Error("oauth refresher: list expiring tokens failed", zap.Error(err))
 		return
 	}
 

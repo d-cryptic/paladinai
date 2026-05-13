@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -156,7 +157,9 @@ func (p *Pipeline) Run(ctx context.Context, js jetstream.JetStream, consumerName
 	if err != nil {
 		return fmt.Errorf("pipeline consumer messages %s: %w", consumerName, err)
 	}
-	defer cc.Stop()
+	var stopOnce sync.Once
+	stop := func() { stopOnce.Do(cc.Stop) }
+	defer stop()
 
 	msgCh := make(chan jetstream.Msg, 64)
 	go func() {
@@ -182,7 +185,7 @@ func (p *Pipeline) Run(ctx context.Context, js jetstream.JetStream, consumerName
 	for {
 		select {
 		case <-ctx.Done():
-			cc.Stop() // close iterator so the producer goroutine can exit
+			stop() // close iterator so the producer goroutine can exit
 			for m := range msgCh {
 				_ = m.Nak()
 			}

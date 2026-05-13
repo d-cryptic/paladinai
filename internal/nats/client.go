@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -100,7 +101,8 @@ func (c *Client) Conn() *nats.Conn { return c.nc }
 // Close drains the connection gracefully, falling back to a hard close on error.
 func (c *Client) Close() {
 	done := make(chan struct{})
-	c.nc.SetClosedHandler(func(*nats.Conn) { close(done) })
+	var once sync.Once
+	c.nc.SetClosedHandler(func(*nats.Conn) { once.Do(func() { close(done) }) })
 	if err := c.nc.Drain(); err != nil {
 		c.log.Warn("nats drain error; forcing close", zap.Error(err))
 		c.nc.Close()

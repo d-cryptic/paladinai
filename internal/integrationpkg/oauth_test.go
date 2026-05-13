@@ -80,7 +80,7 @@ func TestRunCycle_RefreshesExpiringToken(t *testing.T) {
 	var alerted bool
 	alertFn := func(_, _, _ string) { alerted = true }
 
-	r := NewOAuthRefresher(store, refresher, alertFn)
+	r := NewOAuthRefresher(store, refresher, alertFn, nil)
 	r.runCycle(context.Background())
 
 	if atomic.LoadInt32(&refresher.callCount) != 1 {
@@ -106,7 +106,7 @@ func TestRunCycle_SkipsNonExpiringToken(t *testing.T) {
 	}
 	refresher := &fakeHTTPRefresher{}
 
-	r := NewOAuthRefresher(store, refresher, nil)
+	r := NewOAuthRefresher(store, refresher, nil, nil)
 	r.runCycle(context.Background())
 
 	if atomic.LoadInt32(&refresher.callCount) != 0 {
@@ -129,7 +129,7 @@ func TestRunCycle_AlertsOnRefreshFailure(t *testing.T) {
 		alertedProvider = prov
 	}
 
-	r := NewOAuthRefresher(store, refresher, alertFn)
+	r := NewOAuthRefresher(store, refresher, alertFn, nil)
 	r.runCycle(context.Background())
 
 	if alertedTenant != "acme" {
@@ -153,7 +153,7 @@ func TestRunCycle_AlertsOnVaultUpdateFailure(t *testing.T) {
 	}
 
 	var alerted bool
-	r := NewOAuthRefresher(store, refresher, func(_, _, _ string) { alerted = true })
+	r := NewOAuthRefresher(store, refresher, func(_, _, _ string) { alerted = true }, nil)
 	r.runCycle(context.Background())
 
 	if !alerted {
@@ -165,7 +165,7 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 	store := &fakeTokenStore{}
 	refresher := &fakeHTTPRefresher{}
 
-	r := NewOAuthRefresher(store, refresher, nil).WithInterval(50 * time.Millisecond)
+	r := NewOAuthRefresher(store, refresher, nil, nil).WithInterval(50 * time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

@@ -74,7 +74,8 @@ func NewStore() *Store {
 }
 
 // evictLocked removes expired entries and, if still over capacity, removes the
-// oldest resolved incidents. Must be called with s.mu held for writing.
+// oldest incidents sorted by UpdatedAt. O(n log n) on the over-cap pass.
+// Must be called with s.mu held for writing.
 func (s *Store) evictLocked() {
 	cutoff := time.Now().UTC().Add(-incidentTTL)
 	for id, inc := range s.incidents {
@@ -82,21 +83,26 @@ func (s *Store) evictLocked() {
 			delete(s.incidents, id)
 		}
 	}
-	// If still over capacity, drop resolved entries arbitrarily.
-	for len(s.incidents) >= maxStoreSize {
-		for id, inc := range s.incidents {
-			if inc.Status == StatusResolved {
-				delete(s.incidents, id)
-				break
-			}
+	if len(s.incidents) < maxStoreSize {
+		return
+	}
+	// Collect and sort by UpdatedAt ascending so oldest are evicted first.
+	type entry struct {
+		id        string
+		updatedAt time.Time
+	}
+	entries := make([]entry, 0, len(s.incidents))
+	for id, inc := range s.incidents {
+		entries = append(entries, entry{id: id, updatedAt: inc.UpdatedAt})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].updatedAt.Before(entries[j].updatedAt)
+	})
+	for _, e := range entries {
+		if len(s.incidents) < maxStoreSize {
+			break
 		}
-		// Safety: avoid infinite loop if all entries are open.
-		if len(s.incidents) >= maxStoreSize {
-			for id := range s.incidents {
-				delete(s.incidents, id)
-				break
-			}
-		}
+		delete(s.incidents, e.id)
 	}
 }
 
@@ -172,6 +178,8 @@ func (s *Store) Get(id string) *Incident {
 	}
 	cp := *inc
 	cp.Labels = copyLabels(inc.Labels)
+	cp.TriageResult = append(json.RawMessage(nil), inc.TriageResult...)
+	cp.RawEnvelope = append(json.RawMessage(nil), inc.RawEnvelope...)
 	return &cp
 }
 
@@ -189,6 +197,8 @@ func (s *Store) List(tenantID, status string, limit int) []*Incident {
 		}
 		cp := *inc
 		cp.Labels = copyLabels(inc.Labels)
+		cp.TriageResult = append(json.RawMessage(nil), inc.TriageResult...)
+		cp.RawEnvelope = append(json.RawMessage(nil), inc.RawEnvelope...)
 		out = append(out, &cp)
 	}
 	sort.Slice(out, func(i, j int) bool {
