@@ -11,8 +11,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 )
+
+var subjectTokenPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // EventType classifies the kind of event emitted by an agent node.
 type EventType string
@@ -40,8 +43,24 @@ type AgentEvent struct {
 
 // Subject returns the NATS subject for a given tenant and session.
 // Convention: "stream.{tenantID}.{sessionID}"
-func Subject(tenantID, sessionID string) string {
-	return fmt.Sprintf("stream.%s.%s", tenantID, sessionID)
+func Subject(tenantID, sessionID string) (string, error) {
+	if err := validateSubjectToken("tenantID", tenantID); err != nil {
+		return "", err
+	}
+	if err := validateSubjectToken("sessionID", sessionID); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("stream.%s.%s", tenantID, sessionID), nil
+}
+
+func validateSubjectToken(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("agentevent: %s must not be empty", name)
+	}
+	if !subjectTokenPattern.MatchString(value) {
+		return fmt.Errorf("agentevent: %s %q contains invalid NATS subject characters", name, value)
+	}
+	return nil
 }
 
 // Publisher is the interface for publishing agent events.
@@ -97,7 +116,10 @@ func (p *NATSPublisher) Publish(_ context.Context, tenantID, sessionID string, e
 	if err != nil {
 		return fmt.Errorf("agentevent: marshal event: %w", err)
 	}
-	subject := Subject(tenantID, sessionID)
+	subject, err := Subject(tenantID, sessionID)
+	if err != nil {
+		return err
+	}
 	if err := p.conn.Publish(subject, data); err != nil {
 		return fmt.Errorf("agentevent: publish to %s: %w", subject, err)
 	}

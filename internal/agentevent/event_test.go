@@ -14,11 +14,31 @@ import (
 // ─── Subject ─────────────────────────────────────────────────────────────────
 
 func TestSubject_Format(t *testing.T) {
-	assert.Equal(t, "stream.tenant-1.sess-abc", agentevent.Subject("tenant-1", "sess-abc"))
+	subject, err := agentevent.Subject("tenant-1", "sess-abc")
+	require.NoError(t, err)
+	assert.Equal(t, "stream.tenant-1.sess-abc", subject)
 }
 
-func TestSubject_EmptyParts(t *testing.T) {
-	assert.Equal(t, "stream..", agentevent.Subject("", ""))
+func TestSubject_RejectsUnsafeTokens(t *testing.T) {
+	tests := []struct {
+		name      string
+		tenantID  string
+		sessionID string
+	}{
+		{name: "empty tenant", tenantID: "", sessionID: "sess-1"},
+		{name: "empty session", tenantID: "tenant-1", sessionID: ""},
+		{name: "tenant dot", tenantID: "bad.tenant", sessionID: "sess-1"},
+		{name: "session wildcard", tenantID: "tenant-1", sessionID: "*"},
+		{name: "session greater-than", tenantID: "tenant-1", sessionID: ">"},
+		{name: "tenant space", tenantID: "bad tenant", sessionID: "sess-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := agentevent.Subject(tt.tenantID, tt.sessionID)
+			require.Error(t, err)
+		})
+	}
 }
 
 // ─── Event helpers ────────────────────────────────────────────────────────────
@@ -181,4 +201,15 @@ func TestNATSPublisher_NATSError_ReturnsWrappedError(t *testing.T) {
 	err := pub.Publish(context.Background(), "t1", "s1", ev)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stream.t1.s1")
+}
+
+func TestNATSPublisher_InvalidSubject_ReturnsErrorWithoutPublishing(t *testing.T) {
+	conn := &fakeNATSConn{}
+	pub := agentevent.NewNATSPublisher(conn)
+
+	err := pub.Publish(context.Background(), "tenant.1", "s1", agentevent.StepStart("test", ""))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tenantID")
+	assert.Empty(t, conn.published)
 }
