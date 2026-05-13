@@ -77,11 +77,7 @@ func runTail(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	header := http.Header{}
-	header.Set("X-Tenant-ID", tenant)
-	if token != "" {
-		header.Set("Authorization", "Bearer "+token)
-	}
+	header := tailAuthHeaders(tenant, token)
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -93,6 +89,16 @@ func runTail(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(os.Stderr, "Connecting to %s (tenant: %s) — Ctrl+C to quit\n", wsURL, tenant)
 
 	return connectAndStream(ctx, wsURL, header, w)
+}
+
+func tailAuthHeaders(tenant, token string) http.Header {
+	header := http.Header{}
+	if token != "" {
+		header.Set("Authorization", "Bearer "+token)
+		return header
+	}
+	header.Set("X-Tenant-ID", tenant)
+	return header
 }
 
 // connectAndStream connects to the WebSocket URL and writes arriving events to w.

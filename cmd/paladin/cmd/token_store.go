@@ -97,5 +97,8 @@ func commandOptions(cmd *cobra.Command, tenantID string) (client.Options, error)
 	if err != nil {
 		return client.Options{}, err
 	}
+	if token != "" {
+		return client.Options{Token: token}, nil
+	}
 	return client.Options{TenantID: tenantID, Token: token}, nil
 }
