@@ -219,9 +219,9 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		// Stage 3 path: classify → route → triage/rca via supervisor.
 		// Use a wider timeout that covers the combined pipeline.
 		supCtx, supCancel := context.WithTimeout(ctx, supervisorBudget)
-		defer supCancel()
 		state := &agent.IncidentState{TenantID: env.TenantID, Alert: env}
 		st, supErr := w.supervisor.Process(supCtx, state)
+		supCancel() // cancel immediately to release timer; don't defer past this block
 		if supErr != nil {
 			w.log.Warn("worker: supervisor failed, falling back to direct triage",
 				zap.String("fingerprint", env.Fingerprint),
@@ -284,7 +284,11 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	}
 
 	// Publish downstream before Acking.
-	if err := w.publishCombined(ctx, &env, result, rcaResult); err != nil {
+	// Use a detached context so a cancelled consumer ctx (graceful shutdown)
+	// does not abort a publish after a successful (expensive) LLM call.
+	pubCtx, pubCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer pubCancel()
+	if err := w.publishCombined(pubCtx, &env, result, rcaResult); err != nil {
 		ctxErr := ctx.Err()
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 			errors.Is(ctxErr, context.Canceled) || errors.Is(ctxErr, context.DeadlineExceeded) {

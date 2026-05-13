@@ -178,8 +178,10 @@ func (c *Correlator) groupKey(env *alert.AlertEnvelope) string {
 // newCorrelationID generates a human-readable correlation ID.
 // Format: corr-<8 hex chars of tenant+group hash>
 func newCorrelationID(tenantID, groupKey string) string {
-	h := sha256.Sum256([]byte(tenantID + groupKey))
-	return "corr-" + hex.EncodeToString(h[:8])
+	h := sha256.New()
+	writeCorrelField(h, tenantID)
+	writeCorrelField(h, groupKey)
+	return "corr-" + hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 // CorrelatedSubject returns the NATS subject for a processed (correlated) alert.

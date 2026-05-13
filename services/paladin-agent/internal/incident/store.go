@@ -315,6 +315,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Header.Get("X-Tenant-ID")
+	if tenantID == "" {
+		jsonErrAgent(w, "INVALID_TENANT", "missing tenant context", http.StatusUnauthorized)
+		return
+	}
 	incidentID, _ := url.PathUnescape(chi.URLParam(r, "incidentID"))
 
 	inc := h.store.Get(incidentID)
@@ -327,6 +331,10 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Header.Get("X-Tenant-ID")
+	if tenantID == "" {
+		jsonErrAgent(w, "INVALID_TENANT", "missing tenant context", http.StatusUnauthorized)
+		return
+	}
 	incidentID, _ := url.PathUnescape(chi.URLParam(r, "incidentID"))
 
 	replay, err := h.store.StartReplay(incidentID, tenantID)

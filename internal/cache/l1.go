@@ -121,7 +121,7 @@ func (c *MemL1) Get(_ context.Context, key string) ([]byte, error) {
 		c.mu.Unlock()
 		return nil, nil
 	}
-	return e.value, nil
+	return append([]byte(nil), e.value...), nil
 }
 
 func (c *MemL1) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {

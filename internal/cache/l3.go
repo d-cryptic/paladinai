@@ -234,7 +234,7 @@ func (c *MemL3) Get(ctx context.Context, tenantID, toolName string, args any) ([
 		c.mu.Unlock()
 		return nil, nil
 	}
-	return e.value, nil
+	return append([]byte(nil), e.value...), nil
 }
 
 func (c *MemL3) Set(ctx context.Context, tenantID, toolName string, args any, result []byte) error {

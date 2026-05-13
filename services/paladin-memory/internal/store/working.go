@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -39,6 +40,12 @@ func workingPrefix(tenantID, sessionID, prefix string) string {
 	return fmt.Sprintf("wm:%s:%s:%s", tenantID, sessionID, prefix)
 }
 
+// escapeGlob escapes Redis SCAN MATCH glob metacharacters so user-supplied
+// strings are treated as literals, not patterns.
+var globReplacer = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`)
+
+func escapeGlob(s string) string { return globReplacer.Replace(s) }
+
 // Get returns the value at the given key. The bool is false when the key is absent.
 func (s *RedisWorkingStore) Get(ctx context.Context, tenantID, sessionID, key string) (string, bool, error) {
 	v, err := s.client.Get(ctx, workingKey(tenantID, sessionID, key)).Result()
@@ -65,7 +72,7 @@ func (s *RedisWorkingStore) Scan(ctx context.Context, tenantID, sessionID, prefi
 	if limit <= 0 {
 		limit = 20
 	}
-	pattern := workingPrefix(tenantID, sessionID, prefix) + "*"
+	pattern := workingPrefix(escapeGlob(tenantID), escapeGlob(sessionID), escapeGlob(prefix)) + "*"
 	var (
 		cursor uint64
 		out    []string

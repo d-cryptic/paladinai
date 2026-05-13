@@ -114,7 +114,11 @@ func Middleware(limiter Limiter, log *zap.Logger) func(http.Handler) http.Handle
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
 
 			if !allowed {
-				w.Header().Set("Retry-After", strconv.FormatInt(int64(time.Until(resetAt).Seconds()), 10))
+				retryAfter := int64(time.Until(resetAt).Seconds())
+				if retryAfter < 1 {
+					retryAfter = 1
+				}
+				w.Header().Set("Retry-After", strconv.FormatInt(retryAfter, 10))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				fmt.Fprintf(w, `{"error":{"code":"RATE_LIMIT_EXCEEDED","message":"rate limit exceeded, retry after %s"}}`,
