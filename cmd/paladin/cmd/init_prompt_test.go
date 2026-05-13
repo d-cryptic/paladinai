@@ -103,8 +103,15 @@ func TestRunInitPrompt_CustomAPIURL(t *testing.T) {
 	if loaded.DefaultTenant != "acme-corp" {
 		t.Errorf("DefaultTenant = %q, want %q", loaded.DefaultTenant, "acme-corp")
 	}
-	if loaded.Token != "my-token" {
-		t.Errorf("Token = %q, want %q", loaded.Token, "my-token")
+	if loaded.Token != "" {
+		t.Errorf("Token = %q, want empty keychain-only config token", loaded.Token)
+	}
+	stored, err := loadStoredToken(loaded, "http://localhost:9003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored != "my-token" {
+		t.Errorf("stored token = %q, want %q", stored, "my-token")
 	}
 }
 
@@ -157,8 +164,15 @@ func TestApplyAndSave_WritesConfig(t *testing.T) {
 	if loaded.DefaultTenant != "test-tenant" {
 		t.Errorf("DefaultTenant = %q, want %q", loaded.DefaultTenant, "test-tenant")
 	}
-	if loaded.Token != "tok-xyz" {
-		t.Errorf("Token = %q, want %q", loaded.Token, "tok-xyz")
+	if loaded.Token != "" {
+		t.Errorf("Token = %q, want empty keychain-only config token", loaded.Token)
+	}
+	stored, err := loadStoredToken(loaded, "http://localhost:9003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored != "tok-xyz" {
+		t.Errorf("stored token = %q, want %q", stored, "tok-xyz")
 	}
 }
 

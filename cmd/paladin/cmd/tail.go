@@ -62,14 +62,18 @@ func runTail(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Token precedence: --token flag > PALADIN_TOKEN env > config file
+	// Token precedence: --token flag > PALADIN_TOKEN env > keychain.
 	token := optToken(cmd)
 	if token == "" {
 		token = os.Getenv("PALADIN_TOKEN")
 	}
 	if token == "" {
 		if cfg, _ := loadConfig(); cfg != nil {
-			token = cfg.Token
+			stored, err := loadStoredToken(cfg, cfg.AuthEndpoint)
+			if err != nil {
+				return err
+			}
+			token = stored
 		}
 	}
 

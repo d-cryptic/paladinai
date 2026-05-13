@@ -176,9 +176,12 @@ the PaladinAI API. The control plane reconciles the desired state.`,
 		}
 		u.Path = "/api/v1/config/apply"
 
+		opts, err := commandOptions(cmd, cfg.Metadata.Tenant)
+		if err != nil {
+			return err
+		}
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{TenantID: cfg.Metadata.Tenant, Token: optToken(cmd)},
-			bytes.NewReader(payload))
+			opts, bytes.NewReader(payload))
 		if err != nil {
 			return err
 		}

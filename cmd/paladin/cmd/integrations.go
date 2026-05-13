@@ -86,7 +86,11 @@ var integrationsStatusCmd = &cobra.Command{
 		}
 		u.Path = "/api/v1/integrations/status"
 
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, err := client.Get(cmd.Context(), u.String(), opts)
 		if err != nil {
 			return err
 		}
@@ -139,8 +143,12 @@ var integrationsEnableCmd = &cobra.Command{
 		}
 		u.Path = fmt.Sprintf("/api/v1/integrations/%s/enable", url.PathEscape(args[0]))
 
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{TenantID: tenant, Token: optToken(cmd)}, bytes.NewReader(data))
+			opts, bytes.NewReader(data))
 		if err != nil {
 			return err
 		}
@@ -167,8 +175,12 @@ var integrationsDisableCmd = &cobra.Command{
 		}
 		u.Path = fmt.Sprintf("/api/v1/integrations/%s/disable", url.PathEscape(args[0]))
 
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{TenantID: tenant, Token: optToken(cmd)}, nil)
+			opts, nil)
 		if err != nil {
 			return err
 		}

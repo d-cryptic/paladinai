@@ -37,8 +37,8 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	if loaded.APIEndpoint != cfg.APIEndpoint {
 		t.Errorf("APIEndpoint = %q, want %q", loaded.APIEndpoint, cfg.APIEndpoint)
 	}
-	if loaded.Token != cfg.Token {
-		t.Errorf("Token = %q, want %q", loaded.Token, cfg.Token)
+	if loaded.Token != "" {
+		t.Errorf("Token = %q, want empty keychain-only config token", loaded.Token)
 	}
 	if loaded.DefaultTenant != cfg.DefaultTenant {
 		t.Errorf("DefaultTenant = %q, want %q", loaded.DefaultTenant, cfg.DefaultTenant)

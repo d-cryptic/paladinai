@@ -1,5 +1,3 @@
-version: "3.9"
-
 # PaladinAI v2 — local infrastructure stack
 # Run: make up
 # Stop: make down

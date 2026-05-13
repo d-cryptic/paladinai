@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/paladinai/paladinai/cmd/paladin/client"
@@ -25,87 +26,120 @@ var authLoginCmd = &cobra.Command{
 	Short: "Authenticate and store credentials",
 	Long: `Authenticate with the PaladinAI API and save the token.
 
-The token is written to ~/.paladin/config.yaml. In CI/CD environments,
-set PALADIN_TOKEN instead to avoid filesystem writes.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		email, _ := cmd.Flags().GetString("email")
-		password, _ := cmd.Flags().GetString("password")
+The token is stored in the OS keychain. In CI/CD environments, set
+PALADIN_TOKEN instead to avoid interactive keychain access.`,
+	RunE: runAuthLogin,
+}
 
+func runAuthLogin(cmd *cobra.Command, _ []string) error {
+	tenantID, _ := cmd.Flags().GetString("tenant")
+	if tenantID == "" {
+		if cfg, _ := loadConfig(); cfg != nil {
+			tenantID = cfg.DefaultTenant
+		}
+	}
+	if tenantID == "" {
+		return fmt.Errorf("tenant ID is required — set --tenant or PALADIN_TENANT")
+	}
+
+	userID, _ := cmd.Flags().GetString("user-id")
+	if userID == "" {
 		r := bufio.NewReader(os.Stdin)
-		if email == "" {
-			fmt.Print("Email: ")
-			e, err := readLine(r)
-			if err != nil {
-				return fmt.Errorf("read email: %w", err)
-			}
-			email = e
-		}
-		if password == "" {
-			fmt.Print("Password: ")
-			p, err := readLine(r)
-			if err != nil {
-				return fmt.Errorf("read password: %w", err)
-			}
-			password = p
-		}
-
-		authBase := authURL(cmd)
-		u, err := url.Parse(authBase)
+		fmt.Print("User ID: ")
+		read, err := readLine(r)
 		if err != nil {
-			return fmt.Errorf("invalid auth-url: %w", err)
+			return fmt.Errorf("read user-id: %w", err)
 		}
-		u.Path = "/api/v1/auth/login"
+		userID = read
+	}
+	if userID == "" {
+		return fmt.Errorf("user-id is required")
+	}
 
-		payload := map[string]string{"email": email, "password": password}
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("marshal payload: %w", err)
-		}
+	secret := adminSecret(cmd)
+	if secret == "" {
+		return fmt.Errorf("admin secret is required — set --admin-secret or PALADIN_ADMIN_SECRET")
+	}
+	roles := parseRoles(cmd)
 
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{}, bytes.NewReader(data))
-		if err != nil {
-			return err
-		}
-		if status < 200 || status >= 300 {
-			return fmt.Errorf("login failed (%d): %s", status, string(body))
-		}
+	authBase := authURL(cmd)
+	u, err := url.Parse(authBase)
+	if err != nil {
+		return fmt.Errorf("invalid auth-url: %w", err)
+	}
+	u.Path = "/api/v1/tokens"
 
-		var resp struct {
-			Token     string `json:"token"`
-			TenantID  string `json:"tenant_id"`
-			ExpiresAt string `json:"expires_at"`
-		}
-		if err := json.Unmarshal(body, &resp); err != nil {
-			return fmt.Errorf("parse response: %w", err)
-		}
-		if resp.Token == "" {
-			return fmt.Errorf("server returned no token")
-		}
+	payload := map[string]any{
+		"tenant_id": tenantID,
+		"user_id":   userID,
+		"roles":     roles,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
 
-		// Load existing config and update token.
-		cfg, _ := loadConfig()
-		if cfg == nil {
-			cfg = &PaladinConfig{}
-		}
-		cfg.Token = resp.Token
-		if resp.TenantID != "" && cfg.DefaultTenant == "" {
-			cfg.DefaultTenant = resp.TenantID
-		}
+	body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
+		client.Options{AdminSecret: secret}, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("login failed (%d): %s", status, string(body))
+	}
 
-		if err := saveConfig(cfg); err != nil {
-			return fmt.Errorf("save config: %w", err)
-		}
+	var resp struct {
+		Token     string `json:"token"`
+		ExpiresIn int    `json:"expires_in"`
+		TokenType string `json:"token_type"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("parse response: %w", err)
+	}
+	if resp.Token == "" {
+		return fmt.Errorf("server returned no token")
+	}
 
-		fmt.Fprintln(os.Stdout, "Logged in successfully.")
-		if resp.ExpiresAt != "" {
-			fmt.Fprintf(os.Stdout, "Token expires: %s\n", resp.ExpiresAt)
+	cfg, _ := loadConfig()
+	if cfg == nil {
+		cfg = &PaladinConfig{}
+	}
+	cfg.AuthEndpoint = strings.TrimRight(authBase, "/")
+	cfg.DefaultTenant = tenantID
+	cfg.Token = ""
+
+	if err := saveStoredToken(authBase, resp.Token); err != nil {
+		return err
+	}
+	if err := saveConfig(cfg); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+
+	fmt.Fprintln(os.Stdout, "Logged in successfully.")
+	if resp.ExpiresIn > 0 {
+		fmt.Fprintf(os.Stdout, "Token expires in: %ds\n", resp.ExpiresIn)
+	}
+	fmt.Fprintf(os.Stdout, "Tenant: %s\n", tenantID)
+	return nil
+}
+
+func parseRoles(cmd *cobra.Command) []string {
+	raw, _ := cmd.Flags().GetString("roles")
+	if raw == "" {
+		return []string{"viewer"}
+	}
+	parts := strings.Split(raw, ",")
+	roles := make([]string, 0, len(parts))
+	for _, part := range parts {
+		role := strings.TrimSpace(part)
+		if role != "" {
+			roles = append(roles, role)
 		}
-		if resp.TenantID != "" {
-			fmt.Fprintf(os.Stdout, "Tenant: %s\n", resp.TenantID)
-		}
-		return nil
-	},
+	}
+	if len(roles) == 0 {
+		return []string{"viewer"}
+	}
+	return roles
 }
 
 // paladin auth logout
@@ -114,18 +148,25 @@ var authLogoutCmd = &cobra.Command{
 	Short: "Revoke the stored token",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
-		if err != nil || cfg == nil || cfg.Token == "" {
+		authBase := authURL(cmd)
+		token := ""
+		if err == nil {
+			token, err = loadStoredToken(cfg, authBase)
+			if err != nil {
+				return err
+			}
+		}
+		if err != nil || cfg == nil || token == "" {
 			fmt.Fprintln(os.Stdout, "Not currently logged in.")
 			return nil
 		}
 
 		// Attempt server-side revocation (best-effort; don't fail if unavailable).
-		authBase := authURL(cmd)
 		u, err := url.Parse(authBase)
 		if err == nil {
 			u.Path = "/api/v1/auth/logout"
 			body, status, rErr := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-				client.Options{Token: cfg.Token}, nil)
+				client.Options{Token: token}, nil)
 			if rErr == nil && (status < 200 || status >= 300) {
 				fmt.Fprintf(os.Stderr, "server revocation failed (%d): %s\n", status, string(body))
 			}
@@ -133,6 +174,9 @@ var authLogoutCmd = &cobra.Command{
 
 		// Clear local token.
 		cfg.Token = ""
+		if err := deleteStoredToken(authBase); err != nil {
+			return err
+		}
 		if err := saveConfig(cfg); err != nil {
 			return fmt.Errorf("clear config: %w", err)
 		}
@@ -153,7 +197,11 @@ var authStatusCmd = &cobra.Command{
 		}
 		if token == "" {
 			if cfg, _ := loadConfig(); cfg != nil {
-				token = cfg.Token
+				stored, err := loadStoredToken(cfg, authURL(cmd))
+				if err != nil {
+					return err
+				}
+				token = stored
 			}
 		}
 
@@ -216,8 +264,10 @@ var authStatusCmd = &cobra.Command{
 }
 
 func init() {
-	authLoginCmd.Flags().String("email", "", "Email address")
-	authLoginCmd.Flags().String("password", "", "Password (prefer interactive prompt)")
+	authLoginCmd.Flags().String("user-id", "", "User ID to encode in the issued token")
+	authLoginCmd.Flags().String("roles", "viewer", "Comma-separated roles for the issued token")
+	authLoginCmd.Flags().String("tenant", os.Getenv("PALADIN_TENANT"), "Tenant ID for the issued token")
+	authLoginCmd.Flags().String("admin-secret", os.Getenv("PALADIN_ADMIN_SECRET"), "Admin secret for token issuance")
 	authLoginCmd.Flags().String("auth-url", envStr("PALADIN_AUTH_URL", "http://localhost:9003"), "PaladinAI auth service URL")
 
 	authLogoutCmd.Flags().String("auth-url", envStr("PALADIN_AUTH_URL", "http://localhost:9003"), "PaladinAI auth service URL")

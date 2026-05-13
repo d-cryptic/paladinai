@@ -72,8 +72,12 @@ Examples:
 		}
 		u.Path = "/api/v1/runbooks/import"
 
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{TenantID: tenant, Token: optToken(cmd)}, bytes.NewReader(data))
+			opts, bytes.NewReader(data))
 		if err != nil {
 			return err
 		}
@@ -125,7 +129,11 @@ var runbooksListCmd = &cobra.Command{
 		}
 		u.RawQuery = q.Encode()
 
-		body, err := client.Get(cmd.Context(), u.String(), client.Options{TenantID: tenant, Token: optToken(cmd)})
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
+		body, err := client.Get(cmd.Context(), u.String(), opts)
 		if err != nil {
 			return err
 		}
@@ -168,8 +176,12 @@ var runbooksSearchCmd = &cobra.Command{
 		}
 		u.Path = "/api/v1/runbooks/search"
 
+		opts, err := commandOptions(cmd, tenant)
+		if err != nil {
+			return err
+		}
 		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			client.Options{TenantID: tenant, Token: optToken(cmd)}, bytes.NewReader(data))
+			opts, bytes.NewReader(data))
 		if err != nil {
 			return err
 		}
