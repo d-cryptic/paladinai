@@ -166,8 +166,15 @@ var integrationsEnableCmd = &cobra.Command{
 		if err := updateProjectIntegrationFromDefinition(cmd, projectFile, tenant, args[0], true, configMap); err != nil {
 			return err
 		}
-		fmt.Printf("Integration %q enabled.\n", args[0])
-		return nil
+		return writeIntegrationActionResult(cmd, integrationActionResult{
+			Action:      "enable",
+			Name:        args[0],
+			Tenant:      tenant,
+			Enabled:     true,
+			ProjectFile: projectFile,
+			Response:    jsonResponseBody(body),
+			Message:     nonJSONResponseMessage(body),
+		})
 	},
 }
 
@@ -205,8 +212,15 @@ var integrationsDisableCmd = &cobra.Command{
 		if err := updateProjectIntegrationFromDefinition(cmd, projectFile, tenant, args[0], false, nil); err != nil {
 			return err
 		}
-		fmt.Printf("Integration %q disabled.\n", args[0])
-		return nil
+		return writeIntegrationActionResult(cmd, integrationActionResult{
+			Action:      "disable",
+			Name:        args[0],
+			Tenant:      tenant,
+			Enabled:     false,
+			ProjectFile: projectFile,
+			Response:    jsonResponseBody(body),
+			Message:     nonJSONResponseMessage(body),
+		})
 	},
 }
 
@@ -291,6 +305,32 @@ func printIntegrationDefinition(i *integrationpkg.Integration) {
 		}
 	}
 	w.Flush()
+}
+
+type integrationActionResult struct {
+	Action      string          `json:"action"`
+	Name        string          `json:"name"`
+	Tenant      string          `json:"tenant"`
+	Enabled     bool            `json:"enabled"`
+	ProjectFile string          `json:"project_file"`
+	Response    json.RawMessage `json:"response,omitempty"`
+	Message     string          `json:"message,omitempty"`
+}
+
+func writeIntegrationActionResult(cmd *cobra.Command, result integrationActionResult) error {
+	if outputFormat(cmd) == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(result); err != nil {
+			return fmt.Errorf("write json: %w", err)
+		}
+		return nil
+	}
+	state := "enabled"
+	if !result.Enabled {
+		state = "disabled"
+	}
+	fmt.Printf("Integration %q %s.\n", result.Name, state)
+	return nil
 }
 
 func updateProjectIntegrationFromDefinition(cmd *cobra.Command, path, tenant, name string, enabled bool, config map[string]any) error {
