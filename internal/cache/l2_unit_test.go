@@ -44,6 +44,16 @@ func TestValkeyL2_Store_EmptyTenantID_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "tenantID must not be empty")
 }
 
+func TestValkeyL2_Lookup_RequiresUnstableRESP3(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
+	defer rdb.Close() //nolint:errcheck
+	l2 := NewValkeyL2(rdb, NewMemEmbedder(4))
+
+	_, err := l2.Lookup(newCtx(), "tenant-1", "some query")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "UnstableResp3 must be true")
+}
+
 // ─── isIndexMissingErr / isIndexExistsErr ────────────────────────────────────
 
 func TestIsIndexMissingErr_NilError_ReturnsFalse(t *testing.T) {

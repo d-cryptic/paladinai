@@ -27,6 +27,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 	if err := pool.Ping(context.Background()); err != nil {
 		t.Skipf("skipping postgres integration test: ping failed: %v", err)
 	}
+	require.NoError(t, NewPostgresStore(pool).MigrateUp(context.Background()))
 	t.Cleanup(pool.Close)
 	return pool
 }

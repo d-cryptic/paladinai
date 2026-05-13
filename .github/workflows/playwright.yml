@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26.1"
   GOFLAGS: "-mod=mod"
   GONOSUMDB: "*"
   GOINSECURE: "*"
@@ -36,18 +36,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      nats:
-        image: nats:2.10-alpine
-        ports:
-          - 4222:4222
-        options: --entrypoint nats-server -- -js
-
       valkey:
-        image: valkey/valkey:7-alpine
+        image: redis/redis-stack-server:7.2.0-v19
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "valkey-cli ping"
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -80,6 +74,17 @@ jobs:
           cache: true
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Start NATS JetStream
+        run: |
+          docker run -d --name paladin-nats -p 4222:4222 nats:2.10-alpine -js
+          for i in $(seq 1 15); do
+            nc -z localhost 4222 && exit 0
+            echo "Waiting for NATS..."
+            sleep 2
+          done
+          docker logs paladin-nats
+          exit 1
 
       - name: Build all services
         run: go build -o bin/paladin-ingest ./services/paladin-ingest/cmd && go build -o bin/paladin-edge ./services/paladin-edge/cmd && go build -o bin/paladin-auth ./services/paladin-auth/cmd && go build -o bin/paladin-hub ./services/paladin-hub/cmd

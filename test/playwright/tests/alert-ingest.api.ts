@@ -12,6 +12,7 @@ const EDGE_URL = process.env.PALADIN_EDGE_URL || "http://localhost:9002";
 const INGEST_URL = process.env.PALADIN_INGEST_URL || "http://localhost:9001";
 
 let tenantSlug: string;
+let tenantID: string;
 let jwtToken: string;
 
 test.beforeAll(async () => {
@@ -24,13 +25,15 @@ test.beforeAll(async () => {
     headers: { "X-Admin-Secret": ADMIN_SECRET },
   });
   expect(created.status()).toBe(201);
+  const { data: tenant } = await created.json();
+  tenantID = tenant.id;
 
   // Issue JWT.
   const tokenResp = await edgeCtx.post("/api/v1/auth/tokens", {
-    data: { tenant_slug: tenantSlug },
+    data: { tenant_id: tenantID, user_id: "playwright-ingest-user" },
     headers: { "X-Admin-Secret": ADMIN_SECRET },
   });
-  expect(tokenResp.status()).toBe(201);
+  expect(tokenResp.status()).toBe(200);
   const body = await tokenResp.json();
   jwtToken = body.token;
   await edgeCtx.dispose();
@@ -91,7 +94,7 @@ test.describe("Alert ingest via paladin-edge (JWT-protected)", () => {
       data: payload,
       headers: {
         Authorization: `Bearer ${jwtToken}`,
-        "X-Tenant-ID": tenantSlug,
+        "X-Tenant-ID": tenantID,
       },
     });
     expect(resp.status()).toBe(202);

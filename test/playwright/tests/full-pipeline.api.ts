@@ -23,13 +23,14 @@ test.describe("Full alert pipeline golden path", () => {
       headers: { "X-Admin-Secret": ADMIN_SECRET },
     });
     expect(created.status()).toBe(201);
+    const { data: tenant } = await created.json();
 
     // 2. Issue JWT.
     const tokenResp = await edgeCtx.post("/api/v1/auth/tokens", {
-      data: { tenant_slug: slug },
+      data: { tenant_id: tenant.id, user_id: "playwright-pipeline-user" },
       headers: { "X-Admin-Secret": ADMIN_SECRET },
     });
-    expect(tokenResp.status()).toBe(201);
+    expect(tokenResp.status()).toBe(200);
     const { token } = await tokenResp.json();
 
     // 3. Ingest P1 alert via edge (JWT-protected).
@@ -37,7 +38,7 @@ test.describe("Full alert pipeline golden path", () => {
       data: p1Alert(slug),
       headers: {
         Authorization: `Bearer ${token}`,
-        "X-Tenant-ID": slug,
+        "X-Tenant-ID": tenant.id,
       },
     });
     expect(ingestResp.status()).toBe(202);

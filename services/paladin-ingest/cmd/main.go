@@ -96,6 +96,7 @@ func run() error {
 	r.Get("/readyz", health.Readiness)
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 	r.Mount("/webhook", webhooks.Routes())
+	r.Mount("/api/v1/ingest", webhooks.Routes())
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", conf.Server.Port),

@@ -13,6 +13,7 @@ import (
 func TestValkeyL2_Lookup_EnsureIndexFails(t *testing.T) {
 	skipIfNoNetwork(t)
 	_, rdb := newMiniredis(t)
+	rdb.Options().UnstableResp3 = true
 	emb := NewMemEmbedder(4)
 	l2 := NewValkeyL2(rdb, emb)
 
@@ -27,6 +28,7 @@ func TestValkeyL2_Lookup_EnsureIndexFails(t *testing.T) {
 func TestValkeyL2_Store_EnsureIndexFails(t *testing.T) {
 	skipIfNoNetwork(t)
 	_, rdb := newMiniredis(t)
+	rdb.Options().UnstableResp3 = true
 	emb := NewMemEmbedder(4)
 	l2 := NewValkeyL2(rdb, emb)
 
@@ -44,6 +46,7 @@ func TestValkeyL2_ensureIndex_SecondCall_UsesCachedState(t *testing.T) {
 	// Verify that calling Lookup twice does not panic.
 	skipIfNoNetwork(t)
 	_, rdb := newMiniredis(t)
+	rdb.Options().UnstableResp3 = true
 	emb := NewMemEmbedder(4)
 	l2 := NewValkeyL2(rdb, emb)
 

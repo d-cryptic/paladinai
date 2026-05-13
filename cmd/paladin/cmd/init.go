@@ -39,9 +39,8 @@ func configPath() string {
 }
 
 // PaladinConfig is the structure of ~/.paladin/config.yaml.
-// Token is stored here as a convenience for single-user dev environments.
-// For production use prefer PALADIN_TOKEN env var — it is never written to disk.
-// TODO(security): replace disk token with OS keychain (go-keyring) per docs/plans/11.onboarding-ux-stage11.md
+// Token is retained only to read legacy plaintext configs; new tokens are stored
+// in the OS keychain and are never written back to this file.
 type PaladinConfig struct {
 	APIEndpoint   string `yaml:"api_endpoint"`
 	AuthEndpoint  string `yaml:"auth_endpoint"`
@@ -70,7 +69,9 @@ func saveConfig(c *PaladinConfig) error {
 	if err := os.MkdirAll(configDir(), 0o700); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(c)
+	toWrite := *c
+	toWrite.Token = ""
+	data, err := yaml.Marshal(&toWrite)
 	if err != nil {
 		return err
 	}
@@ -127,7 +128,10 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	tokenFromEnv := os.Getenv("PALADIN_TOKEN") != ""
 	existingToken := ""
 	if !tokenFromEnv {
-		existingToken = cfg.Token
+		existingToken, err = loadStoredToken(cfg, defaultAuth)
+		if err != nil {
+			return err
+		}
 	}
 
 	if useTUI {
@@ -189,8 +193,7 @@ func runInitPrompt(cmd *cobra.Command, cfg *PaladinConfig, defaultAPI, defaultAu
 
 	// ── Step 2: Authentication ────────────────────────────────────────────────
 	fmt.Println("\n[2/4] Authentication")
-	fmt.Println("  NOTE: For production, set PALADIN_TOKEN env var — tokens stored")
-	fmt.Println("        in ~/.paladin/config.yaml are plaintext. Use with care.")
+	fmt.Println("  Tokens are stored in the OS keychain. In CI, set PALADIN_TOKEN.")
 
 	if tokenFromEnv {
 		fmt.Println("  Using token from PALADIN_TOKEN env var (will NOT be written to disk).")
@@ -239,8 +242,11 @@ func applyAndSave(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, authEndpo
 	cfg.APIEndpoint = apiEndpoint
 	cfg.AuthEndpoint = authEndpoint
 	cfg.DefaultTenant = tenant
+	cfg.Token = ""
 	if !tokenFromEnv {
-		cfg.Token = token
+		if err := saveStoredToken(authEndpoint, token); err != nil {
+			return err
+		}
 	}
 	if cfg.OutputFormat == "" {
 		cfg.OutputFormat = "table"
@@ -397,7 +403,11 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		if t := os.Getenv("PALADIN_TOKEN"); t != "" {
 			token = t
 		} else if cfg != nil {
-			token = cfg.Token
+			stored, err := loadStoredToken(cfg, authBase)
+			if err != nil {
+				return err
+			}
+			token = stored
 		}
 	}
 

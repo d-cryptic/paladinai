@@ -97,16 +97,18 @@ func TestAuthFlow_CreateTenantAndIssueToken(t *testing.T) {
 
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "expected 201 Created")
 
-	var tenant struct {
-		ID   string `json:"id"`
-		Slug string `json:"slug"`
+	var createResp struct {
+		Tenant struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"tenant"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tenant))
-	assert.NotEmpty(t, tenant.ID)
-	assert.Equal(t, slug, tenant.Slug)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&createResp))
+	assert.NotEmpty(t, createResp.Tenant.ID)
+	assert.Equal(t, slug, createResp.Tenant.Slug)
 
 	// Issue token for the new tenant
-	tokenBody := fmt.Sprintf(`{"tenant_id":%q}`, tenant.ID)
+	tokenBody := fmt.Sprintf(`{"tenant_id":%q,"user_id":"e2e-user"}`, createResp.Tenant.ID)
 	req2, err := http.NewRequestWithContext(ctx, http.MethodPost, authURL()+"/api/v1/tokens", strings.NewReader(tokenBody))
 	require.NoError(t, err)
 	req2.Header.Set("Content-Type", "application/json")
@@ -142,12 +144,14 @@ func TestIngestPipeline_AlertmanagerWebhook(t *testing.T) {
 	defer resp.Body.Close() //nolint:errcheck
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var tenant struct {
-		ID string `json:"id"`
+	var createResp struct {
+		Tenant struct {
+			ID string `json:"id"`
+		} `json:"tenant"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tenant))
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&createResp))
 
-	tokenBody := fmt.Sprintf(`{"tenant_id":%q}`, tenant.ID)
+	tokenBody := fmt.Sprintf(`{"tenant_id":%q,"user_id":"e2e-ingest-user"}`, createResp.Tenant.ID)
 	req2, _ := http.NewRequestWithContext(ctx, http.MethodPost, authURL()+"/api/v1/tokens", strings.NewReader(tokenBody))
 	req2.Header.Set("Content-Type", "application/json")
 	req2.Header.Set("X-Admin-Secret", adminSecret())

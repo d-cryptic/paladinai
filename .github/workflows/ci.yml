@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26.1"
   GOFLAGS: "-mod=mod"
   GONOSUMDB: "*"
   GOINSECURE: "*"
@@ -30,9 +30,9 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.11.2
           args: --timeout=5m
 
   # ── vet + build ─────────────────────────────────────────────────────────────
@@ -52,16 +52,16 @@ jobs:
 
       - name: Build all binaries
         run: |
-          go build ./cmd/paladin/...
-          go build ./cmd/paladin-eval/...
-          go build ./services/paladin-agent/cmd/...
-          go build ./services/paladin-auth/cmd/...
-          go build ./services/paladin-edge/cmd/...
-          go build ./services/paladin-hub/cmd/...
-          go build ./services/paladin-ingest/cmd/...
-          go build ./services/paladin-memory/cmd/...
-          go build ./services/paladin-orchestrator/cmd/...
-          go build ./services/paladin-ws/cmd/...
+          go build -o /tmp/paladin ./cmd/paladin
+          go build -o /tmp/paladin-eval ./cmd/paladin-eval
+          go build -o /tmp/paladin-agent ./services/paladin-agent/cmd
+          go build -o /tmp/paladin-auth ./services/paladin-auth/cmd
+          go build -o /tmp/paladin-edge ./services/paladin-edge/cmd
+          go build -o /tmp/paladin-hub ./services/paladin-hub/cmd
+          go build -o /tmp/paladin-ingest ./services/paladin-ingest/cmd
+          go build -o /tmp/paladin-memory ./services/paladin-memory/cmd
+          go build -o /tmp/paladin-orchestrator ./services/paladin-orchestrator/cmd
+          go build -o /tmp/paladin-ws ./services/paladin-ws/cmd
           go build -o /tmp/paladin-comms ./services/paladin-comms/cmd/main.go
 
   # ── unit tests ──────────────────────────────────────────────────────────────
@@ -126,18 +126,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test]
     services:
-      nats:
-        image: nats:2.10-alpine
-        options: -p 4222:4222 --name paladin-nats
-        ports:
-          - 4222:4222
-
       valkey:
-        image: valkey/valkey:8-alpine
+        image: redis/redis-stack-server:7.2.0-v19
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "valkey-cli ping"
+          --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
@@ -168,6 +162,17 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Start NATS JetStream
+        run: |
+          docker run -d --name paladin-nats -p 4222:4222 nats:2.10-alpine -js
+          for i in $(seq 1 15); do
+            nc -z localhost 4222 && exit 0
+            echo "Waiting for NATS..."
+            sleep 2
+          done
+          docker logs paladin-nats
+          exit 1
 
       - name: Run integration tests
         run: |

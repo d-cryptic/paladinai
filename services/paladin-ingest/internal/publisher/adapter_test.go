@@ -89,8 +89,8 @@ func TestNew_PublishAlert_NATSError_Propagates(t *testing.T) {
 		t.Fatalf("inats.Connect: %v", err)
 	}
 
-	// Close the client to force subsequent publishes to fail.
-	client.Close()
+	// Close the underlying connection immediately to force subsequent publishes to fail.
+	client.Conn().Close()
 
 	pub := publisher.New(client, log)
 

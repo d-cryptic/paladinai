@@ -7,7 +7,7 @@ import { test, expect } from "@playwright/test";
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "paladin-admin-secret";
 
 function uniqueSlug(): string {
-  return `test-tenant-${Date.now()}`;
+  return `test-tenant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 test.describe("Tenant management via paladin-edge", () => {
@@ -87,16 +87,18 @@ test.describe("Tenant management via paladin-edge", () => {
 
   test("issue JWT token for valid tenant", async ({ request }) => {
     const slug = uniqueSlug();
-    await request.post("/api/v1/auth/tenants", {
+    const created = await request.post("/api/v1/auth/tenants", {
       data: { slug, name: "Token Test" },
       headers: { "X-Admin-Secret": ADMIN_SECRET },
     });
+    expect(created.status()).toBe(201);
+    const { data } = await created.json();
 
     const tokenResp = await request.post("/api/v1/auth/tokens", {
-      data: { tenant_slug: slug },
+      data: { tenant_id: data.id, user_id: "playwright-token-user" },
       headers: { "X-Admin-Secret": ADMIN_SECRET },
     });
-    expect(tokenResp.status()).toBe(201);
+    expect(tokenResp.status()).toBe(200);
     const body = await tokenResp.json();
     expect(body.token).toBeTruthy();
     // JWT has 3 dot-separated parts.

@@ -29,9 +29,15 @@ type Handler struct {
 // followed by "/" or end-of-path is stripped; partial matches are rejected.
 // Pass an empty string to forward the path unchanged.
 func New(target *url.URL, prefix string, log *zap.Logger) *Handler {
+	return NewWithBackendPrefix(target, prefix, "", log)
+}
+
+// NewWithBackendPrefix creates a Handler that strips prefix from the incoming
+// path, then prepends backendPrefix before forwarding to the backend.
+func NewWithBackendPrefix(target *url.URL, prefix, backendPrefix string, log *zap.Logger) *Handler {
 	rp := httputil.NewSingleHostReverseProxy(target)
 
-	director := rp.Director //nolint:staticcheck
+	director := rp.Director                 //nolint:staticcheck
 	rp.Director = func(req *http.Request) { //nolint:staticcheck
 		director(req)
 
@@ -44,6 +50,10 @@ func New(target *url.URL, prefix string, log *zap.Logger) *Handler {
 			} else if strings.HasPrefix(p, prefix+"/") {
 				req.URL.Path = p[len(prefix):]
 			}
+			req.URL.RawPath = ""
+		}
+		if backendPrefix != "" {
+			req.URL.Path = joinPaths(backendPrefix, req.URL.Path)
 			req.URL.RawPath = ""
 		}
 
@@ -87,4 +97,15 @@ func Validate(target *url.URL) error {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.rp.ServeHTTP(w, r)
+}
+
+func joinPaths(prefix, path string) string {
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "" {
+		prefix = "/"
+	}
+	if path == "" || path == "/" {
+		return prefix
+	}
+	return prefix + "/" + strings.TrimLeft(path, "/")
 }

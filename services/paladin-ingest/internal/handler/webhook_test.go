@@ -103,6 +103,42 @@ func TestWebhookHandler_Alertmanager_Success(t *testing.T) {
 	assert.Equal(t, alert.SeverityP1, pub.published[0].Severity)
 }
 
+func TestWebhookHandler_AlertmanagerHeaderTenantRoute(t *testing.T) {
+	pub := &fakePublisher{}
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Mount("/api/v1/ingest", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "HeaderTenant", "critical")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ingest/alertmanager", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-header")
+	rr := httptest.NewRecorder()
+
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+	require.Len(t, pub.published, 1)
+	assert.Equal(t, "tenant-header", pub.published[0].TenantID)
+}
+
+func TestWebhookHandler_AlertmanagerHeaderTenantRouteRequiresTenant(t *testing.T) {
+	wh := handler.NewWebhookHandler(&fakePublisher{}, newFakeDedup(), zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Mount("/api/v1/ingest", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "NoTenant", "warning")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ingest/alertmanager", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
 func TestWebhookHandler_Alertmanager_DeduplicatesSameFiring(t *testing.T) {
 	pub := &fakePublisher{}
 	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop())

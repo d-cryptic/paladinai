@@ -198,5 +198,7 @@ func scanServer(row scanner) (*registry.MCPServer, error) {
 	if s.Capabilities == nil {
 		s.Capabilities = []string{}
 	}
+	s.RegisteredAt = s.RegisteredAt.UTC()
+	s.LastSeenAt = s.LastSeenAt.UTC()
 	return &s, nil
 }

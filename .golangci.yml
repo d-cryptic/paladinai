@@ -25,12 +25,12 @@ linters:
         - (*strings.Builder).WriteString
         - (*bytes.Buffer).ReadFrom
         - (*os.File).WriteString
+  exclusions:
+    rules:
+      # Test files: unchecked calls in test helpers is idiomatic.
+      - linters: [errcheck]
+        path: "_test.go$"
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-
-  exclude-rules:
-    # Test files: unchecked calls in test helpers is idiomatic.
-    - linters: [errcheck]
-      path: "_test.go$"

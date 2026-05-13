@@ -89,11 +89,16 @@ func TestRunbookImport_MissingSource(t *testing.T) {
 func TestRunbookImport_GitHubSource(t *testing.T) {
 	h, store := newTestRunbookHandler()
 	srv := mountRunbookRoutes(h)
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/markdown")
+		_, _ = w.Write([]byte("# Redis OOM Runbook\n\nCheck pod memory and restart safely.\n"))
+	}))
+	defer source.Close()
 
 	body, _ := json.Marshal(map[string]any{
 		"source": "github",
-		"repo":   "owner/repo",
-		"path":   "docs/runbooks",
+		"repo":   source.URL,
+		"path":   "docs/runbooks/redis.md",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -114,6 +119,49 @@ func TestRunbookImport_GitHubSource(t *testing.T) {
 	}
 	if len(store.points) == 0 {
 		t.Error("want at least one chunk indexed in store")
+	}
+}
+
+func TestRunbookImport_GitHubSourceFailsOnMissingRepo(t *testing.T) {
+	h, _ := newTestRunbookHandler()
+	srv := mountRunbookRoutes(h)
+
+	body, _ := json.Marshal(map[string]any{
+		"source": "github",
+		"path":   "docs/runbooks",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-abc")
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("want 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRunbookImport_RemoteRunbookTooLarge(t *testing.T) {
+	h, _ := newTestRunbookHandler()
+	srv := mountRunbookRoutes(h)
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes.Repeat([]byte("a"), (2<<20)+2))
+	}))
+	defer source.Close()
+
+	body, _ := json.Marshal(map[string]any{
+		"source": "github",
+		"repo":   source.URL,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-abc")
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("want 502, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -146,7 +194,12 @@ func TestRunbookList(t *testing.T) {
 	srv := mountRunbookRoutes(h)
 
 	// Import one first.
-	body, _ := json.Marshal(map[string]any{"source": "github", "repo": "owner/repo"})
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("# API Runbook\n\nInvestigate failed deploys."))
+	}))
+	defer source.Close()
+
+	body, _ := json.Marshal(map[string]any{"source": "github", "repo": source.URL})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", "tenant-abc")
@@ -176,7 +229,12 @@ func TestRunbookSearch(t *testing.T) {
 	srv := mountRunbookRoutes(h)
 
 	// Import runbook first so search has something to find.
-	importBody, _ := json.Marshal(map[string]any{"source": "github", "repo": "owner/repo"})
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("# Failover Runbook\n\nSteps for database failover."))
+	}))
+	defer source.Close()
+
+	importBody, _ := json.Marshal(map[string]any{"source": "github", "repo": source.URL})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(importBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", "tenant-abc")

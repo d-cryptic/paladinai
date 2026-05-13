@@ -55,6 +55,46 @@ func TestProxy_ForwardsRequest(t *testing.T) {
 	assert.Equal(t, "/servers", got.URL.Path)
 }
 
+func TestProxy_RewritesBackendPrefix(t *testing.T) {
+	var gotPath string
+	backend := newFakeBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	})
+
+	target, err := url.Parse(backend.URL)
+	require.NoError(t, err)
+
+	h := proxy.NewWithBackendPrefix(target, "/api/v1/auth", "/api/v1", zap.NewNop())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tenants", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "/api/v1/tenants", gotPath)
+}
+
+func TestProxy_RewritesBackendPrefixForExactMount(t *testing.T) {
+	var gotPath string
+	backend := newFakeBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	})
+
+	target, err := url.Parse(backend.URL)
+	require.NoError(t, err)
+
+	h := proxy.NewWithBackendPrefix(target, "/api/v1/runbooks", "/api/v1/runbooks", zap.NewNop())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "/api/v1/runbooks", gotPath)
+}
+
 func TestProxy_InjectsTenantHeader(t *testing.T) {
 	var tenantHdr string
 	backend := newFakeBackend(t, func(w http.ResponseWriter, r *http.Request) {
