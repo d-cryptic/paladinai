@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestRunbooksListTable_Empty(t *testing.T) {
@@ -116,4 +118,49 @@ func TestFloatField_Float32(t *testing.T) {
 	if got := floatField(m, "score"); got != float64(float32(0.5)) {
 		t.Errorf("expected %v, got %v", float64(float32(0.5)), got)
 	}
+}
+
+func TestWriteRunbooksImportResult_CIModeJSON(t *testing.T) {
+	cmd := newRunbooksOutputTestCmd(true)
+
+	stdout := captureStdout(t, func() {
+		err := writeRunbooksImportResult(cmd, runbooksImportResult{
+			Source:   "github",
+			Imported: 3,
+			JobID:    "job-123",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var result runbooksImportResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != "github" || result.Imported != 3 || result.JobID != "job-123" {
+		t.Fatalf("unexpected import result: %+v", result)
+	}
+}
+
+func TestWriteRunbooksImportResult_HumanCompletedImport(t *testing.T) {
+	cmd := newRunbooksOutputTestCmd(false)
+
+	stdout := captureStdout(t, func() {
+		err := writeRunbooksImportResult(cmd, runbooksImportResult{Source: "file", Imported: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(stdout, "Imported 2 runbook(s) from file") {
+		t.Fatalf("stdout = %q, want import summary", stdout)
+	}
+}
+
+func newRunbooksOutputTestCmd(ci bool) *cobra.Command {
+	cmd := &cobra.Command{Use: "runbooks"}
+	cmd.Flags().StringP("output", "o", "table", "")
+	cmd.Flags().Bool("ci", ci, "")
+	return cmd
 }
