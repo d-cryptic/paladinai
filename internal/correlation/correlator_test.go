@@ -115,18 +115,45 @@ func TestCorrelator_StoreErrorIsReturned(t *testing.T) {
 
 func TestCorrelatedSubject_Format(t *testing.T) {
 	t.Parallel()
-	subject := correlation.CorrelatedSubject("acme-corp", "alertmanager")
+	subject, err := correlation.CorrelatedSubject("acme-corp", "alertmanager")
+	require.NoError(t, err)
 	assert.Equal(t, "paladin.alerts.correlated.acme-corp.alertmanager", subject)
 }
 
 func TestCorrelatedSubject_VariesByTenantAndSource(t *testing.T) {
 	t.Parallel()
-	s1 := correlation.CorrelatedSubject("t1", "alertmanager")
-	s2 := correlation.CorrelatedSubject("t2", "alertmanager")
-	s3 := correlation.CorrelatedSubject("t1", "datadog")
+	s1, err := correlation.CorrelatedSubject("t1", "alertmanager")
+	require.NoError(t, err)
+	s2, err := correlation.CorrelatedSubject("t2", "alertmanager")
+	require.NoError(t, err)
+	s3, err := correlation.CorrelatedSubject("t1", "datadog")
+	require.NoError(t, err)
 	assert.NotEqual(t, s1, s2)
 	assert.NotEqual(t, s1, s3)
 	assert.True(t, strings.HasPrefix(s1, "paladin.alerts.correlated."))
+}
+
+func TestCorrelatedSubject_RejectsUnsafeTokens(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		tenantID string
+		source   string
+	}{
+		{name: "empty tenant", tenantID: "", source: "alertmanager"},
+		{name: "tenant dot", tenantID: "bad.tenant", source: "alertmanager"},
+		{name: "empty source", tenantID: "tenant-a", source: ""},
+		{name: "source dot", tenantID: "tenant-a", source: "bad.source"},
+		{name: "source wildcard", tenantID: "tenant-a", source: "*"},
+		{name: "source greater-than", tenantID: "tenant-a", source: ">"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := correlation.CorrelatedSubject(tt.tenantID, tt.source)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestCorrelator_NoLabelsDontCollapse(t *testing.T) {

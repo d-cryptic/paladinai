@@ -112,7 +112,10 @@ func (p *Pipeline) Process(ctx context.Context, env *alert.AlertEnvelope) error 
 		return fmt.Errorf("pipeline marshal: %w", err)
 	}
 
-	subject := correlation.CorrelatedSubject(env.TenantID, string(env.Source))
+	subject, err := correlation.CorrelatedSubject(env.TenantID, string(env.Source))
+	if err != nil {
+		return fmt.Errorf("pipeline correlated subject: %w", err)
+	}
 	if _, err := p.pub.Publish(ctx, subject, data); err != nil {
 		return fmt.Errorf("pipeline publish to %s: %w", subject, err)
 	}
