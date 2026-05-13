@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSlugRE covers the slug regex used by tenant create, migrate, and delete.
@@ -41,4 +43,28 @@ func TestSlugRE(t *testing.T) {
 	for _, s := range invalid {
 		assert.False(t, slugRE.MatchString(s), "expected invalid slug: %q", s)
 	}
+}
+
+func TestConfirmTenantDelete_CIModeRequiresYes(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, false, true)
+
+	err := confirmTenantDelete(cmd, "acme-corp")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--yes")
+	assert.Contains(t, err.Error(), "CI mode")
+}
+
+func TestConfirmTenantDelete_YesSkipsPromptInCIMode(t *testing.T) {
+	cmd := tenantDeleteTestCmd(t, true, true)
+
+	require.NoError(t, confirmTenantDelete(cmd, "acme-corp"))
+}
+
+func tenantDeleteTestCmd(t *testing.T, yes, ci bool) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "delete"}
+	cmd.Flags().Bool("yes", yes, "")
+	cmd.Flags().Bool("ci", ci, "")
+	return cmd
 }

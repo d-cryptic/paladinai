@@ -219,18 +219,8 @@ var tenantDeleteCmd = &cobra.Command{
 			return fmt.Errorf("invalid slug %q: must be 2-64 chars, lowercase alphanumeric and hyphens", slug)
 		}
 
-		yes, _ := cmd.Flags().GetBool("yes")
-		if !yes {
-			fmt.Fprintf(os.Stderr, "WARNING: This will permanently delete tenant %q and all its data. Use --yes to skip in scripts.\n", slug)
-			fmt.Fprint(os.Stderr, "Type the tenant slug to confirm: ")
-			r := bufio.NewReader(os.Stdin)
-			confirm, err := readLine(r)
-			if err != nil {
-				return fmt.Errorf("read confirmation: %w", err)
-			}
-			if confirm != slug {
-				return fmt.Errorf("confirmation mismatch — deletion cancelled")
-			}
+		if err := confirmTenantDelete(cmd, slug); err != nil {
+			return err
 		}
 
 		u, err := url.Parse(authURL(cmd))
@@ -250,6 +240,27 @@ var tenantDeleteCmd = &cobra.Command{
 		fmt.Fprintf(os.Stdout, "Tenant %q deleted.\n", slug)
 		return nil
 	},
+}
+
+func confirmTenantDelete(cmd *cobra.Command, slug string) error {
+	yes, _ := cmd.Flags().GetBool("yes")
+	if yes {
+		return nil
+	}
+	if isCIMode(cmd) {
+		return fmt.Errorf("tenant delete requires --yes in CI mode")
+	}
+	fmt.Fprintf(os.Stderr, "WARNING: This will permanently delete tenant %q and all its data. Use --yes to skip in scripts.\n", slug)
+	fmt.Fprint(os.Stderr, "Type the tenant slug to confirm: ")
+	r := bufio.NewReader(os.Stdin)
+	confirm, err := readLine(r)
+	if err != nil {
+		return fmt.Errorf("read confirmation: %w", err)
+	}
+	if confirm != slug {
+		return fmt.Errorf("confirmation mismatch — deletion cancelled")
+	}
+	return nil
 }
 
 func init() {
