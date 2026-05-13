@@ -108,6 +108,9 @@ func (r *Response) TextContent() string {
 // prompt cache — i.e. CacheReadInputTokens > 0.
 func (r *Response) CacheHit() bool { return r.Usage.CacheReadInputTokens > 0 }
 
+// Model returns the configured Anthropic model ID.
+func (c *Client) Model() string { return c.cfg.Model }
+
 // Client sends requests to the Anthropic Messages API with automatic prompt
 // cache injection on every request.
 type Client struct {

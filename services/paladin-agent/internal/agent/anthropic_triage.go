@@ -12,6 +12,11 @@ import (
 	"github.com/paladinai/paladinai/internal/cache"
 )
 
+// PromptProvider returns the active system prompt for a named agent.
+type PromptProvider interface {
+	Get(agentName, modelID string) string
+}
+
 // AnthropicTriager is a Triager backed by Anthropic's native Messages API.
 // It injects prompt cache breakpoints on every request (Stage 9), resulting
 // in ~90% cost reduction on the cached prefix (system prompt + tool catalog)
@@ -22,6 +27,20 @@ import (
 type AnthropicTriager struct {
 	client *anthropicpkg.Client
 	log    *zap.Logger
+	ps     PromptProvider     // optional; nil = use built-in constant
+	rag    *RAGContextBuilder // optional RAG context injection
+}
+
+// WithPromptStore attaches a hot-reloadable prompt store.
+func (a *AnthropicTriager) WithPromptStore(p PromptProvider) *AnthropicTriager {
+	a.ps = p
+	return a
+}
+
+// WithRAG attaches a runbook retrieval pipeline for context injection.
+func (a *AnthropicTriager) WithRAG(r *RAGContextBuilder) *AnthropicTriager {
+	a.rag = r
+	return a
 }
 
 // NewAnthropicTriager creates an AnthropicTriager backed by the given client.
@@ -48,8 +67,17 @@ func (a *AnthropicTriager) Triage(ctx context.Context, env *alert.AlertEnvelope)
 		return nil, fmt.Errorf("anthropic triage: marshal alert: %w", err)
 	}
 
+	sysPrompt := triageSystemPrompt
+	if a.ps != nil {
+		if p := a.ps.Get("triage", a.client.Model()); p != "" {
+			sysPrompt = p
+		}
+	}
+	if a.rag != nil {
+		sysPrompt += a.rag.Build(ctx, env)
+	}
 	req := anthropicpkg.Request{
-		SystemPrompt: triageSystemPrompt,
+		SystemPrompt: sysPrompt,
 		Messages: cache.PlainChatMessages([][2]string{
 			{cache.RoleUser, string(alertJSON)},
 		}),

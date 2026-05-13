@@ -20,6 +20,7 @@ import (
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
+	"github.com/paladinai/paladinai/internal/qdrant"
 	agentcfg "github.com/paladinai/paladinai/services/paladin-agent/config"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
@@ -96,7 +97,6 @@ func main() {
 		ps.RefreshInterval = 60 * time.Second
 		ps.StartRefresh(ctx)
 	}
-	_ = ps // reserved for upcoming agent.WithPromptStore wiring
 
 	// ── LLM client ───────────────────────────────────────────────────────────
 	llmClient, err := llm.New(ctx, llm.Config{
@@ -136,7 +136,11 @@ func main() {
 		if acErr != nil {
 			log.Fatal("anthropic client init failed", zap.Error(acErr))
 		}
-		triageAgent = agent.NewAnthropicTriager(ac, log)
+		at := agent.NewAnthropicTriager(ac, log)
+		if ps != nil {
+			at.WithPromptStore(ps)
+		}
+		triageAgent = at
 		log.Info("triage: using Anthropic native API with prompt cache injection",
 			zap.String("model", cfg.AnthropicModel),
 		)
@@ -170,6 +174,30 @@ func main() {
 				log.Info("l1 cache enabled (valkey)", zap.String("url", cfg.Base.ValkeyURL))
 				// Close rdb when main exits — defer runs on return
 				defer rdb.Close()
+			}
+		}
+	}
+
+	// ── RAG context injection (Stage 6) ──────────────────────────────────────
+	// Attach runbook retriever to triage agent when Qdrant is reachable.
+	if qdrantURL := os.Getenv("QDRANT_URL"); qdrantURL != "" {
+		qc := qdrant.New(qdrantURL, os.Getenv("QDRANT_API_KEY"), log)
+		var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
+		if orKey := cfg.LLM.OpenRouterKey; orKey != "" {
+			gatewayURL := cfg.LLM.GatewayURL
+			if gatewayURL == "" {
+				gatewayURL = "https://openrouter.ai/api/v1"
+			}
+			embedder = qdrant.NewHTTPEmbedder(gatewayURL, string(orKey), "BAAI/bge-m3", qdrant.EmbeddingDim)
+		}
+		if err := qc.EnsureCollection(ctx, qdrant.RunbookCollection, qdrant.EmbeddingDim); err != nil {
+			log.Warn("rag: qdrant collection unavailable, skipping", zap.Error(err))
+		} else {
+			ragRetriever := qdrant.NewIndexer(qc, embedder)
+			ragBuilder := agent.NewRAGContextBuilder(ragRetriever, log)
+			if at, ok := triageAgent.(*agent.AnthropicTriager); ok {
+				at.WithRAG(ragBuilder)
+				log.Info("rag: runbook context injection enabled (qdrant)")
 			}
 		}
 	}
