@@ -25,21 +25,40 @@ var rootCmdMu sync.Mutex
 // concurrent tests that share rootCmd do not race on os.Stdout.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
+	stdout, _ := captureOutput(t, fn)
+	return stdout
+}
+
+func captureOutput(t *testing.T, fn func()) (string, string) {
+	t.Helper()
 	rootCmdMu.Lock()
 	defer rootCmdMu.Unlock()
 
-	r, w, err := os.Pipe()
+	stdoutR, stdoutW, err := os.Pipe()
+	require.NoError(t, err)
+	stderrR, stderrW, err := os.Pipe()
 	require.NoError(t, err)
 
-	orig := os.Stdout
-	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = orig }) // runs even on panic
+	origStdout := os.Stdout
+	origStderr := os.Stderr
+	os.Stdout = stdoutW
+	os.Stderr = stderrW
+	t.Cleanup(func() {
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+	}) // runs even on panic
 
-	var buf bytes.Buffer
-	done := make(chan struct{})
+	var stdoutBuf bytes.Buffer
+	var stderrBuf bytes.Buffer
+	stdoutDone := make(chan struct{})
+	stderrDone := make(chan struct{})
 	go func() {
-		defer close(done)
-		_, _ = io.Copy(&buf, r)
+		defer close(stdoutDone)
+		_, _ = io.Copy(&stdoutBuf, stdoutR)
+	}()
+	go func() {
+		defer close(stderrDone)
+		_, _ = io.Copy(&stderrBuf, stderrR)
 	}()
 
 	fn()
@@ -50,10 +69,14 @@ func captureStdout(t *testing.T, fn func()) string {
 	resetBoolFlag(doctorCmd.Flags(), "quiet")
 	resetBoolFlag(rootCmd.PersistentFlags(), "ci")
 	rootCmd.SilenceErrors = false
+	rootCmd.SilenceUsage = false
+	doctorCmd.SilenceUsage = false
 
-	w.Close() // signal EOF to the drain goroutine
-	<-done    // wait for full drain before reading buf
-	return buf.String()
+	stdoutW.Close() // signal EOF to the drain goroutine
+	stderrW.Close()
+	<-stdoutDone // wait for full drain before reading buffers
+	<-stderrDone
+	return stdoutBuf.String(), stderrBuf.String()
 }
 
 // resetBoolFlag resets a pflag bool to false without failing if the flag doesn't exist.

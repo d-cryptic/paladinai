@@ -672,7 +672,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 
 	if !allPassed {
-		if quietMode {
+		if quietMode || jsonMode {
 			// Suppress cobra's "Error:" and usage printing — exit code is the signal.
 			cmd.SilenceUsage = true
 			cmd.Root().SilenceErrors = true
