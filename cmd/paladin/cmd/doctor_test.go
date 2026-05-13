@@ -128,6 +128,10 @@ func TestLocalHTTPBase_PortOnly(t *testing.T) {
 	assert.Equal(t, "http://localhost:9011", localHTTPBase(":9011", 9011))
 }
 
+func TestLocalHTTPBase_NumericPortOnly(t *testing.T) {
+	assert.Equal(t, "http://localhost:9011", localHTTPBase("9011", 9011))
+}
+
 func TestLocalHTTPBase_HostOnly(t *testing.T) {
 	assert.Equal(t, "http://memory.local:9011", localHTTPBase("memory.local", 9011))
 }
@@ -228,6 +232,47 @@ func TestDoctorCmd_JSONMode_IncludesMemoryReadinessCheck(t *testing.T) {
 		}
 	}
 	t.Fatalf("doctor report missing paladin-memory ready check: %+v", report.Checks)
+}
+
+func TestDoctorCmd_JSONMode_IncludesAgentAndWSReadinessChecks(t *testing.T) {
+	skipIfNoNetwork(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PALADIN_TOKEN", "test-token")
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+	t.Setenv("PALADIN_AGENT_PORT", stub.URL)
+	t.Setenv("PALADIN_WS_PORT", stub.URL)
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		_ = rootCmd.Execute()
+	})
+
+	var report DoctorReport
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(output)), &report))
+	assertDoctorCheckPassed(t, report, "paladin-agent ready")
+	assertDoctorCheckPassed(t, report, "paladin-ws ready")
+}
+
+func assertDoctorCheckPassed(t *testing.T, report DoctorReport, name string) {
+	t.Helper()
+	for _, c := range report.Checks {
+		if c.Name == name {
+			assert.True(t, c.Passed, "%s should pass", name)
+			return
+		}
+	}
+	t.Fatalf("doctor report missing %q check: %+v", name, report.Checks)
 }
 
 func TestDoctorCmd_JSONMode_PassedFieldReflectsResults(t *testing.T) {

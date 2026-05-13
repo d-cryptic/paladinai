@@ -413,6 +413,9 @@ func localHTTPBase(raw string, defaultPort int) string {
 	if raw == "" {
 		raw = fmt.Sprintf(":%d", defaultPort)
 	}
+	if isPort(raw) {
+		return "http://localhost:" + raw
+	}
 	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
 		return strings.TrimRight(raw, "/")
 	}
@@ -426,6 +429,18 @@ func localHTTPBase(raw string, defaultPort int) string {
 		return fmt.Sprintf("http://%s:%d", raw, defaultPort)
 	}
 	return "http://" + raw
+}
+
+func isPort(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func runDoctor(cmd *cobra.Command, _ []string) error {
@@ -559,10 +574,25 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			},
 		},
 		{
+			name: "paladin-agent ready",
+			fn: func() error {
+				agentBase := localHTTPBase(envStr("PALADIN_AGENT_PORT", "9006"), 9006)
+				_, err := client.Get(cmd.Context(), agentBase+"/readyz", client.Options{})
+				return err
+			},
+		},
+		{
+			name: "paladin-ws ready",
+			fn: func() error {
+				wsBase := localHTTPBase(envStr("PALADIN_WS_PORT", "9007"), 9007)
+				_, err := client.Get(cmd.Context(), wsBase+"/readyz", client.Options{})
+				return err
+			},
+		},
+		{
 			name: "paladin-comms reachable",
 			fn: func() error {
-				commsPort := envStr("PALADIN_COMMS_PORT", "9009")
-				commsBase := "http://localhost:" + commsPort
+				commsBase := localHTTPBase(envStr("PALADIN_COMMS_PORT", "9009"), 9009)
 				_, err := client.Get(cmd.Context(), commsBase+"/healthz", client.Options{})
 				return err
 			},
@@ -570,8 +600,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		{
 			name: "paladin-orchestrator reachable",
 			fn: func() error {
-				orchPort := envStr("PALADIN_ORCHESTRATOR_PORT", "9008")
-				orchBase := "http://localhost:" + orchPort
+				orchBase := localHTTPBase(envStr("PALADIN_ORCHESTRATOR_PORT", "9008"), 9008)
 				_, err := client.Get(cmd.Context(), orchBase+"/healthz", client.Options{})
 				return err
 			},
