@@ -116,18 +116,7 @@ Returns exit code 0 on success, 1 on validation errors.`,
 		}
 
 		errs := validateConfig(cfg)
-		if len(errs) > 0 {
-			fmt.Fprintf(os.Stderr, "%s: validation failed:\n", path)
-			for _, e := range errs {
-				fmt.Fprintf(os.Stderr, "  - %s\n", e)
-			}
-			// Return a sentinel so Cobra exits 1, but SilenceErrors suppresses reprinting it.
-			return fmt.Errorf("found %d validation error(s)", len(errs))
-		}
-
-		fmt.Fprintf(os.Stdout, "%s: OK (%d integration(s) configured)\n",
-			path, len(cfg.Spec.Integrations))
-		return nil
+		return writeConfigValidationResult(cmd, path, cfg, errs)
 	},
 }
 
@@ -160,11 +149,7 @@ the PaladinAI API. The control plane reconciles the desired state.`,
 
 		// Full validation (same rules as `validate`) before sending.
 		if errs := validateConfig(cfg); len(errs) > 0 {
-			fmt.Fprintf(os.Stderr, "%s: validation failed:\n", path)
-			for _, e := range errs {
-				fmt.Fprintf(os.Stderr, "  - %s\n", e)
-			}
-			return fmt.Errorf("found %d validation error(s)", len(errs))
+			return writeConfigValidationResult(cmd, path, cfg, errs)
 		}
 
 		// Convert YAML → generic map to POST as JSON.
@@ -196,9 +181,71 @@ the PaladinAI API. The control plane reconciles the desired state.`,
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 
-		fmt.Fprintf(os.Stdout, "Configuration applied (tenant: %s).\n", cfg.Metadata.Tenant)
-		return nil
+		return writeConfigApplyResult(cmd, path, cfg.Metadata.Tenant, body)
 	},
+}
+
+type configValidationResult struct {
+	Path         string   `json:"path"`
+	Valid        bool     `json:"valid"`
+	Integrations int      `json:"integrations"`
+	Errors       []string `json:"errors"`
+}
+
+func writeConfigValidationResult(cmd *cobra.Command, path string, cfg projectconfig.Config, errs []string) error {
+	if outputFormat(cmd) == "json" {
+		result := configValidationResult{
+			Path:         path,
+			Valid:        len(errs) == 0,
+			Integrations: len(cfg.Spec.Integrations),
+			Errors:       errs,
+		}
+		if result.Errors == nil {
+			result.Errors = []string{}
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fmt.Errorf("write validation result: %w", err)
+		}
+		if len(errs) > 0 {
+			return fmt.Errorf("found %d validation error(s)", len(errs))
+		}
+		return nil
+	}
+
+	if len(errs) > 0 {
+		fmt.Fprintf(os.Stderr, "%s: validation failed:\n", path)
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", e)
+		}
+		return fmt.Errorf("found %d validation error(s)", len(errs))
+	}
+
+	fmt.Fprintf(os.Stdout, "%s: OK (%d integration(s) configured)\n",
+		path, len(cfg.Spec.Integrations))
+	return nil
+}
+
+type configApplyResult struct {
+	Applied  bool            `json:"applied"`
+	Path     string          `json:"path"`
+	Tenant   string          `json:"tenant"`
+	Response json.RawMessage `json:"response,omitempty"`
+}
+
+func writeConfigApplyResult(cmd *cobra.Command, path, tenant string, body []byte) error {
+	if outputFormat(cmd) == "json" {
+		result := configApplyResult{Applied: true, Path: path, Tenant: tenant}
+		if trimmed := bytes.TrimSpace(body); len(trimmed) > 0 && json.Valid(trimmed) {
+			result.Response = append(json.RawMessage(nil), trimmed...)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fmt.Errorf("write apply result: %w", err)
+		}
+		return nil
+	}
+
+	fmt.Fprintf(os.Stdout, "Configuration applied (tenant: %s).\n", tenant)
+	return nil
 }
 
 func init() {
