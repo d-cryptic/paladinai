@@ -212,6 +212,33 @@ func TestDoctorCmd_JSONMode_EmitsValidJSON(t *testing.T) {
 	}
 }
 
+func TestDoctorCmd_JSONMode_SuppressesCobraUsageOnFailure(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+	t.Setenv("QDRANT_URL", "http://127.0.0.1:1")
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		runErr = rootCmd.Execute()
+	})
+
+	require.Error(t, runErr)
+	require.NotEmpty(t, strings.TrimSpace(stdout))
+	assert.Empty(t, strings.TrimSpace(stderr), "doctor --json should not print Cobra usage to stderr")
+}
+
 func TestDoctorCmd_JSONMode_IncludesMemoryReadinessCheck(t *testing.T) {
 	skipIfNoNetwork(t)
 	t.Setenv("HOME", t.TempDir())
