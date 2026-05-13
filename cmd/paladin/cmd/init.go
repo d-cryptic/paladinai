@@ -459,7 +459,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 	apiBase = strings.TrimRight(apiBase, "/")
 
-	authBase := "http://localhost:9003"
+	authBase := envStr("PALADIN_AUTH_URL", "http://localhost:9003")
 	if cfg != nil && cfg.AuthEndpoint != "" {
 		authBase = cfg.AuthEndpoint
 	}
@@ -489,16 +489,16 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 
 	checks := []check{
 		{
-			name: "API service reachable",
+			name: "API service ready",
 			fn: func() error {
-				_, err := client.Get(cmd.Context(), apiBase+"/healthz", opts)
+				_, err := client.Get(cmd.Context(), apiBase+"/readyz", opts)
 				return err
 			},
 		},
 		{
-			name: "Auth service reachable",
+			name: "Auth service ready",
 			fn: func() error {
-				_, err := client.Get(cmd.Context(), authBase+"/healthz", client.Options{})
+				_, err := client.Get(cmd.Context(), authBase+"/readyz", client.Options{})
 				return err
 			},
 		},
@@ -566,6 +566,22 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			fn:   infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333),
 		},
 		{
+			name: "paladin-ingest ready",
+			fn: func() error {
+				ingestBase := localHTTPBase(envStr("PALADIN_INGEST_PORT", "9001"), 9001)
+				_, err := client.Get(cmd.Context(), ingestBase+"/readyz", client.Options{})
+				return err
+			},
+		},
+		{
+			name: "paladin-hub ready",
+			fn: func() error {
+				hubBase := localHTTPBase(envStr("PALADIN_HUB_URL", envStr("PALADIN_HUB_PORT", "8082")), 8082)
+				_, err := client.Get(cmd.Context(), hubBase+"/readyz", client.Options{})
+				return err
+			},
+		},
+		{
 			name: "paladin-memory ready",
 			fn: func() error {
 				memoryBase := localHTTPBase(envStr("MEMORY_HTTP_ADDR", ":9011"), 9011)
@@ -590,18 +606,18 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			},
 		},
 		{
-			name: "paladin-comms reachable",
+			name: "paladin-comms ready",
 			fn: func() error {
 				commsBase := localHTTPBase(envStr("PALADIN_COMMS_PORT", "9009"), 9009)
-				_, err := client.Get(cmd.Context(), commsBase+"/healthz", client.Options{})
+				_, err := client.Get(cmd.Context(), commsBase+"/readyz", client.Options{})
 				return err
 			},
 		},
 		{
-			name: "paladin-orchestrator reachable",
+			name: "paladin-orchestrator ready",
 			fn: func() error {
 				orchBase := localHTTPBase(envStr("PALADIN_ORCHESTRATOR_PORT", "9008"), 9008)
-				_, err := client.Get(cmd.Context(), orchBase+"/healthz", client.Options{})
+				_, err := client.Get(cmd.Context(), orchBase+"/readyz", client.Options{})
 				return err
 			},
 		},

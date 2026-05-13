@@ -264,6 +264,43 @@ func TestDoctorCmd_JSONMode_IncludesAgentAndWSReadinessChecks(t *testing.T) {
 	assertDoctorCheckPassed(t, report, "paladin-ws ready")
 }
 
+func TestDoctorCmd_JSONMode_IncludesLocalServiceReadinessChecks(t *testing.T) {
+	skipIfNoNetwork(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PALADIN_TOKEN", "test-token")
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+	t.Setenv("PALADIN_AUTH_URL", stub.URL)
+	t.Setenv("PALADIN_INGEST_PORT", stub.URL)
+	t.Setenv("PALADIN_HUB_URL", stub.URL)
+	t.Setenv("PALADIN_COMMS_PORT", stub.URL)
+	t.Setenv("PALADIN_ORCHESTRATOR_PORT", stub.URL)
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		_ = rootCmd.Execute()
+	})
+
+	var report DoctorReport
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(output)), &report))
+	assertDoctorCheckPassed(t, report, "API service ready")
+	assertDoctorCheckPassed(t, report, "Auth service ready")
+	assertDoctorCheckPassed(t, report, "paladin-ingest ready")
+	assertDoctorCheckPassed(t, report, "paladin-hub ready")
+	assertDoctorCheckPassed(t, report, "paladin-comms ready")
+	assertDoctorCheckPassed(t, report, "paladin-orchestrator ready")
+}
+
 func assertDoctorCheckPassed(t *testing.T, report DoctorReport, name string) {
 	t.Helper()
 	for _, c := range report.Checks {
