@@ -62,7 +62,13 @@ func TestAPIURL_ReturnsValueWhenSet(t *testing.T) {
 
 func TestAPIURL_DefaultsWhenFlagAbsent(t *testing.T) {
 	cmd := &cobra.Command{Use: "bare"}
-	assert.Equal(t, "http://localhost:8080", apiURL(cmd))
+	assert.Equal(t, defaultAPIURL, apiURL(cmd))
+}
+
+func TestRootAPIURLFlagDefaultsToLocalEdge(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("api-url")
+	require.NotNil(t, flag)
+	assert.Equal(t, defaultAPIURL, flag.DefValue)
 }
 
 func TestEnvStr_ReturnsFallbackWhenEnvUnset(t *testing.T) {

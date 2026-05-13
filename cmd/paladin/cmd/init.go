@@ -117,7 +117,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	defaultAPI := cfg.APIEndpoint
 	if defaultAPI == "" {
-		defaultAPI = "http://localhost:8080"
+		defaultAPI = defaultAPIURL
 	}
 	defaultAuth := cfg.AuthEndpoint
 	if defaultAuth == "" {
