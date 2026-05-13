@@ -99,8 +99,7 @@ var mcpRegisterCmd = &cobra.Command{
 		if status != http.StatusCreated {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Println("MCP server registered successfully.")
-		return nil
+		return writeMCPRegisterResult(cmd, id, body)
 	},
 }
 
@@ -162,8 +161,7 @@ var mcpHeartbeatCmd = &cobra.Command{
 		if status != http.StatusOK {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Printf("Heartbeat sent for server %q.\n", args[0])
-		return nil
+		return writeMCPHeartbeatResult(cmd, args[0], body)
 	},
 }
 
@@ -191,11 +189,79 @@ var mcpDeregisterCmd = &cobra.Command{
 			return err
 		}
 		if status == http.StatusNoContent {
-			fmt.Printf("MCP server %q deregistered.\n", args[0])
-			return nil
+			return writeMCPDeregisterResult(cmd, args[0])
 		}
 		return fmt.Errorf("API error %d: %s", status, string(body))
 	},
+}
+
+type mcpActionResult struct {
+	ServerID      string          `json:"server_id"`
+	Registered    bool            `json:"registered,omitempty"`
+	HeartbeatSent bool            `json:"heartbeat_sent,omitempty"`
+	Deregistered  bool            `json:"deregistered,omitempty"`
+	Response      json.RawMessage `json:"response,omitempty"`
+	Message       string          `json:"message,omitempty"`
+}
+
+func writeMCPRegisterResult(cmd *cobra.Command, serverID string, body []byte) error {
+	if outputFormat(cmd) == "json" {
+		return writeMCPActionJSON(mcpActionResult{
+			ServerID:   serverID,
+			Registered: true,
+			Response:   jsonResponseBody(body),
+			Message:    nonJSONResponseMessage(body),
+		})
+	}
+	fmt.Println("MCP server registered successfully.")
+	return nil
+}
+
+func writeMCPHeartbeatResult(cmd *cobra.Command, serverID string, body []byte) error {
+	if outputFormat(cmd) == "json" {
+		return writeMCPActionJSON(mcpActionResult{
+			ServerID:      serverID,
+			HeartbeatSent: true,
+			Response:      jsonResponseBody(body),
+			Message:       nonJSONResponseMessage(body),
+		})
+	}
+	fmt.Printf("Heartbeat sent for server %q.\n", serverID)
+	return nil
+}
+
+func writeMCPDeregisterResult(cmd *cobra.Command, serverID string) error {
+	if outputFormat(cmd) == "json" {
+		return writeMCPActionJSON(mcpActionResult{
+			ServerID:     serverID,
+			Deregistered: true,
+		})
+	}
+	fmt.Printf("MCP server %q deregistered.\n", serverID)
+	return nil
+}
+
+func writeMCPActionJSON(result mcpActionResult) error {
+	enc := json.NewEncoder(os.Stdout)
+	if err := enc.Encode(result); err != nil {
+		return fmt.Errorf("write json: %w", err)
+	}
+	return nil
+}
+
+func jsonResponseBody(body []byte) json.RawMessage {
+	if len(bytes.TrimSpace(body)) == 0 || !json.Valid(body) {
+		return nil
+	}
+	return json.RawMessage(body)
+}
+
+func nonJSONResponseMessage(body []byte) string {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || json.Valid(trimmed) {
+		return ""
+	}
+	return string(trimmed)
 }
 
 func printMCPSingle(body []byte) error {
