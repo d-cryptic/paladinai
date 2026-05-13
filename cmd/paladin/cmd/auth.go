@@ -91,11 +91,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("login failed (%d): %s", status, string(body))
 	}
 
-	var resp struct {
-		Token     string `json:"token"`
-		ExpiresIn int    `json:"expires_in"`
-		TokenType string `json:"token_type"`
-	}
+	var resp authLoginResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("parse response: %w", err)
 	}
@@ -118,12 +114,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	fmt.Fprintln(os.Stdout, "Logged in successfully.")
-	if resp.ExpiresIn > 0 {
-		fmt.Fprintf(os.Stdout, "Token expires in: %ds\n", resp.ExpiresIn)
-	}
-	fmt.Fprintf(os.Stdout, "Tenant: %s\n", tenantID)
-	return nil
+	return writeAuthLoginResult(cmd, tenantID, resp)
 }
 
 func parseRoles(cmd *cobra.Command) []string {
@@ -160,8 +151,7 @@ var authLogoutCmd = &cobra.Command{
 			}
 		}
 		if err != nil || cfg == nil || token == "" {
-			fmt.Fprintln(os.Stdout, "Not currently logged in.")
-			return nil
+			return writeAuthLogoutResult(cmd, false)
 		}
 
 		// Attempt server-side revocation (best-effort; don't fail if unavailable).
@@ -183,8 +173,7 @@ var authLogoutCmd = &cobra.Command{
 		if err := saveConfig(cfg); err != nil {
 			return fmt.Errorf("clear config: %w", err)
 		}
-		fmt.Fprintln(os.Stdout, "Logged out.")
-		return nil
+		return writeAuthLogoutResult(cmd, true)
 	},
 }
 
@@ -254,6 +243,73 @@ type authStatusResult struct {
 	TenantID      string   `json:"tenant_id,omitempty"`
 	Roles         []string `json:"roles,omitempty"`
 	ExpiresAt     string   `json:"expires_at,omitempty"`
+}
+
+type authLoginResponse struct {
+	Token     string `json:"token"`
+	ExpiresIn int    `json:"expires_in"`
+	TokenType string `json:"token_type"`
+}
+
+type authLoginResult struct {
+	Authenticated bool   `json:"authenticated"`
+	Status        string `json:"status"`
+	TenantID      string `json:"tenant_id"`
+	ExpiresIn     int    `json:"expires_in,omitempty"`
+	TokenType     string `json:"token_type,omitempty"`
+}
+
+type authLogoutResult struct {
+	Authenticated bool   `json:"authenticated"`
+	Status        string `json:"status"`
+	LoggedOut     bool   `json:"logged_out"`
+}
+
+func writeAuthLoginResult(cmd *cobra.Command, tenantID string, resp authLoginResponse) error {
+	if outputFormat(cmd) == "json" {
+		result := authLoginResult{
+			Authenticated: true,
+			Status:        "authenticated",
+			TenantID:      tenantID,
+			ExpiresIn:     resp.ExpiresIn,
+			TokenType:     resp.TokenType,
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fmt.Errorf("write auth login: %w", err)
+		}
+		return nil
+	}
+
+	fmt.Fprintln(os.Stdout, "Logged in successfully.")
+	if resp.ExpiresIn > 0 {
+		fmt.Fprintf(os.Stdout, "Token expires in: %ds\n", resp.ExpiresIn)
+	}
+	fmt.Fprintf(os.Stdout, "Tenant: %s\n", tenantID)
+	return nil
+}
+
+func writeAuthLogoutResult(cmd *cobra.Command, loggedOut bool) error {
+	if outputFormat(cmd) == "json" {
+		status := "not_authenticated"
+		if loggedOut {
+			status = "logged_out"
+		}
+		result := authLogoutResult{
+			Authenticated: false,
+			Status:        status,
+			LoggedOut:     loggedOut,
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fmt.Errorf("write auth logout: %w", err)
+		}
+		return nil
+	}
+	if !loggedOut {
+		fmt.Fprintln(os.Stdout, "Not currently logged in.")
+		return nil
+	}
+	fmt.Fprintln(os.Stdout, "Logged out.")
+	return nil
 }
 
 func writeAuthStatusResult(cmd *cobra.Command, result authStatusResult) error {
