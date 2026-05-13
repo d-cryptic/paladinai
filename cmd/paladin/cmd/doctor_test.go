@@ -118,6 +118,28 @@ func TestDoctorCmd_InfraCheckPasses_WhenPortListening(t *testing.T) {
 	assert.NoError(t, check(), "infra TCP check to open port must pass")
 }
 
+// ─── localHTTPBase ───────────────────────────────────────────────────────────
+
+func TestLocalHTTPBase_DefaultsToLocalhostPort(t *testing.T) {
+	assert.Equal(t, "http://localhost:9011", localHTTPBase("", 9011))
+}
+
+func TestLocalHTTPBase_PortOnly(t *testing.T) {
+	assert.Equal(t, "http://localhost:9011", localHTTPBase(":9011", 9011))
+}
+
+func TestLocalHTTPBase_HostOnly(t *testing.T) {
+	assert.Equal(t, "http://memory.local:9011", localHTTPBase("memory.local", 9011))
+}
+
+func TestLocalHTTPBase_HostPort(t *testing.T) {
+	assert.Equal(t, "http://127.0.0.1:19111", localHTTPBase("127.0.0.1:19111", 9011))
+}
+
+func TestLocalHTTPBase_HTTPURL(t *testing.T) {
+	assert.Equal(t, "http://memory.local:9011", localHTTPBase("http://memory.local:9011/", 9011))
+}
+
 // ─── context-aware http check via client.Get ─────────────────────────────────
 
 func TestHTTPEndpointReachable_200(t *testing.T) {
@@ -172,6 +194,40 @@ func TestDoctorCmd_JSONMode_EmitsValidJSON(t *testing.T) {
 	for _, c := range report.Checks {
 		assert.NotEmpty(t, c.Name, "every check must have a name")
 	}
+}
+
+func TestDoctorCmd_JSONMode_IncludesMemoryReadinessCheck(t *testing.T) {
+	skipIfNoNetwork(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PALADIN_TOKEN", "test-token")
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+	t.Setenv("MEMORY_HTTP_ADDR", stub.URL)
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		_ = rootCmd.Execute()
+	})
+
+	var report DoctorReport
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(output)), &report))
+	for _, c := range report.Checks {
+		if c.Name == "paladin-memory ready" {
+			assert.True(t, c.Passed)
+			return
+		}
+	}
+	t.Fatalf("doctor report missing paladin-memory ready check: %+v", report.Checks)
 }
 
 func TestDoctorCmd_JSONMode_PassedFieldReflectsResults(t *testing.T) {
