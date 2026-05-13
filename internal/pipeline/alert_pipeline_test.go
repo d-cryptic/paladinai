@@ -177,6 +177,21 @@ func TestPipeline_PublishSubjectContainsTenantAndSource(t *testing.T) {
 	assert.Contains(t, msg.subject, "paladin.alerts.correlated.", "subject should use correlated prefix")
 }
 
+func TestPipeline_InvalidSourceSubjectReturnsErrorBeforePublish(t *testing.T) {
+	t.Parallel()
+	_, pub, p := newPipeline()
+	ctx := context.Background()
+
+	env := newTestEnv("acme", "fp-bad-source", alert.StatusFiring)
+	env.Source = alert.Source("bad.source")
+
+	err := p.Process(ctx, env)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "correlated subject")
+	assert.Equal(t, 0, pub.count())
+}
+
 func TestPipeline_DifferentTenantsAreIndependent(t *testing.T) {
 	t.Parallel()
 	_, pub, p := newPipeline()

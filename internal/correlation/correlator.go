@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -30,6 +31,8 @@ const DefaultGate = 0.65
 // correlationKeys are the label keys used to group related alerts.
 // Alerts with the same values for all of these keys form a correlation group.
 var correlationKeys = []string{"namespace", "job", "cluster", "service"}
+
+var subjectTokenPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // Store is the minimal interface for storing/retrieving correlation state.
 // Must support atomic SetNX and Get operations.
@@ -173,6 +176,15 @@ func newCorrelationID(tenantID, groupKey string) string {
 
 // CorrelatedSubject returns the NATS subject for a processed (correlated) alert.
 // Format: paladin.alerts.correlated.{tenantID}.{source}
-func CorrelatedSubject(tenantID, source string) string {
-	return fmt.Sprintf("paladin.alerts.correlated.%s.%s", tenantID, source)
+func CorrelatedSubject(tenantID, source string) (string, error) {
+	if err := alert.ValidateTenantID(tenantID); err != nil {
+		return "", fmt.Errorf("correlated subject tenant: %w", err)
+	}
+	if source == "" {
+		return "", fmt.Errorf("correlated subject source must not be empty")
+	}
+	if !subjectTokenPattern.MatchString(source) {
+		return "", fmt.Errorf("correlated subject source %q contains invalid NATS subject characters", source)
+	}
+	return fmt.Sprintf("paladin.alerts.correlated.%s.%s", tenantID, source), nil
 }
