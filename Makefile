@@ -1,6 +1,7 @@
 .PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install
 
 # Build env flags (common to all go commands)
+TMPDIR      ?= /tmp
 GOFLAGS     := -mod=mod
 GONOSUMDB   := *
 GOINSECURE  := *
@@ -8,7 +9,7 @@ GOCACHE     := $(TMPDIR)/gocache
 GOMODCACHE  := $(TMPDIR)/gomodcache
 GOPROXY     := file://$(HOME)/go/pkg/mod/cache/download,http://proxy.golang.org,direct
 
-export GOFLAGS GONOSUMDB GOINSECURE GOCACHE GOMODCACHE GOPROXY
+export TMPDIR GOFLAGS GONOSUMDB GOINSECURE GOCACHE GOMODCACHE GOPROXY
 
 SERVICES := paladin-ingest paladin-edge paladin-agent paladin-hub paladin-memory paladin-auth paladin-ws paladin-orchestrator paladin-comms
 
@@ -19,7 +20,7 @@ help: ## Show this help
 
 up: ## Start all infrastructure services (NATS, Postgres, Valkey, Qdrant, etc.)
 	docker compose up -d nats postgres valkey qdrant falkordb vault otel-collector prometheus grafana
-	@echo "⏳ Waiting for services..."
+	@echo "Waiting for services..."
 	@sleep 3
 	@docker compose ps
 
