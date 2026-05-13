@@ -77,13 +77,7 @@ var tenantCreateCmd = &cobra.Command{
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 
-		var t map[string]any
-		if err := json.Unmarshal(body, &t); err == nil {
-			fmt.Printf("Tenant created: %s (slug: %s)\n", t["id"], t["slug"])
-		} else {
-			fmt.Println("Tenant created successfully.")
-		}
-		return nil
+		return writeTenantCreateResult(cmd, body)
 	},
 }
 
@@ -120,9 +114,7 @@ func tenantStateAction(cmd *cobra.Command, id, action string) error {
 	if status < 200 || status >= 300 {
 		return fmt.Errorf("API error %d: %s", status, string(body))
 	}
-	past := map[string]string{"suspend": "suspended", "resume": "resumed"}
-	fmt.Printf("Tenant %q %s.\n", id, past[action])
-	return nil
+	return writeTenantStateActionResult(cmd, id, action, body)
 }
 
 func printTenantTable(body []byte) error {
@@ -204,8 +196,7 @@ var tenantMigrateCmd = &cobra.Command{
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Fprintf(os.Stdout, "Tenant %q migration to %q tier initiated.\n", slug, tier)
-		return nil
+		return writeTenantMigrateResult(cmd, slug, tier, body)
 	},
 }
 
@@ -237,9 +228,89 @@ var tenantDeleteCmd = &cobra.Command{
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
-		fmt.Fprintf(os.Stdout, "Tenant %q deleted.\n", slug)
-		return nil
+		return writeTenantDeleteResult(cmd, slug, body)
 	},
+}
+
+type tenantActionResult struct {
+	Action   string          `json:"action"`
+	TenantID string          `json:"tenant_id,omitempty"`
+	Slug     string          `json:"slug,omitempty"`
+	Tier     string          `json:"tier,omitempty"`
+	Response json.RawMessage `json:"response,omitempty"`
+	Message  string          `json:"message,omitempty"`
+}
+
+func writeTenantCreateResult(cmd *cobra.Command, body []byte) error {
+	var t map[string]any
+	parsed := json.Unmarshal(body, &t) == nil
+	if outputFormat(cmd) == "json" {
+		result := tenantActionResult{
+			Action:   "create",
+			Response: jsonResponseBody(body),
+			Message:  nonJSONResponseMessage(body),
+		}
+		if parsed {
+			result.TenantID, _ = t["id"].(string)
+			result.Slug, _ = t["slug"].(string)
+		}
+		return writeTenantActionJSON(result)
+	}
+	if parsed {
+		fmt.Printf("Tenant created: %s (slug: %s)\n", t["id"], t["slug"])
+		return nil
+	}
+	fmt.Println("Tenant created successfully.")
+	return nil
+}
+
+func writeTenantStateActionResult(cmd *cobra.Command, id, action string, body []byte) error {
+	if outputFormat(cmd) == "json" {
+		return writeTenantActionJSON(tenantActionResult{
+			Action:   action,
+			TenantID: id,
+			Response: jsonResponseBody(body),
+			Message:  nonJSONResponseMessage(body),
+		})
+	}
+	past := map[string]string{"suspend": "suspended", "resume": "resumed"}
+	fmt.Printf("Tenant %q %s.\n", id, past[action])
+	return nil
+}
+
+func writeTenantMigrateResult(cmd *cobra.Command, slug, tier string, body []byte) error {
+	if outputFormat(cmd) == "json" {
+		return writeTenantActionJSON(tenantActionResult{
+			Action:   "migrate",
+			Slug:     slug,
+			Tier:     tier,
+			Response: jsonResponseBody(body),
+			Message:  nonJSONResponseMessage(body),
+		})
+	}
+	fmt.Fprintf(os.Stdout, "Tenant %q migration to %q tier initiated.\n", slug, tier)
+	return nil
+}
+
+func writeTenantDeleteResult(cmd *cobra.Command, slug string, body []byte) error {
+	if outputFormat(cmd) == "json" {
+		return writeTenantActionJSON(tenantActionResult{
+			Action:   "delete",
+			Slug:     slug,
+			Response: jsonResponseBody(body),
+			Message:  nonJSONResponseMessage(body),
+		})
+	}
+	fmt.Fprintf(os.Stdout, "Tenant %q deleted.\n", slug)
+	return nil
+}
+
+func writeTenantActionJSON(result tenantActionResult) error {
+	enc := json.NewEncoder(os.Stdout)
+	if err := enc.Encode(result); err != nil {
+		return fmt.Errorf("write json: %w", err)
+	}
+	return nil
 }
 
 func confirmTenantDelete(cmd *cobra.Command, slug string) error {
