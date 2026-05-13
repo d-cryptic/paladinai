@@ -20,6 +20,7 @@ volumes:
   falkordb_data:
   vault_data:
   hatchet_certs:
+  hatchet_config:
   hatchet_rabbitmq_data:
 
 services:
@@ -194,57 +195,94 @@ services:
   # Hatchet — durable workflow engine (P1/P2 incidents)
   # ─────────────────────────────────────────────────────
   hatchet-engine:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.60.0
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.83.39
     container_name: paladin-hatchet-engine
     command: /hatchet/hatchet-engine --config /hatchet/config
     environment:
       DATABASE_URL: "postgresql://paladin:paladin@postgres:5432/hatchet?sslmode=disable"
       SERVER_GRPC_PORT: "7777"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
       SERVER_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7777"
       SERVER_GRPC_INSECURE: "true"
-      SERVER_AUTH_COOKIE_SECRETS: "devSecret1 devSecret2"
-      SERVER_AUTH_COOKIE_DOMAIN: "localhost"
-      SERVER_ENCRYPTION_MASTER_KEYS: "devEncKey1"
-      SERVER_ENCRYPTION_JWT_PUBLIC_KEY_PATH: /hatchet/config/auth/rsa_public.pem
-      SERVER_ENCRYPTION_JWT_PRIVATE_KEY_PATH: /hatchet/config/auth/rsa_private.pem
-      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
-      SERVER_URL: "http://localhost:8888"
+      SERVER_MSGQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+    depends_on:
+      hatchet-migrate:
+        condition: service_completed_successfully
+      hatchet-setup-config:
+        condition: service_completed_successfully
+    networks:
+      - paladin
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+    logging: *default-logging
+    restart: unless-stopped
+
+  hatchet-migrate:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.83.39
+    command: /hatchet/hatchet-migrate
+    environment:
+      DATABASE_URL: "postgresql://paladin:paladin@postgres:5432/hatchet?sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - paladin
+    logging: *default-logging
+    restart: "no"
+
+  hatchet-setup-config:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.83.39
+    command: /hatchet/hatchet-admin quickstart --skip certs --generated-config-dir /hatchet/config --overwrite=false
+    environment:
+      DATABASE_URL: "postgresql://paladin:paladin@postgres:5432/hatchet?sslmode=disable"
+      SERVER_MSGQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+      SERVER_AUTH_COOKIE_DOMAIN: "localhost"
+      SERVER_AUTH_COOKIE_INSECURE: "true"
+      SERVER_GRPC_PORT: "7777"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7777"
+      SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7777"
+      SERVER_GRPC_INSECURE: "true"
+      SERVER_DEFAULT_ENGINE_VERSION: "V1"
+      SERVER_URL: "http://localhost:8888"
+    depends_on:
+      hatchet-migrate:
+        condition: service_completed_successfully
       hatchet-rabbitmq:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - paladin
     volumes:
-      - hatchet_certs:/hatchet/config
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
     logging: *default-logging
-    restart: unless-stopped
+    restart: "no"
 
   hatchet-api:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.60.0
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.83.39
     container_name: paladin-hatchet-api
     command: /hatchet/hatchet-api --config /hatchet/config
     environment:
       DATABASE_URL: "postgresql://paladin:paladin@postgres:5432/hatchet?sslmode=disable"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
       SERVER_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7777"
       SERVER_GRPC_INSECURE: "true"
-      SERVER_AUTH_COOKIE_SECRETS: "devSecret1 devSecret2"
-      SERVER_AUTH_COOKIE_DOMAIN: "localhost"
-      SERVER_ENCRYPTION_MASTER_KEYS: "devEncKey1"
-      SERVER_ENCRYPTION_JWT_PUBLIC_KEY_PATH: /hatchet/config/auth/rsa_public.pem
-      SERVER_ENCRYPTION_JWT_PRIVATE_KEY_PATH: /hatchet/config/auth/rsa_private.pem
-      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
-      SERVER_URL: "http://localhost:8888"
+      SERVER_MSGQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
     ports:
       - "8888:8080"
     depends_on:
       hatchet-engine:
         condition: service_started
+      hatchet-setup-config:
+        condition: service_completed_successfully
     networks:
       - paladin
     volumes:
-      - hatchet_certs:/hatchet/config
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
     logging: *default-logging
     restart: unless-stopped
 
