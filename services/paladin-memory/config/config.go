@@ -22,6 +22,8 @@ type Config struct {
 	QdrantURL string
 	// QdrantAPIKey authenticates against Qdrant when set.
 	QdrantAPIKey string
+	// FalkorDBURL is the Redis-protocol URL for FalkorDB (topology graph). Optional.
+	FalkorDBURL string
 }
 
 // Load reads Config from environment variables.
@@ -37,6 +39,7 @@ func Load() (*Config, error) {
 		WorkingTTL:   getEnvInt("WORKING_MEMORY_TTL_SECONDS", 1800),
 		QdrantURL:    os.Getenv("QDRANT_URL"),
 		QdrantAPIKey: os.Getenv("QDRANT_API_KEY"),
+		FalkorDBURL:  os.Getenv("FALKORDB_URL"),
 	}
 	if c.WorkingTTL <= 0 {
 		return nil, fmt.Errorf("memory: config: WORKING_MEMORY_TTL_SECONDS must be > 0")

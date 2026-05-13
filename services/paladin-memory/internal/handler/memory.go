@@ -22,6 +22,11 @@ type ChunkSearcher interface {
 // ProceduralSearcher is an alias kept for backward compatibility.
 type ProceduralSearcher = ChunkSearcher
 
+// TopologyQuerier performs blast-radius graph queries.
+type TopologyQuerier interface {
+	BlastRadius(ctx context.Context, tenantID, serviceName string, depth int) ([]string, error)
+}
+
 // MemoryHandler implements memoryv1.MemoryServiceServer.
 type MemoryHandler struct {
 	memoryv1.UnimplementedMemoryServiceServer
@@ -30,6 +35,7 @@ type MemoryHandler struct {
 	episodic   store.EpisodicStore
 	procedural ChunkSearcher
 	semantic   ChunkSearcher // optional; nil = tier not configured
+	topology   TopologyQuerier // optional; nil = tier not configured
 	workingTTL time.Duration
 	log        *zap.Logger
 }
@@ -57,6 +63,12 @@ func (h *MemoryHandler) WithProcedural(p ChunkSearcher) *MemoryHandler {
 // WithSemantic attaches a semantic-memory searcher (Qdrant fact chunks).
 func (h *MemoryHandler) WithSemantic(s ChunkSearcher) *MemoryHandler {
 	h.semantic = s
+	return h
+}
+
+// WithTopology attaches a FalkorDB-backed topology querier.
+func (h *MemoryHandler) WithTopology(t TopologyQuerier) *MemoryHandler {
+	h.topology = t
 	return h
 }
 
@@ -141,6 +153,24 @@ func (h *MemoryHandler) SearchMemory(ctx context.Context, req *memoryv1.SearchMe
 					Content: ch.Content,
 					Score:   1.0,
 					Source:  ch.Source,
+				})
+			}
+		case memoryv1.MemoryTypeTopology:
+			if h.topology == nil {
+				h.log.Debug("search: topology memory not configured")
+				continue
+			}
+			// req.Query is expected to be the service name for blast-radius lookup.
+			services, err := h.topology.BlastRadius(ctx, req.TenantID, req.Query, 5)
+			if err != nil {
+				return nil, fmt.Errorf("memory: search topology: %w", err)
+			}
+			for _, svc := range services {
+				resp.Results = append(resp.Results, &memoryv1.MemoryResult{
+					Type:    memoryv1.MemoryTypeTopology,
+					Content: svc,
+					Score:   1.0,
+					Source:  "topology",
 				})
 			}
 		default:
