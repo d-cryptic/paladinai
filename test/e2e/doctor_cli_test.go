@@ -46,13 +46,30 @@ func TestDoctorCLI_TenantSlugWithJWTClaimPasses(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	require.NoError(t, cmd.Run(), "stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	err := cmd.Run()
 
 	var report struct {
-		Passed bool `json:"passed"`
+		Checks []struct {
+			Name   string `json:"name"`
+			Passed bool   `json:"passed"`
+			Error  string `json:"error,omitempty"`
+		} `json:"checks"`
 	}
-	require.NoError(t, json.Unmarshal(stdout.Bytes(), &report), "stdout:\n%s", stdout.String())
-	require.True(t, report.Passed, "doctor report should pass: %s", stdout.String())
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &report), "stdout:\n%s\nstderr:\n%s\nerr:%v", stdout.String(), stderr.String(), err)
+	requireDoctorCheckPassed(t, report.Checks, "API service ready")
+	requireDoctorCheckPassed(t, report.Checks, "Auth service ready")
+	requireDoctorCheckPassed(t, report.Checks, "Token configured")
+	requireDoctorCheckPassed(t, report.Checks, "Tenant configured")
+	requireDoctorCheckPassed(t, report.Checks, "MCP servers registered")
+	requireDoctorCheckPassed(t, report.Checks, "NATS reachable")
+	requireDoctorCheckPassed(t, report.Checks, "Valkey reachable")
+	requireDoctorCheckPassed(t, report.Checks, "paladin-ingest ready")
+	requireDoctorCheckPassed(t, report.Checks, "paladin-hub ready")
+	requireDoctorCheckPassed(t, report.Checks, "paladin-memory ready")
+	requireDoctorCheckPassed(t, report.Checks, "paladin-agent ready")
+	requireDoctorCheckPassed(t, report.Checks, "paladin-ws ready")
+	requireDoctorCheckPassed(t, report.Checks, "paladin-comms ready")
+	requireDoctorCheckPassed(t, report.Checks, "paladin-orchestrator ready")
 }
 
 func createTenant(t *testing.T, ctx context.Context, slug string) string {
@@ -111,4 +128,19 @@ func repoRoot(t *testing.T) string {
 		require.NotEqual(t, wd, parent, "could not find repo root from %s", wd)
 		wd = parent
 	}
+}
+
+func requireDoctorCheckPassed(t *testing.T, checks []struct {
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+	Error  string `json:"error,omitempty"`
+}, name string) {
+	t.Helper()
+	for _, check := range checks {
+		if check.Name == name {
+			require.True(t, check.Passed, "%s failed: %s", check.Name, check.Error)
+			return
+		}
+	}
+	t.Fatalf("doctor report missing %q check: %+v", name, checks)
 }
