@@ -44,6 +44,9 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 
 	userID, _ := cmd.Flags().GetString("user-id")
 	if userID == "" {
+		if isCIMode(cmd) {
+			return fmt.Errorf("user-id is required in CI mode — set --user-id")
+		}
 		r := bufio.NewReader(os.Stdin)
 		fmt.Print("User ID: ")
 		read, err := readLine(r)
