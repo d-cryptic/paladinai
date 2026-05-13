@@ -161,6 +161,18 @@ func TestHTTPEndpointReachable_200(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
+func TestDoctorClientOptions_OmitsTenantWhenTokenConfigured(t *testing.T) {
+	opts := doctorClientOptions("tenant-slug", "jwt-token")
+	assert.Equal(t, "jwt-token", opts.Token)
+	assert.Empty(t, opts.TenantID)
+}
+
+func TestDoctorClientOptions_IncludesTenantWithoutToken(t *testing.T) {
+	opts := doctorClientOptions("tenant-slug", "")
+	assert.Equal(t, "tenant-slug", opts.TenantID)
+	assert.Empty(t, opts.Token)
+}
+
 // ─── --json mode ─────────────────────────────────────────────────────────────
 
 func TestDoctorCmd_JSONMode_EmitsValidJSON(t *testing.T) {

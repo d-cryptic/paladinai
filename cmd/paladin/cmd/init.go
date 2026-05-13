@@ -485,7 +485,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	opts := client.Options{TenantID: tenant, Token: token}
+	opts := doctorClientOptions(tenant, token)
 
 	checks := []check{
 		{
@@ -677,6 +677,13 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("doctor: one or more checks failed")
 	}
 	return nil
+}
+
+func doctorClientOptions(tenant, token string) client.Options {
+	if token != "" {
+		return client.Options{Token: token}
+	}
+	return client.Options{TenantID: tenant}
 }
 
 func init() {
