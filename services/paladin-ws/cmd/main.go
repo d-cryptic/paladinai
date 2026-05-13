@@ -69,6 +69,7 @@ func run() error {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", healthz)
+	r.Get("/readyz", readyz)
 
 	// Metrics on the same port but unauthenticated — only expose internally.
 	// TODO: move to a separate admin port if this service faces the internet.
@@ -82,7 +83,7 @@ func run() error {
 		Addr:    fmt.Sprintf(":%d", conf.Server.Port),
 		Handler: r,
 		// WriteTimeout is intentionally 0 for long-lived WebSocket connections.
-		// /healthz and /metrics responses complete well within IdleTimeout.
+		// Health and metrics responses complete well within IdleTimeout.
 		WriteTimeout: 0,
 		ReadTimeout:  conf.Server.ReadTimeout,
 		IdleTimeout:  conf.Server.IdleTimeout,
@@ -160,4 +161,10 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ok"}`)) //nolint:errcheck
+}
+
+func readyz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ready"}`)) //nolint:errcheck
 }
