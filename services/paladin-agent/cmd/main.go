@@ -16,14 +16,18 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/internal/anthropic"
+	"github.com/paladinai/paladinai/internal/cache"
 	"github.com/paladinai/paladinai/internal/logger"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
+	"github.com/paladinai/paladinai/internal/qdrant"
 	agentcfg "github.com/paladinai/paladinai/services/paladin-agent/config"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/llm"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/worker"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -93,7 +97,6 @@ func main() {
 		ps.RefreshInterval = 60 * time.Second
 		ps.StartRefresh(ctx)
 	}
-	_ = ps // reserved for upcoming agent.WithPromptStore wiring
 
 	// ── LLM client ───────────────────────────────────────────────────────────
 	llmClient, err := llm.New(ctx, llm.Config{
@@ -133,7 +136,11 @@ func main() {
 		if acErr != nil {
 			log.Fatal("anthropic client init failed", zap.Error(acErr))
 		}
-		triageAgent = agent.NewAnthropicTriager(ac, log)
+		at := agent.NewAnthropicTriager(ac, log)
+		if ps != nil {
+			at.WithPromptStore(ps)
+		}
+		triageAgent = at
 		log.Info("triage: using Anthropic native API with prompt cache injection",
 			zap.String("model", cfg.AnthropicModel),
 		)
@@ -144,6 +151,55 @@ func main() {
 		}
 		triageAgent = ta
 		log.Info("triage: using OpenRouter/Eino path")
+	}
+
+	// ── L1 Exact Cache (Stage 9) ─────────────────────────────────────────────
+	// Wrap triageAgent with write-through L1 exact cache if Valkey is reachable.
+	if cfg.Base.ValkeyURL != "" {
+		rdbOpts, rdbErr := redis.ParseURL(cfg.Base.ValkeyURL)
+		if rdbErr != nil {
+			log.Warn("l1 cache: invalid VALKEY_URL, skipping", zap.Error(rdbErr))
+		} else {
+			rdb := redis.NewClient(rdbOpts)
+			if pingErr := rdb.Ping(ctx).Err(); pingErr != nil {
+				log.Warn("l1 cache: valkey ping failed, skipping", zap.Error(pingErr))
+				_ = rdb.Close()
+			} else {
+				l1 := cache.NewValkeyL1(rdb)
+				modelID := cfg.AnthropicModel
+				if cfg.AnthropicAPIKey == "" {
+					modelID = cfg.LLM.TierB
+				}
+				triageAgent = agent.NewCachedTriager(triageAgent, l1, modelID, log)
+				log.Info("l1 cache enabled (valkey)", zap.String("url", cfg.Base.ValkeyURL))
+				// Close rdb when main exits — defer runs on return
+				defer rdb.Close()
+			}
+		}
+	}
+
+	// ── RAG context injection (Stage 6) ──────────────────────────────────────
+	// Attach runbook retriever to triage agent when Qdrant is reachable.
+	if qdrantURL := os.Getenv("QDRANT_URL"); qdrantURL != "" {
+		qc := qdrant.New(qdrantURL, os.Getenv("QDRANT_API_KEY"), log)
+		var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
+		if orKey := cfg.LLM.OpenRouterKey; orKey != "" {
+			gatewayURL := cfg.LLM.GatewayURL
+			if gatewayURL == "" {
+				gatewayURL = "https://openrouter.ai/api/v1"
+			}
+			embedder = qdrant.NewHTTPEmbedder(gatewayURL, string(orKey), "BAAI/bge-m3", qdrant.EmbeddingDim)
+		}
+		if err := qc.EnsureCollection(ctx, qdrant.RunbookCollection, qdrant.EmbeddingDim); err != nil {
+			log.Warn("rag: qdrant collection unavailable, skipping", zap.Error(err))
+		} else {
+			ragRetriever := qdrant.NewIndexer(qc, embedder)
+			ragBuilder := agent.NewRAGContextBuilder(ragRetriever, log)
+			if at, ok := triageAgent.(*agent.AnthropicTriager); ok {
+				at.WithRAG(ragBuilder)
+				log.Info("rag: runbook context injection enabled (qdrant)")
+			}
+		}
 	}
 
 	// ── RCA agent (Tier C for deeper reasoning) ───────────────────────────────
@@ -178,6 +234,7 @@ func main() {
 	r.Use(chimiddleware.Recoverer)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 	r.Route("/api/v1", func(r chi.Router) {
 		incHandler.Routes(r)
 	})

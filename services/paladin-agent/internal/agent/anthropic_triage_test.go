@@ -12,6 +12,7 @@ import (
 
 	"github.com/paladinai/paladinai/internal/alert"
 	anthropicpkg "github.com/paladinai/paladinai/internal/anthropic"
+	"github.com/paladinai/paladinai/internal/qdrant"
 )
 
 func makeAnthropicStub(t *testing.T, statusCode int, body string) *httptest.Server {
@@ -167,4 +168,84 @@ func TestAnthropicTriager_ImplementsTriager(t *testing.T) {
 	// Compile-time interface check.
 	srv := makeAnthropicStub(t, http.StatusOK, makeTriageResponse("P3", "s", "c", "a", false))
 	var _ Triager = makeAnthropicTriager(t, srv.URL)
+}
+
+// stubPromptProvider returns a fixed prompt regardless of agent/model.
+type stubPromptProvider struct{ prompt string }
+
+func (s *stubPromptProvider) Get(_, _ string) string { return s.prompt }
+
+// emptyRAGRetriever returns no chunks and no error.
+type emptyRAGRetriever struct{}
+
+func (emptyRAGRetriever) Search(_ context.Context, _, _ string, _ int) ([]qdrant.RunbookChunk, error) {
+	return nil, nil
+}
+
+func TestAnthropicTriager_NilLogUsesNop(t *testing.T) {
+	// NewAnthropicTriager with nil log should not panic and should use zap.NewNop().
+	c, err := anthropicpkg.New(anthropicpkg.Config{
+		APIKey: "test-key",
+		Model:  "claude-test",
+	}, zap.NewNop())
+	if err != nil {
+		t.Fatalf("anthropicpkg.New: %v", err)
+	}
+	tr := NewAnthropicTriager(c, nil)
+	if tr == nil {
+		t.Fatal("expected non-nil triager")
+	}
+	if tr.log == nil {
+		t.Fatal("expected log to be replaced with zap.NewNop()")
+	}
+}
+
+func TestAnthropicTriager_WithPromptStore_AttachesProvider(t *testing.T) {
+	srv := makeAnthropicStub(t, http.StatusOK, makeTriageResponse("P2", "s", "c", "a", false))
+	tr := makeAnthropicTriager(t, srv.URL)
+
+	ps := &stubPromptProvider{prompt: "custom system prompt"}
+	tr2 := tr.WithPromptStore(ps)
+	if tr2 != tr {
+		t.Fatal("WithPromptStore should return the same triager (builder pattern)")
+	}
+	if tr.ps == nil {
+		t.Fatal("prompt provider was not attached")
+	}
+
+	// Exercise the prompt provider branch in Triage.
+	if _, err := tr.Triage(context.Background(), testEnvelope()); err != nil {
+		t.Fatalf("Triage with prompt store: %v", err)
+	}
+}
+
+func TestAnthropicTriager_WithPromptStore_EmptyPromptFallsBack(t *testing.T) {
+	srv := makeAnthropicStub(t, http.StatusOK, makeTriageResponse("P2", "s", "c", "a", false))
+	tr := makeAnthropicTriager(t, srv.URL)
+
+	// Empty prompt should leave sysPrompt untouched (covers the empty-string branch).
+	tr.WithPromptStore(&stubPromptProvider{prompt: ""})
+	if _, err := tr.Triage(context.Background(), testEnvelope()); err != nil {
+		t.Fatalf("Triage with empty prompt: %v", err)
+	}
+}
+
+func TestAnthropicTriager_WithRAG_AttachesBuilder(t *testing.T) {
+	srv := makeAnthropicStub(t, http.StatusOK, makeTriageResponse("P2", "s", "c", "a", false))
+	tr := makeAnthropicTriager(t, srv.URL)
+
+	// Use a real RAG builder with a retriever returning no results — exercises
+	// the rag != nil branch in Triage without needing a real Qdrant.
+	rb := NewRAGContextBuilder(emptyRAGRetriever{}, zap.NewNop())
+	tr2 := tr.WithRAG(rb)
+	if tr2 != tr {
+		t.Fatal("WithRAG should return the same triager (builder pattern)")
+	}
+	if tr.rag == nil {
+		t.Fatal("rag builder was not attached")
+	}
+
+	if _, err := tr.Triage(context.Background(), testEnvelope()); err != nil {
+		t.Fatalf("Triage with rag: %v", err)
+	}
 }

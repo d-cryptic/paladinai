@@ -484,7 +484,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		{
 			name: "paladin-comms reachable",
 			fn: func() error {
-				commsPort := envStr("PALADIN_COMMS_PORT", "9007")
+				commsPort := envStr("PALADIN_COMMS_PORT", "9009")
 				commsBase := "http://localhost:" + commsPort
 				_, err := client.Get(cmd.Context(), commsBase+"/healthz", client.Options{})
 				return err

@@ -141,6 +141,13 @@ func TestSupervisorPipeline_RCANil_FallsBackToTriage(t *testing.T) {
 	assert.Nil(t, state.RCAResult, "no RCA when analyzer is nil")
 }
 
+func TestNewSupervisorPipeline_NilLogUsesNop(t *testing.T) {
+	t.Parallel()
+	// Constructing with nil log must not panic and must yield a usable pipeline.
+	sp := agent.NewSupervisorPipeline(nil, nil, nil, nil)
+	assert.NotNil(t, sp)
+}
+
 func TestSupervisorPipeline_RCAFailure_KeepsTriage(t *testing.T) {
 	ctx := context.Background()
 	stub := &stubModel{response: `{"intent":"service_down","agent_type":"rca","severity":"P1","confidence":0.9}`}

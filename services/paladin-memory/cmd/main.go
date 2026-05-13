@@ -20,6 +20,7 @@ import (
 	memoryv1 "github.com/paladinai/paladinai/gen/go/memory/v1"
 	"github.com/paladinai/paladinai/internal/logger"
 	"github.com/paladinai/paladinai/internal/qdrant"
+	"github.com/paladinai/paladinai/internal/topology"
 	memcfg "github.com/paladinai/paladinai/services/paladin-memory/config"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/store"
@@ -127,6 +128,26 @@ func main() {
 				zap.String("url", cfg.QdrantURL),
 				zap.String("collection", qdrant.SemanticCollection),
 			)
+		}
+	}
+
+	// Topology memory (FalkorDB) — optional, wired when FALKORDB_URL is set.
+	if cfg.FalkorDBURL != "" {
+		fdbOpts, fdbErr := redis.ParseURL(cfg.FalkorDBURL)
+		if fdbErr != nil {
+			log.Warn("topology: invalid FALKORDB_URL, skipping", zap.Error(fdbErr))
+		} else {
+			fdb := redis.NewClient(fdbOpts)
+			defer fdb.Close()
+			if pingErr := fdb.Ping(ctx).Err(); pingErr != nil {
+				log.Warn("topology: falkordb ping failed, skipping", zap.Error(pingErr))
+				_ = fdb.Close()
+			} else {
+				graphName := fmt.Sprintf("topology:%s", "global")
+				topoStore := topology.NewFalkorDBStore(fdb, graphName)
+				h.WithTopology(topoStore)
+				log.Info("topology memory enabled (falkordb)", zap.String("url", cfg.FalkorDBURL))
+			}
 		}
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

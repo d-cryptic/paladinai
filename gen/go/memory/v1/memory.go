@@ -21,6 +21,7 @@ const (
 	MemoryTypeEpisodic    MemoryType = 2
 	MemoryTypeSemantic    MemoryType = 3
 	MemoryTypeProcedural  MemoryType = 4
+	MemoryTypeTopology    MemoryType = 5
 )
 
 // SearchMemoryRequest searches across one or more memory tiers.
