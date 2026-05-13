@@ -155,6 +155,7 @@ func runMCP(t *testing.T, args ...string) (string, error) {
 
 	// Reset persistent flags that bleed across Execute() calls.
 	_ = rootCmd.PersistentFlags().Set("output", "table")
+	_ = rootCmd.PersistentFlags().Set("ci", "false")
 
 	w.Close()
 	<-done // wait for drain goroutine to finish
@@ -224,4 +225,14 @@ func TestMCPList_TableOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "srv-1")
 	assert.Contains(t, out, "Test Server")
+}
+
+func TestMCPList_CIModeForcesJSONOutput(t *testing.T) {
+	hub := newHubStub(t)
+
+	out, err := runMCP(t, "--ci", "mcp", "list", "--tenant", "t1", "--api-url", hub.URL)
+	require.NoError(t, err)
+	assert.Contains(t, out, `"data"`)
+	assert.Contains(t, out, `"srv-1"`)
+	assert.NotContains(t, out, "NAME\tENDPOINT")
 }

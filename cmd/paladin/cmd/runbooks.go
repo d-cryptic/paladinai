@@ -138,8 +138,7 @@ var runbooksListCmd = &cobra.Command{
 			return err
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
@@ -189,8 +188,7 @@ var runbooksSearchCmd = &cobra.Command{
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}

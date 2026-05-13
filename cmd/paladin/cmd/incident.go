@@ -48,8 +48,7 @@ var incidentListCmd = &cobra.Command{
 			return err
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
@@ -82,8 +81,7 @@ var incidentShowCmd = &cobra.Command{
 			return err
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
@@ -221,8 +219,7 @@ The replay runs asynchronously; poll status with: paladin incident show <replay-
 			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 
-		outputFmt, _ := cmd.Flags().GetString("output")
-		if outputFmt == "json" {
+		if outputFormat(cmd) == "json" {
 			fmt.Fprintln(os.Stdout, string(body))
 			return nil
 		}
