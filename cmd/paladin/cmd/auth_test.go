@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -97,5 +98,51 @@ func TestAuthLoginIssuesTokenAndStoresInKeychain(t *testing.T) {
 	}
 	if stored != "issued-token" {
 		t.Fatalf("stored token = %q, want issued-token", stored)
+	}
+}
+
+func TestWriteAuthStatusResult_CIModeJSON(t *testing.T) {
+	cmd := newAuthLoginTestCmd("http://auth.example.test")
+	if err := cmd.Flags().Set("ci", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := captureStdout(t, func() {
+		err := writeAuthStatusResult(cmd, authStatusResult{
+			Authenticated: true,
+			Status:        "authenticated",
+			Email:         "user@example.com",
+			TenantID:      "tenant-abc",
+			Roles:         []string{"admin"},
+			ExpiresAt:     "2026-05-13T16:00:00Z",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var result authStatusResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Authenticated || result.Status != "authenticated" {
+		t.Fatalf("unexpected status result: %+v", result)
+	}
+	if result.Email != "user@example.com" || result.TenantID != "tenant-abc" {
+		t.Fatalf("unexpected identity fields: %+v", result)
+	}
+}
+
+func TestWriteAuthStatusResult_HumanUnauthenticated(t *testing.T) {
+	cmd := newAuthLoginTestCmd("http://auth.example.test")
+
+	stdout := captureStdout(t, func() {
+		if err := writeAuthStatusResult(cmd, authStatusResult{Authenticated: false, Status: "not_authenticated"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(stdout, "not authenticated") {
+		t.Fatalf("stdout = %q, want unauthenticated status", stdout)
 	}
 }
