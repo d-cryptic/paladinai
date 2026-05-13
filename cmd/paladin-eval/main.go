@@ -191,8 +191,8 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 }
 
 func printSummary(w *os.File, res *eval.RunResult) {
-	fmt.Fprintf(w, "\nPaladin Eval Summary\n")
-	fmt.Fprintf(w, "====================\n")
+	fmt.Fprintf(w, "\nPaladin Eval Summary\n") //nolint:errcheck
+	fmt.Fprintf(w, "====================\n") //nolint:errcheck
 	fmt.Fprintf(w, "Total:      %d\n", res.Total)
 	fmt.Fprintf(w, "Passed:     %d\n", res.Passed)
 	fmt.Fprintf(w, "Failed:     %d\n", res.Failed)
@@ -208,12 +208,12 @@ func printSummary(w *os.File, res *eval.RunResult) {
 	sort.Strings(cats)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "CATEGORY\tTOTAL\tPASSED\tPASS_RATE\tMEAN_SCORE")
+	fmt.Fprintln(tw, "CATEGORY\tTOTAL\tPASSED\tPASS_RATE\tMEAN_SCORE") //nolint:errcheck
 	for _, c := range cats {
 		cr := res.ByCategory[eval.Category(c)]
 		fmt.Fprintf(tw, "%s\t%d\t%d\t%.2f\t%.2f\n",
 			c, cr.Total, cr.Passed, cr.PassRate, cr.MeanScore)
 	}
 	_ = tw.Flush()
-	fmt.Fprintln(w)
+	fmt.Fprintln(w) //nolint:errcheck
 }

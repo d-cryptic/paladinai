@@ -17,16 +17,6 @@ import (
 // concurrent mutation of os.Stdout and cobra's internal state.
 var rootCmdMu sync.Mutex
 
-// executeCmd is a helper that acquires rootCmdMu and runs rootCmd.Execute().
-// Use this instead of calling rootCmd.Execute() directly in tests that do not
-// already go through captureStdout.
-func executeCmd(args []string) error {
-	rootCmdMu.Lock()
-	defer rootCmdMu.Unlock()
-	rootCmd.SetArgs(args)
-	return rootCmd.Execute()
-}
-
 // captureStdout redirects os.Stdout to a pipe for the duration of fn, then
 // returns everything written. t.Cleanup restores os.Stdout so the test
 // infrastructure always sees the original writer even if fn panics.

@@ -56,13 +56,6 @@ func BuildTestGraphWithClassifyError(ctx context.Context, classifyErr error, tri
 	})
 }
 
-// NewClassifierAgent returns a real ClassifierAgent for interface satisfaction in tests
-// that need to call agent.NewClassifierAgent(nil, nil).
-// The zero-value classifier is only used in BuildGraph tests that immediately override it.
-func newClassifierAgentForTest(chatModel interface{}, log interface{}) *ClassifierAgent {
-	return &ClassifierAgent{}
-}
-
 // Ensure ClassifierAgent satisfies Classifier interface at compile time.
 var _ Classifier = (*ClassifierAgent)(nil)
 

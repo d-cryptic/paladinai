@@ -217,8 +217,7 @@ func TestDoctorCmd_QuietMode_ProducesNoOutput(t *testing.T) {
 	}))
 	defer stub.Close()
 
-	var output string
-	output = captureStdout(t, func() {
+	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{
 			"doctor",
 			"--api-url", stub.URL,

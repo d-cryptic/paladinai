@@ -27,7 +27,7 @@ func skipIfNoNetwork(t *testing.T) {
 	if err != nil {
 		t.Skipf("network unavailable, skipping httptest-based test: %v", err)
 	}
-	ln.Close()
+	ln.Close() //nolint:errcheck
 }
 
 // setupStub creates a test server and swaps client.HTTP so requests go to it.

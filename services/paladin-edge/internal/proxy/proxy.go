@@ -31,8 +31,8 @@ type Handler struct {
 func New(target *url.URL, prefix string, log *zap.Logger) *Handler {
 	rp := httputil.NewSingleHostReverseProxy(target)
 
-	director := rp.Director
-	rp.Director = func(req *http.Request) {
+	director := rp.Director //nolint:staticcheck
+	rp.Director = func(req *http.Request) { //nolint:staticcheck
 		director(req)
 
 		// Strip the mount prefix so /api/v1/mcp/servers becomes /servers

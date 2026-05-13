@@ -40,7 +40,7 @@ func Connect(ctx context.Context, dsn string, log *zap.Logger) (*pgxpool.Pool, e
 	cfg.ConnConfig.RuntimeParams["statement_timeout"] = "5000" // 5 s
 	cfg.ConnConfig.RuntimeParams["lock_timeout"] = "2000"      // 2 s
 
-	cfg.BeforeAcquire = func(ctx context.Context, conn *pgx.Conn) bool {
+	cfg.BeforeAcquire = func(ctx context.Context, conn *pgx.Conn) bool { //nolint:staticcheck
 		return beforeAcquire(ctx, conn, log)
 	}
 

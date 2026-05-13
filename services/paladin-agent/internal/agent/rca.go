@@ -112,7 +112,7 @@ type RCAAgent struct {
 func NewRCAAgent(ctx context.Context, m model.ToolCallingChatModel, log *zap.Logger) (*RCAAgent, error) {
 	a, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: m,
-		MessageModifier:  react.NewPersonaModifier(rcaSystemPrompt),
+		MessageModifier:  react.NewPersonaModifier(rcaSystemPrompt), //nolint:staticcheck
 		MaxStep:          10,
 		GraphName:        "PaladinRCAAgent",
 	})

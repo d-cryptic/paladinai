@@ -155,8 +155,8 @@ func main() {
 
 	// ── L1 Exact Cache (Stage 9) ─────────────────────────────────────────────
 	// Wrap triageAgent with write-through L1 exact cache if Valkey is reachable.
-	if cfg.Base.ValkeyURL != "" {
-		rdbOpts, rdbErr := redis.ParseURL(cfg.Base.ValkeyURL)
+	if cfg.ValkeyURL != "" {
+		rdbOpts, rdbErr := redis.ParseURL(cfg.ValkeyURL)
 		if rdbErr != nil {
 			log.Warn("l1 cache: invalid VALKEY_URL, skipping", zap.Error(rdbErr))
 		} else {
@@ -171,9 +171,9 @@ func main() {
 					modelID = cfg.LLM.TierB
 				}
 				triageAgent = agent.NewCachedTriager(triageAgent, l1, modelID, log)
-				log.Info("l1 cache enabled (valkey)", zap.String("url", cfg.Base.ValkeyURL))
+				log.Info("l1 cache enabled (valkey)", zap.String("url", cfg.ValkeyURL))
 				// Close rdb when main exits — defer runs on return
-				defer rdb.Close()
+				defer rdb.Close() //nolint:errcheck
 			}
 		}
 	}

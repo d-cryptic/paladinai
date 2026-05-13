@@ -55,7 +55,7 @@ func TestSecret_EmptyString_StillRedacted(t *testing.T) {
 // A missed verb would leak credentials into zap-structured logs.
 func TestSecret_FmtVerbs_Redacted(t *testing.T) {
 	s := llm.Secret("leak-me")
-	assert.Equal(t, "[REDACTED]", fmt.Sprintf("%s", s))
+	assert.Equal(t, "[REDACTED]", fmt.Sprintf("%s", s)) //nolint:staticcheck
 	assert.Equal(t, "[REDACTED]", fmt.Sprintf("%v", s))
 	assert.NotContains(t, fmt.Sprintf("%+v", struct{ K llm.Secret }{s}), "leak-me")
 }

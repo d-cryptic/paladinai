@@ -104,7 +104,7 @@ type TriageAgent struct {
 func NewTriageAgent(ctx context.Context, m model.ToolCallingChatModel, log *zap.Logger) (*TriageAgent, error) {
 	a, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: m,
-		MessageModifier:  react.NewPersonaModifier(triageSystemPrompt),
+		MessageModifier:  react.NewPersonaModifier(triageSystemPrompt), //nolint:staticcheck
 		MaxStep:          10,
 		GraphName:        "PaladinTriageAgent",
 	})

@@ -74,7 +74,7 @@ func main() {
 		log.Fatal("valkey url parse failed", zap.Error(err))
 	}
 	rdb := redis.NewClient(redisOpts)
-	defer rdb.Close()
+	defer rdb.Close() //nolint:errcheck
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		log.Fatal("valkey ping failed", zap.Error(err))
 	}
@@ -138,7 +138,7 @@ func main() {
 			log.Warn("topology: invalid FALKORDB_URL, skipping", zap.Error(fdbErr))
 		} else {
 			fdb := redis.NewClient(fdbOpts)
-			defer fdb.Close()
+			defer fdb.Close() //nolint:errcheck
 			if pingErr := fdb.Ping(ctx).Err(); pingErr != nil {
 				log.Warn("topology: falkordb ping failed, skipping", zap.Error(pingErr))
 				_ = fdb.Close()

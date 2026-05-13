@@ -58,9 +58,9 @@ func TestHandleMsg_AckFailure_LogsOnly(t *testing.T) {
 	w := New(triager, pub, 5*time.Second, 1, zap.NewNop())
 
 	msg := &errAckMsg{}
-	msg.fakeMsg.payload = validEnvJSON("t1", "fp-ack-err")
-	msg.fakeMsg.subject = "paladin.alerts.correlated.t1.alertmanager"
-	msg.fakeMsg.meta = &jetstream.MsgMetadata{NumDelivered: 1}
+	msg.payload = validEnvJSON("t1", "fp-ack-err")
+	msg.subject = "paladin.alerts.correlated.t1.alertmanager"
+	msg.meta = &jetstream.MsgMetadata{NumDelivered: 1}
 
 	// Should not panic, even though Ack returns an error.
 	assert.NotPanics(t, func() {
@@ -76,9 +76,9 @@ func TestHandleMsg_NakFailureOnPublishError_LogsOnly(t *testing.T) {
 	w := New(triager, pub, 5*time.Second, 1, zap.NewNop())
 
 	msg := &errNakMsg{}
-	msg.fakeMsg.payload = validEnvJSON("t1", "fp-nak-err")
-	msg.fakeMsg.subject = "paladin.alerts.correlated.t1.alertmanager"
-	msg.fakeMsg.meta = &jetstream.MsgMetadata{NumDelivered: 1}
+	msg.payload = validEnvJSON("t1", "fp-nak-err")
+	msg.subject = "paladin.alerts.correlated.t1.alertmanager"
+	msg.meta = &jetstream.MsgMetadata{NumDelivered: 1}
 
 	assert.NotPanics(t, func() {
 		w.handleMsg(context.Background(), msg) // pass *errNakMsg, not &msg.fakeMsg
@@ -113,9 +113,9 @@ func TestHandleMsg_NakFailureOnTriageError_LogsOnly(t *testing.T) {
 	w := New(triager, pub, 5*time.Second, 1, zap.NewNop())
 
 	msg := &errNakMsg{}
-	msg.fakeMsg.payload = validEnvJSON("t1", "fp-nak-triage")
-	msg.fakeMsg.subject = "paladin.alerts.correlated.t1.alertmanager"
-	msg.fakeMsg.meta = &jetstream.MsgMetadata{NumDelivered: 1} // below maxDeliveries
+	msg.payload = validEnvJSON("t1", "fp-nak-triage")
+	msg.subject = "paladin.alerts.correlated.t1.alertmanager"
+	msg.meta = &jetstream.MsgMetadata{NumDelivered: 1} // below maxDeliveries
 
 	assert.NotPanics(t, func() {
 		w.handleMsg(context.Background(), msg) // pass *errNakMsg, not &msg.fakeMsg

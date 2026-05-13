@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
@@ -28,13 +27,6 @@ func (c *NATSChecker) Check(ctx context.Context) error {
 		return fmt.Errorf("nats: not connected (status: %s)", c.conn.Status())
 	}
 
-	// Use context deadline to bound the RTT call.
-	timeout := 2 * time.Second
-	if dl, ok := ctx.Deadline(); ok {
-		if d := time.Until(dl); d > 0 && d < timeout {
-			timeout = d
-		}
-	}
 	if _, err := c.conn.RTT(); err != nil {
 		return fmt.Errorf("nats: RTT failed: %w", err)
 	}

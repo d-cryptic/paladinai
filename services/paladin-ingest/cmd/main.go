@@ -68,7 +68,7 @@ func run() error {
 	if _, err := rdb.Ping(ctx).Result(); err != nil {
 		return fmt.Errorf("valkey ping: %w", err)
 	}
-	defer rdb.Close()
+	defer rdb.Close() //nolint:errcheck
 
 	// Wire dependencies
 	pub := publisher.New(natsClient, log)

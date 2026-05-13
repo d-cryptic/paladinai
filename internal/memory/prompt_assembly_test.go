@@ -39,7 +39,7 @@ func TestAssemblePrompt_AllSections(t *testing.T) {
 	}
 
 	// Ordering: procedural < topology < episodic < tool_results < query
-	if !(runbookPos < topologyPos && topologyPos < episodicPos && episodicPos < toolPos && toolPos < queryPos) {
+	if runbookPos >= topologyPos || topologyPos >= episodicPos || episodicPos >= toolPos || toolPos >= queryPos { //nolint:staticcheck
 		t.Errorf("section ordering wrong: runbook=%d topology=%d episodic=%d tool=%d query=%d",
 			runbookPos, topologyPos, episodicPos, toolPos, queryPos)
 	}

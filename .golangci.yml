@@ -1,0 +1,36 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      # Suppress errcheck for these common patterns that are safe to ignore.
+      # fmt.Fprint* to terminal — errors are unrecoverable in CLI tools.
+      # defer Close() calls — standard Go pattern.
+      # Websocket/tabwriter methods in CLI paths.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+        - (net.Listener).Close
+        - (*net.TCPListener).Close
+        - (*os.File).Close
+        - (io.ReadCloser).Close
+        - (io.Closer).Close
+        - (*text/tabwriter.Writer).Flush
+        - (*github.com/gorilla/websocket.Conn).Close
+        - (*github.com/gorilla/websocket.Conn).SetReadDeadline
+        - (net.Conn).Close
+        - os.Unsetenv
+        - (*encoding/json.Decoder).Decode
+        - (*strings.Builder).WriteString
+        - (*bytes.Buffer).ReadFrom
+        - (*os.File).WriteString
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Test files: unchecked calls in test helpers is idiomatic.
+    - linters: [errcheck]
+      path: "_test.go$"

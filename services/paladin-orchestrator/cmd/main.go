@@ -109,7 +109,7 @@ func run() error {
 		return fmt.Errorf("valkey URL: %w", err)
 	}
 	rdb := redis.NewClient(rdbOpts)
-	defer rdb.Close()
+	defer rdb.Close() //nolint:errcheck
 
 	pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer pingCancel()
