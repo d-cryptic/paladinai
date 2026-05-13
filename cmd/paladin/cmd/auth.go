@@ -209,9 +209,7 @@ var authStatusCmd = &cobra.Command{
 		}
 
 		if token == "" {
-			fmt.Fprintln(os.Stdout, "Status:  not authenticated")
-			fmt.Fprintln(os.Stdout, "Run `paladin auth login` to authenticate.")
-			return nil
+			return writeAuthStatusResult(cmd, authStatusResult{Authenticated: false, Status: "not_authenticated"})
 		}
 
 		// Try to verify the token against the auth service.
@@ -225,8 +223,7 @@ var authStatusCmd = &cobra.Command{
 		body, err := client.Get(cmd.Context(), u.String(), client.Options{Token: token})
 		if err != nil {
 			// Network/server unavailable — show local token info only.
-			fmt.Fprintln(os.Stdout, "Status:  token present (server unavailable)")
-			return nil
+			return writeAuthStatusResult(cmd, authStatusResult{Authenticated: true, Status: "server_unavailable"})
 		}
 
 		var me struct {
@@ -236,34 +233,70 @@ var authStatusCmd = &cobra.Command{
 			ExpiresAt string   `json:"expires_at"`
 		}
 		if err := json.Unmarshal(body, &me); err != nil {
-			fmt.Fprintf(os.Stdout, "Status:  authenticated (could not parse details)\n")
-			return nil
+			return writeAuthStatusResult(cmd, authStatusResult{Authenticated: true, Status: "parse_error"})
 		}
 
+		return writeAuthStatusResult(cmd, authStatusResult{
+			Authenticated: true,
+			Status:        "authenticated",
+			Email:         me.Email,
+			TenantID:      me.TenantID,
+			Roles:         me.Roles,
+			ExpiresAt:     me.ExpiresAt,
+		})
+	},
+}
+
+type authStatusResult struct {
+	Authenticated bool     `json:"authenticated"`
+	Status        string   `json:"status"`
+	Email         string   `json:"email,omitempty"`
+	TenantID      string   `json:"tenant_id,omitempty"`
+	Roles         []string `json:"roles,omitempty"`
+	ExpiresAt     string   `json:"expires_at,omitempty"`
+}
+
+func writeAuthStatusResult(cmd *cobra.Command, result authStatusResult) error {
+	if outputFormat(cmd) == "json" {
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fmt.Errorf("write auth status: %w", err)
+		}
+		return nil
+	}
+
+	switch result.Status {
+	case "not_authenticated":
+		fmt.Fprintln(os.Stdout, "Status:  not authenticated")
+		fmt.Fprintln(os.Stdout, "Run `paladin auth login` to authenticate.")
+	case "server_unavailable":
+		fmt.Fprintln(os.Stdout, "Status:  token present (server unavailable)")
+	case "parse_error":
+		fmt.Fprintf(os.Stdout, "Status:  authenticated (could not parse details)\n")
+	default:
 		fmt.Fprintf(os.Stdout, "Status:    authenticated\n")
-		if me.Email != "" {
-			fmt.Fprintf(os.Stdout, "Email:     %s\n", me.Email)
+		if result.Email != "" {
+			fmt.Fprintf(os.Stdout, "Email:     %s\n", result.Email)
 		}
-		if me.TenantID != "" {
-			fmt.Fprintf(os.Stdout, "Tenant:    %s\n", me.TenantID)
+		if result.TenantID != "" {
+			fmt.Fprintf(os.Stdout, "Tenant:    %s\n", result.TenantID)
 		}
-		if len(me.Roles) > 0 {
-			fmt.Fprintf(os.Stdout, "Roles:     %v\n", me.Roles)
+		if len(result.Roles) > 0 {
+			fmt.Fprintf(os.Stdout, "Roles:     %v\n", result.Roles)
 		}
-		if me.ExpiresAt != "" {
-			if t, err := time.Parse(time.RFC3339, me.ExpiresAt); err == nil {
+		if result.ExpiresAt != "" {
+			if t, err := time.Parse(time.RFC3339, result.ExpiresAt); err == nil {
 				remaining := time.Until(t).Round(time.Minute)
 				if remaining < 0 {
 					fmt.Fprintf(os.Stdout, "Expires:   EXPIRED (%s ago)\n", (-remaining).String())
 				} else {
-					fmt.Fprintf(os.Stdout, "Expires:   %s (%s remaining)\n", me.ExpiresAt[:19], remaining.String())
+					fmt.Fprintf(os.Stdout, "Expires:   %s (%s remaining)\n", result.ExpiresAt[:19], remaining.String())
 				}
 			} else {
-				fmt.Fprintf(os.Stdout, "Expires:   %s\n", me.ExpiresAt)
+				fmt.Fprintf(os.Stdout, "Expires:   %s\n", result.ExpiresAt)
 			}
 		}
-		return nil
-	},
+	}
+	return nil
 }
 
 func init() {
