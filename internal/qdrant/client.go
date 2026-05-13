@@ -92,7 +92,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return fmt.Errorf("qdrant: %s %s: status %d: %s", method, path, resp.StatusCode, string(b))
 	}
 	if out != nil {

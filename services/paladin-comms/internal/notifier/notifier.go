@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -221,5 +222,5 @@ func (m *MultiNotifier) Notify(ctx context.Context, n Notification) error {
 	if len(failed) == 0 {
 		return nil
 	}
-	return fmt.Errorf("multi-notifier: %d/%d failed: %v", len(failed), len(m.notifiers), failed)
+	return fmt.Errorf("multi-notifier: %d/%d failed: %w", len(failed), len(m.notifiers), errors.Join(failed...))
 }

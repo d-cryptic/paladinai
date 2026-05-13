@@ -140,6 +140,18 @@ func (h *WebhookHandler) handleWebhook(
 	for i := range envelopes {
 		env := envelopes[i]
 
+		// Defense-in-depth: reject envelopes where the normalizer wrote a different
+		// TenantID than the one authenticated via the URL path.
+		if env.TenantID != tenantID {
+			h.log.Error("normalizer produced mismatched tenant_id; rejecting envelope",
+				zap.String("expected", tenantID),
+				zap.String("got", env.TenantID),
+				zap.String("fingerprint", env.Fingerprint),
+			)
+			failed++
+			continue
+		}
+
 		// Record each alert individually so burst counts reflect actual alert volume,
 		// not HTTP request count (a single batch would otherwise count as 1).
 		if h.storm != nil {

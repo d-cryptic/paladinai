@@ -135,15 +135,14 @@ func TestBeforeAcquire_InjectsTenantID(t *testing.T) {
 	assert.Equal(t, "tenant-xyz", exec.gotArgs[0])
 }
 
-func TestBeforeAcquire_NoTenantInContext_PassesEmptyString(t *testing.T) {
+func TestBeforeAcquire_NoTenantInContext_DeniesConnection(t *testing.T) {
 	t.Parallel()
 	exec := &fakeExecer{}
 
 	ok := beforeAcquire(context.Background(), exec, zap.NewNop())
 
-	assert.True(t, ok, "missing tenant ID must not abort acquisition (caller-validated)")
-	require.Len(t, exec.gotArgs, 1)
-	assert.Equal(t, "", exec.gotArgs[0], "absent tenant ID must inject as empty string")
+	assert.False(t, ok, "missing tenant ID must deny connection to fail closed")
+	assert.Empty(t, exec.gotArgs, "no Exec must be called when tenant is missing")
 }
 
 func TestBeforeAcquire_ExecError_RejectsConnection(t *testing.T) {

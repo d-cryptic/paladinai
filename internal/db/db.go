@@ -78,6 +78,10 @@ type connExecer interface {
 // caller never sees a connection with a stale or missing tenant.
 func beforeAcquire(ctx context.Context, conn connExecer, log *zap.Logger) bool {
 	tenantID, _ := ctx.Value(tenantIDKey{}).(string)
+	if tenantID == "" {
+		log.Error("db: BeforeAcquire: missing tenant_id in context; denying connection to fail closed")
+		return false
+	}
 	if _, err := conn.Exec(ctx,
 		"SELECT set_config('app.tenant_id', $1, false)", tenantID); err != nil {
 		log.Warn("db: BeforeAcquire set_config failed", zap.Error(err))

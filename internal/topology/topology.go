@@ -128,10 +128,13 @@ func (s *InMemoryStore) UpsertService(_ context.Context, svc Service) error {
 }
 
 func (s *InMemoryStore) UpsertDependency(_ context.Context, edge DependsOnEdge) error {
+	if edge.TenantID == "" {
+		return fmt.Errorf("topology: dependency edge requires tenant_id")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, e := range s.edges {
-		if e.FromServiceID == edge.FromServiceID && e.ToServiceID == edge.ToServiceID {
+		if e.TenantID == edge.TenantID && e.FromServiceID == edge.FromServiceID && e.ToServiceID == edge.ToServiceID {
 			s.edges[i] = edge
 			return nil
 		}
@@ -195,7 +198,7 @@ func (s *InMemoryStore) BlastRadius(_ context.Context, tenantID, serviceName str
 		depth++
 		for _, nodeID := range next {
 			for _, edge := range edges {
-				if edge.FromServiceID != nodeID {
+				if edge.TenantID != tenantID || edge.FromServiceID != nodeID {
 					continue
 				}
 				if !visited[edge.ToServiceID] {

@@ -74,6 +74,10 @@ func (p *Pipeline) WithPostProcess(hook PostProcessFunc) *Pipeline {
 // Infrastructure errors: fail open on dedup (don't suppress real alerts), propagate
 // on correlate/publish (caller should nak for redelivery).
 func (p *Pipeline) Process(ctx context.Context, env *alert.AlertEnvelope) error {
+	if err := alert.ValidateTenantID(env.TenantID); err != nil {
+		return fmt.Errorf("pipeline: invalid envelope tenant_id: %w", err)
+	}
+
 	env.ReceivedAt = time.Now().UTC()
 
 	if env.Status == alert.StatusResolved {

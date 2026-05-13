@@ -82,7 +82,7 @@ func TestBlastRadius_DirectDependency(t *testing.T) {
 	st := newStore()
 	mustUpsertService(t, st, topology.Service{ID: "svc-a", Name: "api", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "svc-b", Name: "payments", TenantID: "t1"})
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-a", ToServiceID: "svc-b"})
+	mustUpsertEdge(t, st, topology.DependsOnEdge{TenantID: "t1", FromServiceID: "svc-a", ToServiceID: "svc-b"})
 
 	blast, err := st.BlastRadius(context.Background(), "t1", "api", 5)
 	require.NoError(t, err)
@@ -95,8 +95,8 @@ func TestBlastRadius_Transitive(t *testing.T) {
 	mustUpsertService(t, st, topology.Service{ID: "svc-a", Name: "api", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "svc-b", Name: "payments", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "svc-c", Name: "db", TenantID: "t1"})
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-a", ToServiceID: "svc-b"})
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-b", ToServiceID: "svc-c"})
+	mustUpsertEdge(t, st, topology.DependsOnEdge{TenantID: "t1", FromServiceID: "svc-a", ToServiceID: "svc-b"})
+	mustUpsertEdge(t, st, topology.DependsOnEdge{TenantID: "t1", FromServiceID: "svc-b", ToServiceID: "svc-c"})
 
 	blast, err := st.BlastRadius(context.Background(), "t1", "api", 5)
 	require.NoError(t, err)
@@ -109,8 +109,8 @@ func TestBlastRadius_MaxDepthLimitsResults(t *testing.T) {
 	mustUpsertService(t, st, topology.Service{ID: "svc-a", Name: "api", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "svc-b", Name: "payments", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "svc-c", Name: "db", TenantID: "t1"})
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-a", ToServiceID: "svc-b"})
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-b", ToServiceID: "svc-c"})
+	mustUpsertEdge(t, st, topology.DependsOnEdge{TenantID: "t1", FromServiceID: "svc-a", ToServiceID: "svc-b"})
+	mustUpsertEdge(t, st, topology.DependsOnEdge{TenantID: "t1", FromServiceID: "svc-b", ToServiceID: "svc-c"})
 
 	blast, err := st.BlastRadius(context.Background(), "t1", "api", 1)
 	require.NoError(t, err)
@@ -122,8 +122,8 @@ func TestBlastRadius_NoCyclicLoop(t *testing.T) {
 	st := newStore()
 	mustUpsertService(t, st, topology.Service{ID: "svc-a", Name: "a", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "svc-b", Name: "b", TenantID: "t1"})
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-a", ToServiceID: "svc-b"})
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-b", ToServiceID: "svc-a"})
+	mustUpsertEdge(t, st, topology.DependsOnEdge{TenantID: "t1", FromServiceID: "svc-a", ToServiceID: "svc-b"})
+	mustUpsertEdge(t, st, topology.DependsOnEdge{TenantID: "t1", FromServiceID: "svc-b", ToServiceID: "svc-a"})
 
 	blast, err := st.BlastRadius(context.Background(), "t1", "a", 5)
 	require.NoError(t, err)
@@ -147,15 +147,16 @@ func TestBlastRadius_TenantIsolation(t *testing.T) {
 	st := newStore()
 	mustUpsertService(t, st, topology.Service{ID: "svc-a", Name: "api", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "svc-b", Name: "payments", TenantID: "t2"})
-	// Edge between t1 and t2 services (cross-tenant edge in memory — shouldn't appear in t1 blast radius)
-	mustUpsertEdge(t, st, topology.DependsOnEdge{FromServiceID: "svc-a", ToServiceID: "svc-b"})
+	// Cross-tenant edge must now be rejected at insert.
+	err := st.UpsertDependency(context.Background(), topology.DependsOnEdge{FromServiceID: "svc-a", ToServiceID: "svc-b"})
+	require.Error(t, err, "edge without tenant_id must be rejected")
 
+	// Even if we somehow inject a t2-tenant edge, t1 BFS must not cross it.
+	require.NoError(t, st.UpsertDependency(context.Background(),
+		topology.DependsOnEdge{TenantID: "t2", FromServiceID: "svc-a", ToServiceID: "svc-b"}))
 	blast, err := st.BlastRadius(context.Background(), "t1", "api", 5)
 	require.NoError(t, err)
-	// svc-b is t2's service — its name appears in blast radius but belongs to another tenant.
-	// The InMemoryStore doesn't filter by tenant on edges (FalkorDB handles this via graph isolation).
-	// This test just ensures no panic/error on cross-tenant edge traversal.
-	_ = blast
+	assert.Empty(t, blast, "t1 blast radius must not include t2 services")
 }
 
 func TestBlastRadius_NoOutboundEdges_Empty(t *testing.T) {
@@ -222,7 +223,7 @@ func TestUpsertDependency_DeduplicatesEdges(t *testing.T) {
 	mustUpsertService(t, st, topology.Service{ID: "a", Name: "a", TenantID: "t1"})
 	mustUpsertService(t, st, topology.Service{ID: "b", Name: "b", TenantID: "t1"})
 
-	edge := topology.DependsOnEdge{FromServiceID: "a", ToServiceID: "b", Protocol: "http"}
+	edge := topology.DependsOnEdge{TenantID: "t1", FromServiceID: "a", ToServiceID: "b", Protocol: "http"}
 	require.NoError(t, st.UpsertDependency(context.Background(), edge))
 	// Update weight
 	edge.Weight = 0.9

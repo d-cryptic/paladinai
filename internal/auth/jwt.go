@@ -16,15 +16,23 @@ var ErrWeakSecret = errors.New("jwt: secret must be at least 32 bytes")
 // ErrInvalidToken is returned for any token validation failure.
 var ErrInvalidToken = errors.New("jwt: invalid or expired token")
 
-type contextKey string
-
-const (
-	ContextKeyTenantID contextKey = "tenant_id"
-	ContextKeyUserID   contextKey = "user_id"
-	ContextKeyRoles    contextKey = "roles"
-
-	issuer = "paladin-auth"
+// Unexported struct context keys prevent collisions with other packages that might
+// use the same string ("tenant_id", "user_id") via context.WithValue.
+type (
+	tenantIDCtxKey struct{}
+	userIDCtxKey   struct{}
+	rolesCtxKey    struct{}
 )
+
+// ContextKeyTenantID, ContextKeyUserID, ContextKeyRoles are the typed context
+// keys used by JWTMiddleware and the From*Context helpers.
+var (
+	ContextKeyTenantID = tenantIDCtxKey{}
+	ContextKeyUserID   = userIDCtxKey{}
+	ContextKeyRoles    = rolesCtxKey{}
+)
+
+const issuer = "paladin-auth"
 
 // Claims are the JWT payload fields PaladinAI issues and validates.
 type Claims struct {

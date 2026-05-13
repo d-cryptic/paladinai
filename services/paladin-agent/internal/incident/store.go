@@ -348,7 +348,9 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		subject := replaySubject(tenantID, src.Fingerprint)
-		pubCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		// Detach from the request context so the goroutine is not canceled when the
+		// HTTP handler returns, but still bound by a wall-clock timeout.
+		pubCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
 		defer cancel()
 		if err := h.replayPub.Publish(pubCtx, subject, src.RawEnvelope); err != nil {
 			h.log.Error("replay: NATS publish failed",

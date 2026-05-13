@@ -60,11 +60,14 @@ func isForbiddenKey(key string) bool {
 	return false
 }
 
+// alertXMLReplacer strips XML boundary tokens from untrusted content before wrapping.
+var alertXMLReplacer = strings.NewReplacer("<ALERT>", "[FILTERED]", "</ALERT>", "[FILTERED]")
+
 // WrapAlertContent wraps alert description text in trusted-boundary XML tags.
 // The system prompt instructs the LLM to never follow instructions inside these tags.
-// This implements the Stage 8 prompt injection mitigation for alert content.
+// Boundary tokens inside content are replaced with [FILTERED] to prevent breakout.
 func WrapAlertContent(content string) string {
-	return "<ALERT>\n" + content + "\n</ALERT>"
+	return "<ALERT>\n" + alertXMLReplacer.Replace(content) + "\n</ALERT>"
 }
 
 // TrustedBoundarySystemPrompt is the prefix to add to every agent system prompt.

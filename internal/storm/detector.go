@@ -70,10 +70,16 @@ func (d *Detector) Record(ctx context.Context, tenantID string) (storm bool, cou
 		return false, 0, fmt.Errorf("storm.Record incr: %w", err)
 	}
 
-	// Set TTL only on first write (ExpireNX = EXPIRE … NX).
+	// Set TTL only on first write (ExpireNX = EXPIRE … NX). If ExpireNX fails on the
+	// first increment the key will have no TTL and the counter grows forever — log at
+	// Error so operators can detect and manually delete the stale key.
 	if count == 1 {
 		if _, expErr := d.store.ExpireNX(ctx, key, d.window); expErr != nil {
-			d.log.Warn("storm: failed to set window TTL", zap.String("tenant", tenantID), zap.Error(expErr))
+			d.log.Error("storm: failed to set window TTL; counter may grow unbounded",
+				zap.String("tenant", tenantID),
+				zap.String("key", key),
+				zap.Error(expErr),
+			)
 		}
 	}
 
