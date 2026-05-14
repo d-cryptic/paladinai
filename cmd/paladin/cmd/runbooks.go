@@ -43,6 +43,9 @@ Examples:
 		if !validSources[source] {
 			return fmt.Errorf("invalid --source %q: must be one of github, confluence, notion, file", source)
 		}
+		if err := validateRunbookImportFlags(cmd, source); err != nil {
+			return err
+		}
 
 		payload := runbookImportPayload(cmd, source)
 
@@ -102,6 +105,40 @@ func runbookImportPayload(cmd *cobra.Command, source string) map[string]any {
 		}
 	}
 	return payload
+}
+
+func validateRunbookImportFlags(cmd *cobra.Command, source string) error {
+	value := func(key string) string {
+		raw, _ := cmd.Flags().GetString(key)
+		return strings.TrimSpace(raw)
+	}
+	switch source {
+	case "github":
+		if value("repo") == "" {
+			return fmt.Errorf("--repo is required for --source github")
+		}
+		if value("path") == "" {
+			return fmt.Errorf("--path is required for --source github")
+		}
+	case "file":
+		if value("path") == "" {
+			return fmt.Errorf("--path is required for --source file")
+		}
+	case "confluence":
+		if value("url") == "" {
+			return fmt.Errorf("--url is required for --source confluence")
+		}
+		if value("space") == "" {
+			return fmt.Errorf("--space is required for --source confluence")
+		}
+	case "notion":
+		if value("database-id") == "" {
+			return fmt.Errorf("--database-id is required for --source notion")
+		}
+	default:
+		return fmt.Errorf("invalid --source %q: must be one of github, confluence, notion, file", source)
+	}
+	return nil
 }
 
 func writeRunbooksImportResult(cmd *cobra.Command, result runbooksImportResult) error {
