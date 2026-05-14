@@ -317,8 +317,7 @@ func TestWebhookHandler_Alertmanager_OversizedPayload(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
-	// The LimitReader silently truncates at 8 MiB; the truncated JSON is invalid.
-	assert.Equal(t, http.StatusBadRequest, rr.Code, "oversized body should yield 400 after truncated JSON parse failure")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code, "oversized body should be rejected before parsing")
 }
 
 func TestWebhookHandler_Alertmanager_DedupErrorIsNonFatal(t *testing.T) {

@@ -15,6 +15,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxWebhookBodyBytes = 8 * 1024 * 1024
+
 // Publisher abstracts the NATS publishing dependency.
 type Publisher interface {
 	PublishAlert(ctx context.Context, env alert.AlertEnvelope) error
@@ -136,10 +138,14 @@ func (h *WebhookHandler) handleWebhook(
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 8*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes+1))
 	if err != nil {
 		h.log.Error("read webhook body", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "read body failed")
+		return
+	}
+	if len(body) > maxWebhookBodyBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "payload too large")
 		return
 	}
 
