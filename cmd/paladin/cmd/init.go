@@ -395,15 +395,21 @@ type check struct {
 // CheckResult holds the outcome of a single doctor check.
 // Used for --json output.
 type CheckResult struct {
-	Name   string `json:"name"`
-	Passed bool   `json:"passed"`
-	Error  string `json:"error,omitempty"`
+	Name        string `json:"name"`
+	Passed      bool   `json:"passed"`
+	Status      string `json:"status"`
+	DurationMS  int64  `json:"duration_ms"`
+	Detail      string `json:"detail,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
 }
 
 // DoctorReport is the top-level JSON emitted by paladin doctor --json.
 type DoctorReport struct {
-	Passed bool          `json:"passed"`
-	Checks []CheckResult `json:"checks"`
+	Passed    bool          `json:"passed"`
+	Overall   string        `json:"overall"`
+	Timestamp string        `json:"timestamp"`
+	Checks    []CheckResult `json:"checks"`
 }
 
 const infraDialTimeout = 3 * time.Second
@@ -670,9 +676,17 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	results := make([]CheckResult, 0, len(checks))
 	allPassed := true
 	for _, c := range checks {
+		start := time.Now()
 		err := c.fn()
-		r := CheckResult{Name: c.name, Passed: err == nil}
+		r := CheckResult{
+			Name:       c.name,
+			Passed:     err == nil,
+			Status:     "pass",
+			DurationMS: time.Since(start).Milliseconds(),
+		}
 		if err != nil {
+			r.Status = "fail"
+			r.Detail = err.Error()
 			r.Error = err.Error()
 			allPassed = false
 		}
@@ -681,7 +695,16 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 
 	switch {
 	case jsonMode:
-		report := DoctorReport{Passed: allPassed, Checks: results}
+		overall := "pass"
+		if !allPassed {
+			overall = "fail"
+		}
+		report := DoctorReport{
+			Passed:    allPassed,
+			Overall:   overall,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Checks:    results,
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(report); err != nil {
