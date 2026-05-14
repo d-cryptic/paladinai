@@ -571,3 +571,84 @@ func TestClassifierAgent_RedisMemoryPressureStaysTriage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "triage", res.AgentType)
 }
+
+func TestClassifierAgent_FastPathObviousPaymentIntegration(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"triage","severity":"P4","confidence":0.1}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP1)
+	env.Title = "Payment Service Down"
+	env.Description = "All Stripe webhook deliveries failing"
+	env.Labels["service"] = "payments"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "service_down", res.Intent)
+	assert.Equal(t, "integration", res.AgentType)
+	assert.Equal(t, "P1", res.Severity)
+	assert.Empty(t, stub.lastMessages, "obvious classification should not call the model")
+}
+
+func TestClassifierAgent_FastPathNonOOMMemoryPressure(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"oom","agent_type":"rca","severity":"P1","confidence":0.1}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP3)
+	env.Title = "Container Memory High"
+	env.Description = "Memory usage at 85%, not yet OOM"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "metric_spike", res.Intent)
+	assert.Equal(t, "triage", res.AgentType)
+	assert.Equal(t, "P3", res.Severity)
+	assert.Empty(t, stub.lastMessages, "obvious classification should not call the model")
+}
+
+func TestClassifierAgent_FastPathCertificateExpiry(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"service_down","agent_type":"rca","severity":"P1","confidence":0.1}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP4)
+	env.Title = "TLS Certificate Expiry Warning"
+	env.Description = "Certificate expires in 30 days"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "log_analysis", res.Intent)
+	assert.Equal(t, "triage", res.AgentType)
+	assert.Equal(t, "P4", res.Severity)
+	assert.Empty(t, stub.lastMessages, "obvious classification should not call the model")
+}
+
+func TestClassifierAgent_FastPathOOMKill(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"triage","severity":"P4","confidence":0.1}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP1)
+	env.Title = "OOMKilled Pod Restarting"
+	env.Description = "Pod killed due to memory limit exceeded"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "oom", res.Intent)
+	assert.Equal(t, "triage", res.AgentType)
+	assert.Equal(t, "P1", res.Severity)
+	assert.Empty(t, stub.lastMessages, "obvious classification should not call the model")
+}
+
+func TestClassifierAgent_FastPathPostgresReplicationDown(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"triage","severity":"P4","confidence":0.1}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP1)
+	env.Title = "PostgreSQL Replication Lag Critical"
+	env.Description = "Primary DB replication lag exceeded 30s"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "service_down", res.Intent)
+	assert.Equal(t, "rca", res.AgentType)
+	assert.Equal(t, "P1", res.Severity)
+	assert.Empty(t, stub.lastMessages, "obvious classification should not call the model")
+}
