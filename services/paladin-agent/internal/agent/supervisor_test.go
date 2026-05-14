@@ -46,6 +46,16 @@ func (f *fakeRCA) Analyze(_ context.Context, _ *alert.AlertEnvelope, _ *agent.Tr
 	return f.result, nil
 }
 
+type blockingRCA struct {
+	calls int
+}
+
+func (f *blockingRCA) Analyze(ctx context.Context, _ *alert.AlertEnvelope, _ *agent.TriageResult) (*agent.RCAResult, error) {
+	f.calls++
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func makeSupEnv(sev alert.Severity) alert.AlertEnvelope {
 	return alert.AlertEnvelope{
 		TenantID:    "tenant-sup",
@@ -163,6 +173,28 @@ func TestSupervisorPipeline_RCAFailure_KeepsTriage(t *testing.T) {
 
 	require.NotNil(t, state.TriageResult)
 	assert.Nil(t, state.RCAResult)
+}
+
+func TestSupervisorPipeline_RCATimeoutIsStepScoped(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"oom","agent_type":"rca","severity":"P1","confidence":0.9}`}
+	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
+	triager := &fakeTriager{result: makeTriageRes("P1", true)}
+	rca := &blockingRCA{}
+
+	sp := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop()).
+		WithTimeouts(time.Second, 10*time.Millisecond)
+	env := makeSupEnv(alert.SeverityP1)
+
+	start := time.Now()
+	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
+	require.NoError(t, err)
+
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
+	assert.Equal(t, 1, triager.calls)
+	assert.Equal(t, 1, rca.calls)
+	require.NotNil(t, state.TriageResult)
+	assert.Nil(t, state.RCAResult, "RCA timeout should degrade to triage-only")
 }
 
 // ─── ClassifierAgent tests ───────────────────────────────────────────────────

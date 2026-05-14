@@ -286,6 +286,32 @@ func TestWithRCATimeout_SetsTimeout(t *testing.T) {
 	assert.Equal(t, 30*time.Second, w.rcaTimeout)
 }
 
+func TestWorkerOperationTimeout_IncludesRCATimeout(t *testing.T) {
+	pub := &fakePublisher{}
+	triager := &fakeTriager{result: &agent.TriageResult{ConfirmedSeverity: "P2"}}
+	rca := &fakeRCA{result: &agent.RCAResult{Confidence: "LOW"}}
+
+	w := New(triager, pub, 5*time.Second, 1, zap.NewNop()).
+		WithRCA(rca).
+		WithRCATimeout(30 * time.Second)
+
+	assert.Equal(t, 35*time.Second, w.operationTimeout())
+	assert.Equal(t, 60*time.Second, w.ackWait())
+}
+
+func TestWorkerAckWait_ExpandsForLongLLMOperation(t *testing.T) {
+	pub := &fakePublisher{}
+	triager := &fakeTriager{result: &agent.TriageResult{ConfirmedSeverity: "P2"}}
+	rca := &fakeRCA{result: &agent.RCAResult{Confidence: "LOW"}}
+
+	w := New(triager, pub, 45*time.Second, 1, zap.NewNop()).
+		WithRCA(rca).
+		WithRCATimeout(45 * time.Second)
+
+	assert.Equal(t, 90*time.Second, w.operationTimeout())
+	assert.Equal(t, 105*time.Second, w.ackWait())
+}
+
 // ─── nakDelay unit tests ──────────────────────────────────────────────────────
 
 func TestNakDelay_Formula(t *testing.T) {

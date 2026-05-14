@@ -19,7 +19,9 @@ import (
 )
 
 const (
-	maxDeliveries = 5
+	maxDeliveries        = 5
+	defaultOperationWait = 60 * time.Second
+	ackWaitMargin        = 15 * time.Second
 )
 
 // Triager is satisfied by agent.TriageAgent, agent.CachedTriager, and test fakes.
@@ -113,7 +115,7 @@ func (w *Worker) Run(ctx context.Context, js jetstream.JetStream, consumerName s
 		DeliverPolicy: jetstream.DeliverNewPolicy,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		MaxDeliver:    maxDeliveries,
-		AckWait:       60 * time.Second,
+		AckWait:       w.ackWait(),
 	})
 	if err != nil {
 		return fmt.Errorf("worker consumer create %s: %w", consumerName, err)
@@ -222,7 +224,7 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		deliveries = md.NumDelivered
 	}
 
-	pctx, cancel := context.WithTimeout(ctx, w.triageTimeout)
+	pctx, cancel := context.WithTimeout(ctx, w.operationTimeout())
 	defer cancel()
 
 	result, rcaResult, err := w.process(pctx, &env)
@@ -350,11 +352,14 @@ func nakDelay(deliveries uint64) time.Duration {
 // ProcessEnvelope runs the full pipeline (triage, optional RCA) for a single envelope.
 // Exported for tests that bypass the NATS consumer.
 func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) error {
-	triage, rca, err := w.process(ctx, env)
+	pctx, cancel := context.WithTimeout(ctx, w.operationTimeout())
+	defer cancel()
+
+	triage, rca, err := w.process(pctx, env)
 	if err != nil {
 		return err
 	}
-	if err := w.publishCombined(ctx, env, triage, rca); err != nil {
+	if err := w.publishCombined(pctx, env, triage, rca); err != nil {
 		return err
 	}
 	w.recordIncident(env, triage, rca)
@@ -397,17 +402,16 @@ func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.
 		)
 	}
 
-	triage, err := w.triager.Triage(ctx, env)
+	triageCtx, triageCancel := context.WithTimeout(ctx, w.effectiveTriageTimeout())
+	triage, err := w.triager.Triage(triageCtx, env)
+	triageCancel()
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var rca *agent.RCAResult
 	if w.rcaAnalyzer != nil {
-		timeout := w.rcaTimeout
-		if timeout <= 0 {
-			timeout = w.triageTimeout
-		}
+		timeout := w.effectiveRCATimeout()
 		rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
 		rca, err = w.rcaAnalyzer.Analyze(rcaCtx, env, triage)
 		rcaCancel()
@@ -421,6 +425,36 @@ func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.
 	}
 
 	return triage, rca, nil
+}
+
+func (w *Worker) effectiveTriageTimeout() time.Duration {
+	if w.triageTimeout > 0 {
+		return w.triageTimeout
+	}
+	return defaultOperationWait
+}
+
+func (w *Worker) effectiveRCATimeout() time.Duration {
+	if w.rcaTimeout > 0 {
+		return w.rcaTimeout
+	}
+	return w.effectiveTriageTimeout()
+}
+
+func (w *Worker) operationTimeout() time.Duration {
+	timeout := w.effectiveTriageTimeout()
+	if w.rcaAnalyzer != nil || w.supervisor != nil {
+		timeout += w.effectiveRCATimeout()
+	}
+	return timeout
+}
+
+func (w *Worker) ackWait() time.Duration {
+	wait := w.operationTimeout() + ackWaitMargin
+	if wait < defaultOperationWait {
+		return defaultOperationWait
+	}
+	return wait
 }
 
 // TriageEnvelope runs only the triage agent on the envelope and returns the result.

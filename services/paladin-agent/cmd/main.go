@@ -228,7 +228,8 @@ func main() {
 	// ── Stage 3 SupervisorPipeline (classify → route → specialist) ───────────
 	// This is the production path. The worker dispatches through the supervisor
 	// instead of calling triager/rca directly, giving us the classifier gate.
-	supervisor := agent.NewSupervisorPipeline(classifierAgent, triageAgent, rcaAgent, log)
+	supervisor := agent.NewSupervisorPipeline(classifierAgent, triageAgent, rcaAgent, log).
+		WithTimeouts(cfg.TriageTimeout, cfg.RCATimeout)
 
 	// ── NATS ─────────────────────────────────────────────────────────────────
 	natsClient, err := internalnats.Connect(cfg.NatsURL, log)
