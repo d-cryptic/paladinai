@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,12 +49,12 @@ func (r *fakeRows) Close()     { r.closed = true }
 
 type fakeDB struct {
 	rows    []fakeRow
-	queries int
+	queries atomic.Int64
 	failErr error
 }
 
 func (f *fakeDB) Query(_ context.Context, _ string, _ ...any) (Rows, error) {
-	f.queries++
+	f.queries.Add(1)
 	if f.failErr != nil {
 		return nil, f.failErr
 	}
@@ -132,8 +133,8 @@ func TestRefresh_LoadsCache(t *testing.T) {
 	if got := s.Get("triage", "anything"); got != "v2-triage" {
 		t.Fatalf("after refresh: got %q", got)
 	}
-	if db.queries != 1 {
-		t.Fatalf("expected 1 query, got %d", db.queries)
+	if got := db.queries.Load(); got != 1 {
+		t.Fatalf("expected 1 query, got %d", got)
 	}
 }
 
@@ -179,8 +180,8 @@ func TestStartRefresh_RespectsContextCancel(t *testing.T) {
 
 	// Refresh should have run at least twice during the 35ms window
 	// (1 initial from New + at least 1 from the ticker).
-	if db.queries < 2 {
-		t.Fatalf("expected >=2 queries from refresh loop, got %d", db.queries)
+	if got := db.queries.Load(); got < 2 {
+		t.Fatalf("expected >=2 queries from refresh loop, got %d", got)
 	}
 }
 
