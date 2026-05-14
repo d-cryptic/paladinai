@@ -288,16 +288,22 @@ func (w *Worker) publishCombined(ctx context.Context, env *alert.AlertEnvelope, 
 			Triage   *agent.TriageResult  `json:"triage"`
 			RCA      *agent.RCAResult     `json:"rca"`
 		}{Envelope: env, Triage: triage, RCA: rca})
-		subject = fmt.Sprintf("paladin.alerts.analyzed.%s.%s", env.TenantID, string(env.Source))
+		if err != nil {
+			return fmt.Errorf("marshal result: %w", err)
+		}
+		subject, err = analyzedSubject(env.TenantID, env.Source)
 	} else {
 		payload, err = json.Marshal(struct {
 			Envelope *alert.AlertEnvelope `json:"envelope"`
 			Triage   *agent.TriageResult  `json:"triage"`
 		}{Envelope: env, Triage: triage})
-		subject = fmt.Sprintf("paladin.alerts.triaged.%s.%s", env.TenantID, string(env.Source))
+		if err != nil {
+			return fmt.Errorf("marshal result: %w", err)
+		}
+		subject, err = triagedSubject(env.TenantID, env.Source)
 	}
 	if err != nil {
-		return fmt.Errorf("marshal result: %w", err)
+		return fmt.Errorf("build result subject: %w", err)
 	}
 
 	if _, pubErr := w.pub.Publish(ctx, subject, payload); pubErr != nil {

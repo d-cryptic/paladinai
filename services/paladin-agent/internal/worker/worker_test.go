@@ -175,6 +175,60 @@ func TestWorker_PublishSubjectContainsTenantAndSource(t *testing.T) {
 	assert.Contains(t, subject, "paladin.alerts.triaged.", "subject must use triaged prefix")
 }
 
+func TestWorker_ProcessEnvelopeRejectsInvalidResultSubjectTokens(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		env      *alert.AlertEnvelope
+		withRCA  bool
+		errorKey string
+	}{
+		{
+			name:     "triaged invalid tenant",
+			env:      firingEnv("bad.tenant", "fp-bad-tenant"),
+			errorKey: "tenant",
+		},
+		{
+			name: "triaged invalid source",
+			env: &alert.AlertEnvelope{
+				TenantID:    "tenant-1",
+				Fingerprint: "fp-bad-source",
+				Source:      alert.Source("alert.manager"),
+				Severity:    alert.SeverityP2,
+				Status:      alert.StatusFiring,
+			},
+			errorKey: "source",
+		},
+		{
+			name: "analyzed invalid source",
+			env: &alert.AlertEnvelope{
+				TenantID:    "tenant-1",
+				Fingerprint: "fp-bad-source-rca",
+				Source:      alert.Source("alertmanager.>"),
+				Severity:    alert.SeverityP2,
+				Status:      alert.StatusFiring,
+			},
+			withRCA:  true,
+			errorKey: "source",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P3"}}
+			pub := &stubPublisher{}
+			w := newWorker(triager, pub)
+			if tc.withRCA {
+				w = worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).WithRCA(
+					&stubRCA{result: &agent.RCAResult{Confidence: "HIGH"}},
+				)
+			}
+
+			err := w.ProcessEnvelope(context.Background(), tc.env)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorKey)
+			assert.Equal(t, 0, pub.count(), "invalid result subject must not publish")
+		})
+	}
+}
+
 func TestWorker_PublishFailurePropagatesError(t *testing.T) {
 	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P3"}}
 	pub := &stubPublisher{err: assert.AnError}
