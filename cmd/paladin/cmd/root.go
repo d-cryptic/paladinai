@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -41,6 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
 	// --ci disables TUI and forces JSON output; useful in GitHub Actions / ArgoCD.
 	rootCmd.PersistentFlags().Bool("ci", envStr("PALADIN_CI", "") != "", "CI mode: disable TUI, emit JSON, exit-code-only")
+	rootCmd.PersistentFlags().Bool("tour", false, "Show the PaladinAI quick tour")
 
 	rootCmd.AddCommand(alertCmd)
 	rootCmd.AddCommand(mcpCmd)
@@ -129,8 +131,35 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		return cmd.Help()
 	}
+	if tour, _ := cmd.Flags().GetBool("tour"); tour {
+		return writeTour(cmd)
+	}
 	if isCIMode(cmd) || !rootIsTerminal(os.Stdout.Fd()) {
 		return cmd.Help()
 	}
 	return dashboardCmd.RunE(cmd, nil)
+}
+
+type tourResult struct {
+	Steps []string `json:"steps"`
+}
+
+func writeTour(cmd *cobra.Command) error {
+	result := tourResult{Steps: []string{
+		"This is your live incident feed.",
+		"Press Enter on any incident to see agent reasoning and pending actions.",
+		"Type natural language questions or use slash commands.",
+		"Press ? anytime to see keyboard shortcuts.",
+	}}
+	if outputFormat(cmd) == "json" {
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fmt.Errorf("write tour: %w", err)
+		}
+		return nil
+	}
+	fmt.Fprintln(os.Stdout, "Welcome to PaladinAI. Quick tour:")
+	for i, step := range result.Steps {
+		fmt.Fprintf(os.Stdout, "  [%d/%d] %s\n", i+1, len(result.Steps), step)
+	}
+	return nil
 }
