@@ -67,6 +67,32 @@ test.describe("local dashboard", () => {
     await expect(page.getByTestId("detail-action")).toHaveText("Scale auth-cache read replicas");
   });
 
+  test("navigates dashboard pages and opens key flows", async ({ page }) => {
+    await page.getByRole("button", { name: "Runbooks" }).click();
+    await expect(page.getByRole("heading", { name: "Runbooks" })).toBeVisible();
+    await page.getByRole("button", { name: "New runbook" }).click();
+    await expect(page.getByText("Create runbook")).toBeVisible();
+    await page.getByRole("button", { name: "Close drawer" }).click();
+
+    await page.getByRole("button", { name: "Integrations" }).click();
+    await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible();
+    await page.getByRole("button", { name: "Configure" }).first().click();
+    await expect(page.getByRole("dialog", { name: "Configure integration" })).toBeVisible();
+    await page.getByRole("button", { name: "Close dialog" }).click();
+
+    await page.getByRole("button", { name: "Evals" }).click();
+    await expect(page.getByRole("heading", { name: "Evals" })).toBeVisible();
+    await expect(page.getByText("1000 golden cases")).toBeVisible();
+
+    await page.getByRole("button", { name: "Agents" }).click();
+    await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+    await expect(page.getByText("triage-reactor-0")).toBeVisible();
+
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByText("Recent changes")).toBeVisible();
+  });
+
   test("keeps mobile layout within viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();

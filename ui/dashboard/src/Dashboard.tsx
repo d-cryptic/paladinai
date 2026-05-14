@@ -7,8 +7,10 @@ import {
   CheckCircle2,
   CircleDot,
   Command,
+  FlaskConical,
   GitBranch,
   LayoutDashboard,
+  RadioTower,
   Moon,
   Search,
   Settings,
@@ -53,13 +55,16 @@ import {
   type Incident,
 } from "@/data"
 import { cn } from "@/lib/utils"
+import { WorkspacePage, type DashboardView } from "@/pages"
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, count: 3 },
-  { label: "Incidents", icon: AlertTriangle },
-  { label: "Runbooks", icon: BookOpen },
-  { label: "Integrations", icon: GitBranch },
-  { label: "Settings", icon: Settings },
+  { label: "Dashboard", view: "dashboard", icon: LayoutDashboard, count: 3 },
+  { label: "Incidents", view: "incidents", icon: AlertTriangle },
+  { label: "Runbooks", view: "runbooks", icon: BookOpen },
+  { label: "Integrations", view: "integrations", icon: GitBranch },
+  { label: "Evals", view: "evals", icon: FlaskConical },
+  { label: "Agents", view: "agents", icon: RadioTower },
+  { label: "Settings", view: "settings", icon: Settings },
 ]
 
 const severityClass: Record<Incident["severity"], string> = {
@@ -87,6 +92,7 @@ const sloToneClass: Record<string, string> = {
 }
 
 export function Dashboard() {
+  const [view, setView] = useState<DashboardView>(() => readView())
   const [selectedID, setSelectedID] = useState(incidents[0].id)
   const [severity, setSeverity] = useState("all")
   const [query, setQuery] = useState("")
@@ -108,6 +114,12 @@ export function Dashboard() {
   }, [])
 
   useEffect(() => {
+    const handler = () => setView(readView())
+    window.addEventListener("hashchange", handler)
+    return () => window.removeEventListener("hashchange", handler)
+  }, [])
+
+  useEffect(() => {
     window.localStorage.setItem("paladin-theme", dark ? "dark" : "light")
   }, [dark])
 
@@ -124,32 +136,38 @@ export function Dashboard() {
   const active = incidents.filter((incident) => incident.status !== "Resolved")
   const p1 = active.filter((incident) => incident.severity === "P1").length
   const p2 = active.filter((incident) => incident.severity === "P2").length
+  const navigate = (nextView: DashboardView) => {
+    setView(nextView)
+    window.history.replaceState(null, "", nextView === "dashboard" ? "#" : `#${nextView}`)
+  }
 
   return (
     <div className={cn("min-h-screen bg-background text-foreground", dark && "dark")}>
       <div className="linear-surface grid min-h-screen grid-cols-1 lg:grid-cols-[228px_minmax(0,1fr)]">
-        <Sidebar />
+        <Sidebar currentView={view} onNavigate={navigate} />
         <main className="min-w-0 px-4 py-4 sm:px-6 lg:px-6">
           <Topbar dark={dark} onTheme={() => setDark((value) => !value)} onCommand={() => setCommandOpen(true)} />
-          <OverviewTabs />
-          <SystemHealthPanel />
+          {view === "dashboard" ? (
+            <>
+              <OverviewTabs />
+              <SystemHealthPanel />
 
-          <motion.section
-            aria-label="Incident metrics"
-            className="mt-2.5 grid gap-2.5 md:grid-cols-2 xl:grid-cols-4"
-            initial="initial"
-            animate="animate"
-            transition={{ staggerChildren: 0.04 }}
-          >
-            <Metric title="Active incidents" value={String(active.length)} detail={`${p1} P1, ${p2} P2`} icon={Bell} />
-            <Metric title="MTTR this week" value="14m" detail="22% faster" icon={CheckCircle2} intent="good" />
-            <Metric title="Alert noise ratio" value="0.31" detail="within target" icon={ShieldCheck} intent="good" />
-            <Metric title="LLM cost today" value="$42" detail="tier A: 71%" icon={Sparkles} />
-          </motion.section>
+              <motion.section
+                aria-label="Incident metrics"
+                className="mt-2.5 grid gap-2.5 md:grid-cols-2 xl:grid-cols-4"
+                initial="initial"
+                animate="animate"
+                transition={{ staggerChildren: 0.04 }}
+              >
+                <Metric title="Active incidents" value={String(active.length)} detail={`${p1} P1, ${p2} P2`} icon={Bell} />
+                <Metric title="MTTR this week" value="14m" detail="22% faster" icon={CheckCircle2} intent="good" />
+                <Metric title="Alert noise ratio" value="0.31" detail="within target" icon={ShieldCheck} intent="good" />
+                <Metric title="LLM cost today" value="$42" detail="tier A: 71%" icon={Sparkles} />
+              </motion.section>
 
-          <section className="mt-2.5 grid items-start gap-2.5 xl:grid-cols-[minmax(0,1.55fr)_360px]">
-            <div className="grid gap-2.5">
-              <Card className="overflow-hidden">
+              <section className="mt-2.5 grid items-start gap-2.5 xl:grid-cols-[minmax(0,1.55fr)_360px]">
+                <div className="grid gap-2.5">
+                  <Card className="overflow-hidden">
                 <CardHeader className="flex-row items-center justify-between gap-4 space-y-0 border-b bg-card/70 px-4 py-3">
                   <div>
                     <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">Live triage</CardDescription>
@@ -225,9 +243,9 @@ export function Dashboard() {
                     </TableBody>
                   </Table>
                 </CardContent>
-              </Card>
+                  </Card>
 
-              <Card className="overflow-hidden">
+                  <Card className="overflow-hidden">
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -240,18 +258,22 @@ export function Dashboard() {
                 <CardContent className="pt-2">
                   <IncidentTrendChart />
                 </CardContent>
-              </Card>
-            </div>
-            <div className="grid gap-2.5">
-              <IncidentDetail incident={selected} />
-              <SeverityDonut />
-              <QualityTrendCard />
-              <ModelMixCard />
-              <SLOBudgetCard />
-              <ActivityStream />
-              <SideStacks />
-            </div>
-          </section>
+                  </Card>
+                </div>
+                <div className="grid gap-2.5">
+                  <IncidentDetail incident={selected} />
+                  <SeverityDonut />
+                  <QualityTrendCard />
+                  <ModelMixCard />
+                  <SLOBudgetCard />
+                  <ActivityStream />
+                  <SideStacks />
+                </div>
+              </section>
+            </>
+          ) : (
+            <WorkspacePage view={view} onNavigate={navigate} />
+          )}
         </main>
       </div>
       <CommandPalette
@@ -260,14 +282,24 @@ export function Dashboard() {
         onSelectIncident={(id) => {
           setSelectedID(id)
           setSeverity("all")
+          navigate("dashboard")
         }}
         onSetSeverity={setSeverity}
+        onNavigate={navigate}
       />
     </div>
   )
 }
 
-function Sidebar() {
+function readView(): DashboardView {
+  const nextView = window.location.hash.replace("#", "")
+  if (["incidents", "runbooks", "integrations", "evals", "agents", "settings"].includes(nextView)) {
+    return nextView as DashboardView
+  }
+  return "dashboard"
+}
+
+function Sidebar({ currentView, onNavigate }: { currentView: DashboardView; onNavigate: (view: DashboardView) => void }) {
   return (
     <aside className="border-r bg-card/80 px-3 py-4 backdrop-blur">
       <div className="mb-5 flex items-center gap-2 px-2">
@@ -281,18 +313,19 @@ function Sidebar() {
       </div>
       <nav className="grid gap-1">
         {navItems.map((item, index) => (
-          <a
+          <button
             key={item.label}
-            href={`#${item.label.toLowerCase()}`}
             className={cn(
-              "group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors",
-              index === 0 && "bg-accent text-accent-foreground",
+              "group flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors",
+              currentView === item.view && "bg-accent text-accent-foreground",
             )}
+            type="button"
+            onClick={() => onNavigate(item.view as DashboardView)}
           >
             <item.icon className="size-4 transition-colors group-hover:text-foreground" />
             <span className="flex-1">{item.label}</span>
             {item.count ? <span className="text-xs tabular-nums">{item.count}</span> : null}
-          </a>
+          </button>
         ))}
       </nav>
       <div className="mt-6 rounded-lg border bg-background/70 p-3 text-xs text-muted-foreground shadow-[0_1px_0_rgba(15,23,42,0.03)]">
@@ -556,11 +589,13 @@ function CommandPalette({
   onOpenChange,
   onSelectIncident,
   onSetSeverity,
+  onNavigate,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelectIncident: (id: string) => void
   onSetSeverity: (severity: string) => void
+  onNavigate: (view: DashboardView) => void
 }) {
   const [value, setValue] = useState("")
   const commands = [
@@ -572,8 +607,11 @@ function CommandPalette({
     })),
     { key: "severity-p1", title: "Show P1 incidents", detail: "Filter incident table", action: () => onSetSeverity("P1") },
     { key: "severity-all", title: "Show all incidents", detail: "Clear severity filter", action: () => onSetSeverity("all") },
-    { key: "runbooks", title: "Open runbooks", detail: "Response library", action: () => undefined },
-    { key: "integrations", title: "Open integrations", detail: "Tool health", action: () => undefined },
+    { key: "runbooks", title: "Open runbooks", detail: "Response library", action: () => onNavigate("runbooks") },
+    { key: "integrations", title: "Open integrations", detail: "Tool health", action: () => onNavigate("integrations") },
+    { key: "evals", title: "Open evals", detail: "Golden tests and model quality", action: () => onNavigate("evals") },
+    { key: "agents", title: "Open agents", detail: "Workers, traces, and queues", action: () => onNavigate("agents") },
+    { key: "settings", title: "Open settings", detail: "Tenant, routing, and audit policy", action: () => onNavigate("settings") },
   ]
   const filtered = commands.filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(value.toLowerCase()))
 
