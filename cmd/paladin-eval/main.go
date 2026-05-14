@@ -22,7 +22,7 @@ import (
 func main() {
 	var (
 		fixturesDir = flag.String("fixtures", "test/fixtures", "directory containing *.jsonl fixtures")
-		category    = flag.String("category", "", "limit to a single category (classification|supervisor_routing|tool_use|summary|safety|adversarial|cost_regression|latency_budget|memory_recall)")
+		category    = flag.String("category", "", "limit to a single category (classification|supervisor_routing|tool_use|summary|safety|adversarial|cost_regression|latency_budget|memory_recall|rca_correctness)")
 		threshold   = flag.Float64("threshold", 0.8, "minimum pass rate; exit 1 below this")
 		maxCases    = flag.Int("max", 0, "max cases to run (0 = all)")
 		timeout     = flag.Duration("timeout", 5*time.Second, "per-case timeout")
@@ -192,6 +192,8 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 		return eval.LatencyBudgetScore(tc.LatencyBudgetMS, tc.ObservedLatencyMS)
 	case eval.CategoryMemoryRecall:
 		return eval.MemoryRecallScore(tc.ExpectedIncidentIDs, tc.RecalledIncidentIDs)
+	case eval.CategoryRCACorrectness:
+		return eval.RCACorrectnessScore(tc.ExpectedRootCause, tc.PredictedRootCause, tc.ExpectedBlastRadius, tc.PredictedBlastRadius)
 	}
 	return eval.Score{Pass: false, Score: 0, Details: "unhandled category"}
 }

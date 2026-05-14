@@ -122,6 +122,14 @@ func validateCase(tc TestCase) error {
 	if tc.Category == CategoryMemoryRecall && len(tc.ExpectedIncidentIDs) == 0 {
 		return fmt.Errorf("expected_incident_ids must not be empty")
 	}
+	if tc.Category == CategoryRCACorrectness {
+		if strings.TrimSpace(tc.ExpectedRootCause) == "" {
+			return fmt.Errorf("expected_root_cause must not be empty")
+		}
+		if len(tc.ExpectedBlastRadius) == 0 {
+			return fmt.Errorf("expected_blast_radius must not be empty")
+		}
+	}
 	if !tc.HasExpectations() {
 		return fmt.Errorf("test case has no expected outputs")
 	}

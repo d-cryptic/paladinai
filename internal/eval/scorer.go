@@ -216,6 +216,42 @@ func MemoryRecallScore(expected, recalled []string) Score {
 	}
 }
 
+// RCACorrectnessScore computes a Stage 10 RCA score from root-cause identity
+// and blast-radius recall. Exact root-cause matches get full credit; causes in
+// the same broad failure family get partial credit.
+func RCACorrectnessScore(expectedCause, predictedCause string, expectedBlast, predictedBlast []string) Score {
+	expCause := strings.ToLower(strings.TrimSpace(expectedCause))
+	gotCause := strings.ToLower(strings.TrimSpace(predictedCause))
+	if expCause == "" {
+		return Score{Pass: false, Score: 0, Details: "expected_root_cause must not be empty"}
+	}
+	if len(toSet(expectedBlast)) == 0 {
+		return Score{Pass: false, Score: 0, Details: "expected_blast_radius must not be empty"}
+	}
+
+	causeScore := 0.0
+	switch {
+	case gotCause == "":
+		causeScore = 0
+	case expCause == gotCause:
+		causeScore = 1
+	case failureFamily(expCause) == failureFamily(gotCause):
+		causeScore = 0.5
+	}
+
+	expectedSet := toSet(expectedBlast)
+	blastHits := countHits(expectedSet, predictedBlast)
+	blastRecall := float64(blastHits) / float64(len(expectedSet))
+	score := 0.6*causeScore + 0.4*blastRecall
+
+	return Score{
+		Pass:  score >= 0.8,
+		Score: clamp01(score),
+		Details: fmt.Sprintf("cause=%.2f blast_recall=%.2f blast_hits=%d/%d expected_cause=%q predicted_cause=%q",
+			causeScore, blastRecall, blastHits, len(expectedSet), expCause, gotCause),
+	}
+}
+
 // AggregateResults returns the pass rate and mean score across the slice.
 func AggregateResults(scores []Score) (passRate, meanScore float64) {
 	if len(scores) == 0 {
@@ -278,4 +314,30 @@ func toSet(items []string) map[string]struct{} {
 		m[k] = struct{}{}
 	}
 	return m
+}
+
+func failureFamily(cause string) string {
+	c := strings.ToLower(strings.TrimSpace(cause))
+	switch {
+	case strings.Contains(c, "connection") || strings.Contains(c, "pool") || strings.Contains(c, "postgres") || strings.Contains(c, "db"):
+		return "database"
+	case strings.Contains(c, "memory") || strings.Contains(c, "oom") || strings.Contains(c, "leak"):
+		return "memory"
+	case strings.Contains(c, "network") || strings.Contains(c, "packet") || strings.Contains(c, "ingress") || strings.Contains(c, "502"):
+		return "network"
+	case strings.Contains(c, "disk") || strings.Contains(c, "io") || strings.Contains(c, "i/o") || strings.Contains(c, "etcd"):
+		return "storage"
+	case strings.Contains(c, "deploy") || strings.Contains(c, "deployment") || strings.Contains(c, "regression") || strings.Contains(c, "rollback"):
+		return "deployment"
+	case strings.Contains(c, "kubelet") || strings.Contains(c, "containerd") || strings.Contains(c, "node"):
+		return "kubernetes"
+	case strings.Contains(c, "rbac") || strings.Contains(c, "permission") || strings.Contains(c, "pvc"):
+		return "permission"
+	case strings.Contains(c, "timeout") || strings.Contains(c, "deadline") || strings.Contains(c, "grpc"):
+		return "timeout"
+	case strings.Contains(c, "consumer") || strings.Contains(c, "rebalance") || strings.Contains(c, "lag"):
+		return "queue"
+	default:
+		return c
+	}
 }
