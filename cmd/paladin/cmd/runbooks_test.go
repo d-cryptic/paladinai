@@ -159,10 +159,7 @@ func TestWriteRunbooksImportResult_HumanCompletedImport(t *testing.T) {
 }
 
 func TestRunbookImportPayloadIncludesDocumentedFlags(t *testing.T) {
-	cmd := &cobra.Command{Use: "import"}
-	for _, key := range []string{"repo", "path", "space", "branch", "url", "database-id", "token"} {
-		cmd.Flags().String(key, "", "")
-	}
+	cmd := newRunbookImportFlagTestCmd()
 	values := map[string]string{
 		"repo":        "acme/runbooks",
 		"path":        "docs/runbooks",
@@ -190,6 +187,63 @@ func TestRunbookImportPayloadIncludesDocumentedFlags(t *testing.T) {
 	}
 }
 
+func TestValidateRunbookImportFlags_RequiresGitHubRepoAndPath(t *testing.T) {
+	cmd := newRunbookImportFlagTestCmd()
+	if err := cmd.Flags().Set("repo", "acme/runbooks"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := validateRunbookImportFlags(cmd, "github")
+	if err == nil || !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("error = %v, want --path requirement", err)
+	}
+
+	if err := cmd.Flags().Set("path", "docs/runbooks"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRunbookImportFlags(cmd, "github"); err != nil {
+		t.Fatalf("valid github import flags failed: %v", err)
+	}
+}
+
+func TestValidateRunbookImportFlags_SourceSpecificRequirements(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  string
+		values  map[string]string
+		wantErr string
+	}{
+		{name: "file path", source: "file", wantErr: "--path"},
+		{name: "confluence url", source: "confluence", values: map[string]string{"space": "ENG"}, wantErr: "--url"},
+		{name: "confluence space", source: "confluence", values: map[string]string{"url": "https://acme.atlassian.net"}, wantErr: "--space"},
+		{name: "notion database", source: "notion", wantErr: "--database-id"},
+		{name: "valid file", source: "file", values: map[string]string{"path": "./runbooks"}},
+		{name: "valid confluence", source: "confluence", values: map[string]string{"url": "https://acme.atlassian.net", "space": "ENG"}},
+		{name: "valid notion", source: "notion", values: map[string]string{"database-id": "db-123"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newRunbookImportFlagTestCmd()
+			for key, value := range tt.values {
+				if err := cmd.Flags().Set(key, value); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := validateRunbookImportFlags(cmd, tt.source)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want %s", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("valid flags failed: %v", err)
+			}
+		})
+	}
+}
+
 func TestWriteRunbooksImportResultDoesNotExposeToken(t *testing.T) {
 	cmd := newRunbooksOutputTestCmd(false)
 
@@ -209,5 +263,13 @@ func newRunbooksOutputTestCmd(ci bool) *cobra.Command {
 	cmd := &cobra.Command{Use: "runbooks"}
 	cmd.Flags().StringP("output", "o", "table", "")
 	cmd.Flags().Bool("ci", ci, "")
+	return cmd
+}
+
+func newRunbookImportFlagTestCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "import"}
+	for _, key := range []string{"repo", "path", "space", "branch", "url", "database-id", "token"} {
+		cmd.Flags().String(key, "", "")
+	}
 	return cmd
 }
