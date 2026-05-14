@@ -92,7 +92,10 @@ LIVE_EVAL_RETRIES=6 LIVE_EVAL_CASE_DELAY=3s make eval-live
 
 Current live smoke baseline with `qwen/qwen3.6-flash` on OpenRouter:
 12 random real LLM-backed cases reached 100% pass rate, 100% model pass
-rate, 0 provider errors, p50 8.9s, p95 12.4s, max 12.4s. RCA now skips
+rate, 0 provider errors, p50 6.3s, p95 10.0s, max 10.0s. Obvious
+classification cases use deterministic routing, giving the sampled
+classification slice p50/p95 0ms while ambiguous alerts still use the LLM.
+RCA now skips
 the extra triage LLM call by deriving RCA context from classifier + alert
 data; focused RCA passed 5/5 with p50 9.9s and p95 13.0s. `make
 eval-live` defaults to four transient-provider retries and a 2s inter-case
