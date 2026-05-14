@@ -16,7 +16,9 @@ VITE_PALADIN_TENANT_ID=acme-prod
 VITE_PALADIN_AUTH_TOKEN=
 ```
 
-`VITE_PALADIN_API_URL` should point at `paladin-edge`. The current live reads use `GET /incidents` and `GET /runbooks` with `Authorization: Bearer <token>` and `X-Tenant-ID: <tenant>`. The websocket URL is displayed in the workspace status; browser-native websocket auth still needs a server-supported cookie or subprotocol flow before it can be connected safely from the dashboard.
+`VITE_PALADIN_API_URL` should point at `paladin-edge`. The current live reads use `GET /incidents` and `GET /runbooks` with `Authorization: Bearer <token>` and `X-Tenant-ID: <tenant>`.
+
+`VITE_PALADIN_WS_URL` should point at `paladin-ws`. Browser-native websocket clients cannot set `Authorization`, so the dashboard sends the token in the non-echoed `paladinai.jwt.<token>` websocket subprotocol alongside the public `paladinai.v2` protocol. The server only echoes `paladinai.v2`.
 
 Validation:
 

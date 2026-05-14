@@ -69,6 +69,17 @@ func TestJWTMiddleware_ValidToken_InjectsContext(t *testing.T) {
 	assert.Equal(t, []string{"viewer"}, gotRoles)
 }
 
+func TestJWTMiddleware_WebSocketSubprotocolToken_Passes(t *testing.T) {
+	tok := issueToken(t, "acme-corp", "user-1", []string{"viewer"}, time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/v2/ws/alerts", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Protocol", "paladinai.v2, paladinai.jwt."+tok)
+
+	rr := serve(newMiddleware(), req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
 func TestJWTMiddleware_MissingAuthHeader_Returns401(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := serve(newMiddleware(), req)

@@ -24,9 +24,10 @@ const (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
-	// Origin validation is handled by the JWT middleware — by the time we reach
-	// the upgrade, the request already carries a verified bearer token, making
-	// cross-site WebSocket hijacking impossible without a valid credential.
+	Subprotocols:    []string{"paladinai.v2"},
+	// Origin validation is handled by the JWT middleware. Browser clients pass
+	// the bearer token via a non-echoed websocket subprotocol because native
+	// WebSocket cannot set Authorization headers.
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 

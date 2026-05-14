@@ -41,6 +41,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { dashboardToken, dashboardWSURL, dashboardWebSocketProtocols, loadDashboardData, mockDashboardData, type DashboardData } from "@/api"
 import {
   activity,
   agentTimeline,
@@ -56,7 +57,6 @@ import {
 } from "@/data"
 import { cn } from "@/lib/utils"
 import { WorkspacePage, type DashboardView } from "@/pages"
-import { loadDashboardData, mockDashboardData, type DashboardData } from "@/api"
 
 const navItems = [
   { label: "Dashboard", view: "dashboard", icon: LayoutDashboard, count: 3 },
@@ -92,6 +92,8 @@ const sloToneClass: Record<string, string> = {
   warn: "from-amber-500 to-orange-500",
 }
 
+type StreamState = "mock" | "connecting" | "connected" | "disconnected" | "error"
+
 export function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData>(() => mockDashboardData())
   const [view, setView] = useState<DashboardView>(() => readView())
@@ -100,6 +102,8 @@ export function Dashboard() {
   const [query, setQuery] = useState("")
   const [commandOpen, setCommandOpen] = useState(false)
   const [dark, setDark] = useState(() => window.localStorage.getItem("paladin-theme") === "dark")
+  const [streamState, setStreamState] = useState<StreamState>(() => (dashboardToken() ? "connecting" : "mock"))
+  const [liveAlertCount, setLiveAlertCount] = useState(0)
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -134,6 +138,25 @@ export function Dashboard() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    const token = dashboardToken()
+    if (!token) {
+      setStreamState("mock")
+      return
+    }
+
+    setStreamState("connecting")
+    const socket = new WebSocket(dashboardWSURL(), dashboardWebSocketProtocols(token))
+    socket.onopen = () => setStreamState("connected")
+    socket.onmessage = () => setLiveAlertCount((count) => count + 1)
+    socket.onerror = () => setStreamState("error")
+    socket.onclose = () => setStreamState((state) => (state === "error" ? "error" : "disconnected"))
+
+    return () => {
+      socket.close(1000, "dashboard unmount")
+    }
+  }, [])
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return dashboardData.incidents.filter((incident) => {
@@ -155,7 +178,7 @@ export function Dashboard() {
   return (
     <div className={cn("min-h-screen bg-background text-foreground", dark && "dark")}>
       <div className="linear-surface grid min-h-screen grid-cols-1 lg:grid-cols-[228px_minmax(0,1fr)]">
-        <Sidebar currentView={view} onNavigate={navigate} />
+        <Sidebar currentView={view} onNavigate={navigate} streamState={streamState} liveAlertCount={liveAlertCount} />
         <main className="min-w-0 px-4 py-4 sm:px-6 lg:px-6">
           <Topbar dark={dark} onTheme={() => setDark((value) => !value)} onCommand={() => setCommandOpen(true)} />
           {view === "dashboard" ? (
@@ -312,7 +335,19 @@ function readView(): DashboardView {
   return "dashboard"
 }
 
-function Sidebar({ currentView, onNavigate }: { currentView: DashboardView; onNavigate: (view: DashboardView) => void }) {
+function Sidebar({
+  currentView,
+  onNavigate,
+  streamState,
+  liveAlertCount,
+}: {
+  currentView: DashboardView
+  onNavigate: (view: DashboardView) => void
+  streamState: StreamState
+  liveAlertCount: number
+}) {
+  const connected = streamState === "connected"
+  const streamLabel = connected ? "Live stream connected" : streamState === "mock" ? "Mock stream" : `Live stream ${streamState}`
   return (
     <aside className="border-r bg-card/80 px-3 py-4 backdrop-blur">
       <div className="mb-5 flex items-center gap-2 px-2">
@@ -343,10 +378,10 @@ function Sidebar({ currentView, onNavigate }: { currentView: DashboardView; onNa
       </nav>
       <div className="mt-6 rounded-lg border bg-background/70 p-3 text-xs text-muted-foreground shadow-[0_1px_0_rgba(15,23,42,0.03)]">
         <div className="mb-2 flex items-center gap-2 text-foreground">
-          <CircleDot className="size-3 fill-emerald-500 text-emerald-500" />
-          Live stream connected
+          <CircleDot className={cn("size-3", connected ? "fill-emerald-500 text-emerald-500" : "fill-amber-500 text-amber-500")} />
+          {streamLabel}
         </div>
-        <div>RCA queue 2 active · cost guardrail normal</div>
+        <div>{liveAlertCount} live alerts · RCA queue 2 active</div>
       </div>
     </aside>
   )

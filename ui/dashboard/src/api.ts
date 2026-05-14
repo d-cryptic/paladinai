@@ -121,6 +121,11 @@ export function dashboardToken(): string {
   return window.localStorage.getItem("paladin-auth-token") || import.meta.env.VITE_PALADIN_AUTH_TOKEN || ""
 }
 
+export function dashboardWebSocketProtocols(token = dashboardToken()): string[] {
+  if (!token) return ["paladinai.v2"]
+  return ["paladinai.v2", `paladinai.jwt.${token}`]
+}
+
 async function fetchIncidents(apiBaseURL: string, token: string, tenantID: string, signal?: AbortSignal): Promise<Incident[]> {
   const response = await getJSON<APIResponse<AgentIncident[]>>(`${apiBaseURL}/incidents`, token, tenantID, signal)
   return (response.data ?? []).map(toDashboardIncident)

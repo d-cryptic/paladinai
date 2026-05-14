@@ -58,18 +58,26 @@ var errMissingAuth = errors.New("missing authorization header")
 
 func extractBearer(r *http.Request) (string, error) {
 	hdr := r.Header.Get("Authorization")
-	if hdr == "" {
-		return "", errMissingAuth
+	if hdr != "" {
+		parts := strings.SplitN(hdr, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+			return "", errMissingAuth
+		}
+		tok := strings.TrimSpace(parts[1])
+		if tok == "" {
+			return "", errMissingAuth
+		}
+		return tok, nil
 	}
-	parts := strings.SplitN(hdr, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-		return "", errMissingAuth
+
+	for _, protocol := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		protocol = strings.TrimSpace(protocol)
+		if token, ok := strings.CutPrefix(protocol, "paladinai.jwt."); ok && token != "" {
+			return token, nil
+		}
 	}
-	tok := strings.TrimSpace(parts[1])
-	if tok == "" {
-		return "", errMissingAuth
-	}
-	return tok, nil
+
+	return "", errMissingAuth
 }
 
 func writeJSONError(w http.ResponseWriter, code int, msg string) {
