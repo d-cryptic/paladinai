@@ -20,7 +20,7 @@ func clearAgentEnv(t *testing.T) {
 		"QDRANT_URL", "VAULT_ADDR", "VAULT_TOKEN", "OTEL_EXPORTER_OTLP_ENDPOINT",
 		"OTEL_SERVICE_VERSION", "OPENROUTER_API_KEY", "LLM_GATEWAY_URL",
 		"LLM_ALLOW_INSECURE_GATEWAY", "LLM_TIER_A", "LLM_TIER_B", "LLM_TIER_C",
-		"AGENT_WORKERS", "AGENT_CONSUMER_NAME",
+		"AGENT_WORKERS", "AGENT_CONSUMER_NAME", "TRIAGE_TIMEOUT_SECONDS", "RCA_TIMEOUT_SECONDS",
 	} {
 		t.Setenv(key, "")
 	}
@@ -32,13 +32,13 @@ func TestLoad_AgentWorkers(t *testing.T) {
 		setEnv string // empty means "leave unset"
 		want   int
 	}{
-		{"default when unset", "", 4},
+		{"default when unset", "", 2},
 		{"valid override", "8", 8},
-		{"non-numeric falls back", "not-a-number", 4},
-		{"float falls back", "4.0", 4},
-		{"whitespace falls back", " 8 ", 4},
-		{"zero falls back", "0", 4},
-		{"negative falls back", "-1", 4},
+		{"non-numeric falls back", "not-a-number", 2},
+		{"float falls back", "4.0", 2},
+		{"whitespace falls back", " 8 ", 2},
+		{"zero falls back", "0", 2},
+		{"negative falls back", "-1", 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,10 +76,20 @@ func TestLoad_Timeouts(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	assert.Equal(t, 30*time.Second, cfg.TriageTimeout)
-	// RCATimeout is always derived from TriageTimeout — assert the invariant,
-	// not a hard-coded value, so changes to TriageTimeout still surface here.
-	assert.Equal(t, 2*cfg.TriageTimeout, cfg.RCATimeout)
+	assert.Equal(t, 45*time.Second, cfg.TriageTimeout)
+	assert.Equal(t, cfg.TriageTimeout, cfg.RCATimeout)
+}
+
+func TestLoad_TimeoutOverrides(t *testing.T) {
+	clearAgentEnv(t)
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("TRIAGE_TIMEOUT_SECONDS", "20")
+	t.Setenv("RCA_TIMEOUT_SECONDS", "55")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 20*time.Second, cfg.TriageTimeout)
+	assert.Equal(t, 55*time.Second, cfg.RCATimeout)
 }
 
 func TestLoad_MissingOpenRouterKeyReturnsError(t *testing.T) {

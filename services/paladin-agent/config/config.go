@@ -18,11 +18,10 @@ type Agent struct {
 	// AgentWorkers is the number of concurrent alert processing workers.
 	AgentWorkers int
 
-	// TriageTimeout is the max time allowed for a single triage operation (Tier B model).
+	// TriageTimeout is the max time allowed for classifier + triage work.
 	TriageTimeout time.Duration
 
-	// RCATimeout is the max time allowed for a single RCA operation (Tier C model — slower).
-	// Defaults to 2× TriageTimeout.
+	// RCATimeout is the max time allowed for a single RCA operation.
 	RCATimeout time.Duration
 
 	// NATSConsumerName is the durable consumer name for this agent instance.
@@ -50,14 +49,14 @@ func Load() (*Agent, error) {
 		return nil, fmt.Errorf("agent config load llm: %w", err)
 	}
 
-	triageTimeout := 30 * time.Second
+	triageTimeout := envDurationSeconds("TRIAGE_TIMEOUT_SECONDS", 45*time.Second)
 	anthropicModel := envStr("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
 	return &Agent{
 		Base:             base,
 		LLM:              llm,
-		AgentWorkers:     envInt("AGENT_WORKERS", 4),
+		AgentWorkers:     envInt("AGENT_WORKERS", 2),
 		TriageTimeout:    triageTimeout,
-		RCATimeout:       2 * triageTimeout,
+		RCATimeout:       envDurationSeconds("RCA_TIMEOUT_SECONDS", triageTimeout),
 		NATSConsumerName: envStr("AGENT_CONSUMER_NAME", "paladin-agent-runtime"),
 		AnthropicAPIKey:  os.Getenv("ANTHROPIC_API_KEY"),
 		AnthropicModel:   anthropicModel,
@@ -75,6 +74,15 @@ func envInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
+		}
+	}
+	return fallback
+}
+
+func envDurationSeconds(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
 		}
 	}
 	return fallback
