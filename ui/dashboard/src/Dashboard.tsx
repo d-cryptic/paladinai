@@ -126,15 +126,17 @@ export function Dashboard() {
   const p2 = active.filter((incident) => incident.severity === "P2").length
 
   return (
-    <div className={cn("min-h-screen bg-background", dark && "dark")}>
+    <div className={cn("min-h-screen bg-background text-foreground", dark && "dark")}>
       <div className="linear-surface grid min-h-screen grid-cols-1 lg:grid-cols-[228px_minmax(0,1fr)]">
         <Sidebar />
         <main className="min-w-0 px-4 py-4 sm:px-6 lg:px-6">
           <Topbar dark={dark} onTheme={() => setDark((value) => !value)} onCommand={() => setCommandOpen(true)} />
+          <OverviewTabs />
+          <SystemHealthPanel />
 
           <motion.section
             aria-label="Incident metrics"
-            className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4"
+            className="mt-2.5 grid gap-2.5 md:grid-cols-2 xl:grid-cols-4"
             initial="initial"
             animate="animate"
             transition={{ staggerChildren: 0.04 }}
@@ -145,103 +147,103 @@ export function Dashboard() {
             <Metric title="LLM cost today" value="$42" detail="tier A: 71%" icon={Sparkles} />
           </motion.section>
 
-          <section className="mt-2.5 grid gap-2.5 xl:grid-cols-[minmax(0,1.55fr)_360px]">
-            <Card className="overflow-hidden">
-              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0 border-b bg-card/70 px-4 py-3">
-                <div>
-                  <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">Live triage</CardDescription>
-                  <CardTitle className="text-[15px]">Incidents</CardTitle>
-                </div>
-                <div className="flex min-w-0 flex-1 justify-end gap-2">
-                  <label className="sr-only" htmlFor="severity-filter">
-                    Severity filter
-                  </label>
-                  <select
-                    id="severity-filter"
-                    className="h-8 rounded-md border bg-background/80 px-2 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)]"
-                    value={severity}
-                    onChange={(event) => setSeverity(event.target.value)}
-                  >
-                    <option value="all">All severities</option>
-                    <option value="P1">P1</option>
-                    <option value="P2">P2</option>
-                    <option value="P3">P3</option>
-                    <option value="P4">P4</option>
-                  </select>
-                  <div className="relative w-full max-w-[260px]">
-                    <Search className="absolute left-2 top-2 size-4 text-muted-foreground" />
-                    <Input
-                      className="bg-background/80 pl-8"
-                      placeholder="Search service or title"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                    />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/40">
-                      <TableHead>Severity</TableHead>
-                      <TableHead>Incident</TableHead>
-                      <TableHead>Service</TableHead>
-                      <TableHead>Age</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Agent</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filtered.map((incident) => (
-                      <motion.tr
-                        key={incident.id}
-                        className={cn(
-                          "cursor-pointer border-b border-l-2 border-l-transparent transition-colors hover:bg-accent/40",
-                          selected.id === incident.id && "border-l-primary bg-accent/70",
-                        )}
-                        onClick={() => setSelectedID(incident.id)}
-                        layout
-                        initial={{ y: 2 }}
-                        animate={{ y: 0 }}
-                        transition={{ duration: 0.18 }}
-                      >
-                        <TableCell>
-                          <Badge variant="outline" className={severityClass[incident.severity]}>
-                            {incident.severity}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="min-w-[280px] font-medium leading-snug">
-                          <span className="text-muted-foreground">{incident.id}</span> · {incident.title}
-                        </TableCell>
-                        <TableCell>{incident.service}</TableCell>
-                        <TableCell>{incident.age}</TableCell>
-                        <TableCell>{incident.status}</TableCell>
-                        <TableCell>{incident.agent}</TableCell>
-                      </motion.tr>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            <IncidentDetail incident={selected} />
-
-            <Card className="overflow-hidden">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">30-day trend</CardDescription>
-                    <CardTitle className="text-[15px]">Incident volume</CardTitle>
-                  </div>
-                  <div className="rounded-full border bg-background/70 px-2 py-1 text-xs text-muted-foreground">noise down 72%</div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-2">
-                <IncidentTrendChart />
-              </CardContent>
-            </Card>
-
+          <section className="mt-2.5 grid items-start gap-2.5 xl:grid-cols-[minmax(0,1.55fr)_360px]">
             <div className="grid gap-2.5">
+              <Card className="overflow-hidden">
+                <CardHeader className="flex-row items-center justify-between gap-4 space-y-0 border-b bg-card/70 px-4 py-3">
+                  <div>
+                    <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">Live triage</CardDescription>
+                    <CardTitle className="text-[15px]">Incidents</CardTitle>
+                  </div>
+                  <div className="flex min-w-0 flex-1 justify-end gap-2">
+                    <label className="sr-only" htmlFor="severity-filter">
+                      Severity filter
+                    </label>
+                    <select
+                      id="severity-filter"
+                      className="h-8 rounded-md border bg-background/80 px-2 text-sm shadow-[0_1px_0_rgba(15,23,42,0.03)]"
+                      value={severity}
+                      onChange={(event) => setSeverity(event.target.value)}
+                    >
+                      <option value="all">All severities</option>
+                      <option value="P1">P1</option>
+                      <option value="P2">P2</option>
+                      <option value="P3">P3</option>
+                      <option value="P4">P4</option>
+                    </select>
+                    <div className="relative w-full max-w-[260px]">
+                      <Search className="absolute left-2 top-2 size-4 text-muted-foreground" />
+                      <Input
+                        className="bg-background/80 pl-8"
+                        placeholder="Search service or title"
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40">
+                        <TableHead>Severity</TableHead>
+                        <TableHead>Incident</TableHead>
+                        <TableHead>Service</TableHead>
+                        <TableHead>Age</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Agent</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filtered.map((incident) => (
+                        <motion.tr
+                          key={incident.id}
+                          className={cn(
+                            "cursor-pointer border-b border-l-2 border-l-transparent transition-colors hover:bg-accent/40",
+                            selected.id === incident.id && "border-l-primary bg-accent/70",
+                          )}
+                          onClick={() => setSelectedID(incident.id)}
+                          layout
+                          initial={{ y: 2 }}
+                          animate={{ y: 0 }}
+                          transition={{ duration: 0.18 }}
+                        >
+                          <TableCell>
+                            <Badge variant="outline" className={severityClass[incident.severity]}>
+                              {incident.severity}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="min-w-[280px] font-medium leading-snug">
+                            <span className="text-muted-foreground">{incident.id}</span> · {incident.title}
+                          </TableCell>
+                          <TableCell>{incident.service}</TableCell>
+                          <TableCell>{incident.age}</TableCell>
+                          <TableCell>{incident.status}</TableCell>
+                          <TableCell>{incident.agent}</TableCell>
+                        </motion.tr>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card className="overflow-hidden">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">30-day trend</CardDescription>
+                      <CardTitle className="text-[15px]">Incident volume</CardTitle>
+                    </div>
+                    <div className="rounded-full border bg-background/70 px-2 py-1 text-xs text-muted-foreground">noise down 72%</div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-2">
+                  <IncidentTrendChart />
+                </CardContent>
+              </Card>
+            </div>
+            <div className="grid gap-2.5">
+              <IncidentDetail incident={selected} />
               <SeverityDonut />
               <QualityTrendCard />
               <ModelMixCard />
@@ -306,7 +308,7 @@ function Sidebar() {
 
 function Topbar({ dark, onTheme, onCommand }: { dark: boolean; onTheme: () => void; onCommand: () => void }) {
   return (
-    <header className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+    <header className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Tenant: acme-prod</p>
         <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em]">Operations dashboard</h1>
@@ -332,6 +334,220 @@ function Topbar({ dark, onTheme, onCommand }: { dark: boolean; onTheme: () => vo
         </Button>
       </div>
     </header>
+  )
+}
+
+function OverviewTabs() {
+  const tabs = ["Dallas prod", "Global edge", "AI runtime", "Integrations"]
+  return (
+    <div className="mb-3 flex min-w-0 items-center gap-5 overflow-x-auto border-b text-sm">
+      {tabs.map((tab, index) => (
+        <button
+          key={tab}
+          className={cn(
+            "relative h-9 whitespace-nowrap font-medium text-muted-foreground transition-colors hover:text-foreground",
+            index === 0 && "text-foreground",
+          )}
+          type="button"
+        >
+          {tab}
+          {index === 0 ? <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary" /> : null}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function SystemHealthPanel() {
+  return (
+    <section className="grid gap-2.5 xl:grid-cols-[minmax(0,1.3fr)_360px]">
+      <Card className="overflow-hidden border-0 bg-white/88 shadow-[0_20px_70px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70 dark:bg-card/90 dark:ring-white/10">
+        <CardContent className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+          <div>
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardDescription className="text-[12px] font-semibold uppercase tracking-[0.1em]">Pipeline overview</CardDescription>
+                <h2 className="mt-1 text-[34px] font-semibold leading-none tracking-[-0.02em] sm:text-[40px]">
+                  System Health, Normal.
+                </h2>
+              </div>
+              <Badge variant="secondary" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                4 checks green
+              </Badge>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_190px]">
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Retrieval accuracy</div>
+                    <div className="text-xs text-muted-foreground">Goal 95% · last 60 minutes</div>
+                  </div>
+                  <div className="rounded-full bg-lime-300 px-2 py-1 text-xs font-semibold text-slate-950">92%</div>
+                </div>
+                <div className="h-44">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={qualityTrend} margin={{ left: -28, right: 8, top: 10, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="hero-accuracy-fill" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.22} />
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.01} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="time" tickLine={false} axisLine={false} minTickGap={22} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
+                      <YAxis hide domain={[70, 100]} />
+                      <Tooltip
+                        cursor={{ stroke: "hsl(var(--border))" }}
+                        contentStyle={{
+                          borderRadius: 8,
+                          borderColor: "hsl(var(--border))",
+                          background: "hsl(var(--card))",
+                          color: "hsl(var(--foreground))",
+                          boxShadow: "0 18px 42px rgba(15, 23, 42, 0.14)",
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="accuracy"
+                        stroke="#8b5cf6"
+                        strokeWidth={3}
+                        fill="url(#hero-accuracy-fill)"
+                        activeDot={{ r: 5, fill: "#c7f72c", stroke: "#111827", strokeWidth: 2 }}
+                        isAnimationActive={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <TokenUsageRing />
+            </div>
+          </div>
+          <div className="grid gap-2.5">
+            <SemanticMapCard />
+            <ApiHealthCard />
+          </div>
+        </CardContent>
+      </Card>
+      <ComputeLoadCard />
+    </section>
+  )
+}
+
+function TokenUsageRing() {
+  return (
+    <div className="grid place-items-center rounded-lg border bg-background/55 p-4 text-center">
+      <div
+        className="grid size-32 place-items-center rounded-full"
+        style={{
+          background:
+            "conic-gradient(#c7f72c 0 72%, #8b5cf6 72% 100%), radial-gradient(circle, hsl(var(--card)) 0 58%, transparent 59%)",
+        }}
+      >
+        <div className="grid size-[94px] place-items-center rounded-full bg-card text-center shadow-inner">
+          <div>
+            <div className="text-[11px] text-muted-foreground">Monthly token</div>
+            <div className="text-[11px] text-muted-foreground">usage</div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 text-[34px] font-semibold leading-none tracking-[-0.02em]">72.4%</div>
+      <div className="mt-2 grid w-full gap-1 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-violet-500" />Generation</span>
+          <span>70%</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-lime-300" />Embedding</span>
+          <span>30%</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SemanticMapCard() {
+  return (
+    <div className="rounded-lg border bg-background/55 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">Semantic map</div>
+          <div className="text-xs text-muted-foreground">Cluster A · 5k pts</div>
+        </div>
+        <Badge variant="secondary">prod</Badge>
+      </div>
+      <div className="relative mt-3 h-28 overflow-hidden rounded-lg bg-muted/40">
+        <div className="absolute left-8 top-14 h-px w-28 rotate-[-6deg] bg-border" />
+        <div className="absolute right-12 top-12 h-px w-24 rotate-[-30deg] bg-border" />
+        <div className="absolute left-14 top-12 size-4 rounded-full bg-violet-500 shadow-[0_0_0_10px_rgba(139,92,246,0.10)]" />
+        <div className="absolute left-28 top-16 size-2 rounded-full bg-violet-300" />
+        <div className="absolute right-24 top-14 size-4 rounded-full bg-lime-300 shadow-[0_0_0_22px_rgba(199,247,44,0.10)]" />
+        <div className="absolute right-10 top-8 size-3 rounded-full bg-sky-500" />
+        <div className="absolute left-24 top-8 h-14 w-40 rounded-[50%] border border-dashed border-border" />
+      </div>
+    </div>
+  )
+}
+
+function ApiHealthCard() {
+  return (
+    <div className="rounded-lg border bg-background/55 p-3">
+      <div className="text-sm font-semibold">API health</div>
+      <div className="mt-3 flex items-center gap-3">
+        <div
+          className="grid size-20 place-items-center rounded-full"
+          style={{
+            background: "conic-gradient(#f97316 0 8%, #e5e7eb 8% 100%)",
+          }}
+        >
+          <div className="grid size-14 place-items-center rounded-full bg-card text-center">
+            <span className="text-lg font-semibold">99.9%</span>
+          </div>
+        </div>
+        <div className="text-sm">
+          <div className="font-medium">Uptime</div>
+          <div className="text-muted-foreground">p99 212ms · no brownouts</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ComputeLoadCard() {
+  return (
+    <Card className="overflow-hidden border-0 bg-gradient-to-br from-cyan-500 via-sky-600 to-slate-950 text-white shadow-[0_24px_80px_rgba(2,132,199,0.32)]">
+      <CardContent className="p-5">
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <CardDescription className="text-white/70">Compute load</CardDescription>
+            <CardTitle className="mt-1 text-[28px]">42% GPU</CardTitle>
+          </div>
+          <Sparkles className="size-5 text-lime-200" />
+        </div>
+        <div className="h-52">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={qualityTrend} margin={{ left: -28, right: 8, top: 10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="compute-fill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="5%" stopColor="#ffffff" stopOpacity={0.24} />
+                  <stop offset="95%" stopColor="#ffffff" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="time" tickLine={false} axisLine={false} minTickGap={20} tick={{ fill: "rgba(255,255,255,0.65)", fontSize: 11 }} />
+              <YAxis hide />
+              <Tooltip
+                cursor={{ stroke: "rgba(255,255,255,0.3)" }}
+                contentStyle={{
+                  borderRadius: 8,
+                  borderColor: "rgba(255,255,255,0.14)",
+                  background: "rgba(15,23,42,0.92)",
+                  color: "white",
+                }}
+              />
+              <Area type="monotone" dataKey="latency" stroke="#c7f72c" strokeWidth={3} fill="url(#compute-fill)" activeDot={{ r: 5 }} isAnimationActive={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
