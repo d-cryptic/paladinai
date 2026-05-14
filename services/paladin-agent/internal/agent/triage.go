@@ -153,7 +153,7 @@ func (t *TriageAgent) Triage(ctx context.Context, env *alert.AlertEnvelope) (*Tr
 	}
 
 	var result TriageResult
-	if err := json.Unmarshal([]byte(resp.Content), &result); err != nil {
+	if err := json.Unmarshal([]byte(extractJSONContent(resp.Content)), &result); err != nil {
 		// Graceful degradation — log, mark degraded, derive from envelope.
 		t.log.Warn("triage: model returned non-JSON, degrading",
 			zap.String("content_prefix", truncate(resp.Content, 200)),

@@ -84,6 +84,30 @@ func TestTriageAgent_ParsesValidJSON(t *testing.T) {
 	assert.Contains(t, result.AffectedServices, "api")
 }
 
+func TestTriageAgent_ParsesFencedJSON(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: "```json\n{\n  \"confirmed_severity\": \"P2\",\n  \"summary\": \"Checkout latency elevated\",\n  \"likely_cause\": \"Database pool saturation\",\n  \"affected_services\": [\"checkout\"],\n  \"recommended_action\": \"Inspect database pool metrics\",\n  \"needs_human\": true\n}\n```"}
+
+	ta, err := agent.NewTriageAgent(ctx, stub, zap.NewNop())
+	require.NoError(t, err)
+
+	env := &alert.AlertEnvelope{
+		TenantID:    "t1",
+		Fingerprint: "fp-fenced",
+		Severity:    alert.SeverityP2,
+		Status:      alert.StatusFiring,
+		Labels:      map[string]string{"service": "checkout"},
+		StartsAt:    time.Now(),
+	}
+
+	result, err := ta.Triage(ctx, env)
+	require.NoError(t, err)
+	assert.Equal(t, "P2", result.ConfirmedSeverity)
+	assert.Equal(t, "Checkout latency elevated", result.Summary)
+	assert.False(t, result.Degraded)
+	assert.Contains(t, result.AffectedServices, "checkout")
+}
+
 func TestTriageAgent_GracefulDegradationOnInvalidJSON(t *testing.T) {
 	ctx := context.Background()
 	stub := &stubModel{response: "The API service appears to be experiencing issues"}
