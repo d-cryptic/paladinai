@@ -34,3 +34,8 @@ sqlite_mcp_server.db
 
 # Go workspace cache (use GOMODCACHE env instead)
 vendor/
+
+# JavaScript dependencies
+node_modules/
+dist/
+*.tsbuildinfo
