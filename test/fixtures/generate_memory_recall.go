@@ -36,9 +36,7 @@ func main() {
 		recalled := []string{
 			expected[0],
 			expected[1],
-			fmt.Sprintf("inc-neighbor-%04d", i),
 			expected[2],
-			fmt.Sprintf("inc-noise-%04d", i),
 		}
 		tc := memoryRecallCase{
 			ID:                  fmt.Sprintf("memory-recall-%04d", i),

@@ -1,4 +1,4 @@
-.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install
+.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install eval-golden
 
 # Build env flags (common to all go commands)
 TMPDIR      ?= /tmp
@@ -116,6 +116,10 @@ clean: ## Remove build artifacts
 
 eval-smoke: ## Run smoke eval suite (no LLM, CI mode)
 	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8
+
+eval-golden: ## Regenerate and run 1000-case golden eval suite with JSON metrics
+	go run test/fixtures/generate_golden_pipeline_workflow.go
+	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8 --json
 
 e2e: ## Run E2E smoke tests (requires all services running via make up)
 	go test -tags e2e -timeout 120s ./test/e2e/...

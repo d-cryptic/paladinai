@@ -266,40 +266,58 @@ func canonicalSeverity(sev string) string {
 }
 
 type evalJSONSummary struct {
-	Total      int                            `json:"total"`
-	Passed     int                            `json:"passed"`
-	Failed     int                            `json:"failed"`
-	Skipped    int                            `json:"skipped"`
-	PassRate   float64                        `json:"pass_rate"`
-	MeanScore  float64                        `json:"mean_score"`
-	DurationMS int64                          `json:"duration_ms"`
-	Categories map[string]evalJSONCategoryRow `json:"categories"`
+	Total          int                            `json:"total"`
+	Passed         int                            `json:"passed"`
+	Failed         int                            `json:"failed"`
+	Skipped        int                            `json:"skipped"`
+	PassRate       float64                        `json:"pass_rate"`
+	ErrorRate      float64                        `json:"error_rate"`
+	MeanScore      float64                        `json:"mean_score"`
+	TruePositives  int                            `json:"true_positives"`
+	FalsePositives int                            `json:"false_positives"`
+	FalseNegatives int                            `json:"false_negatives"`
+	DurationMS     int64                          `json:"duration_ms"`
+	Categories     map[string]evalJSONCategoryRow `json:"categories"`
 }
 
 type evalJSONCategoryRow struct {
-	Total     int     `json:"total"`
-	Passed    int     `json:"passed"`
-	PassRate  float64 `json:"pass_rate"`
-	MeanScore float64 `json:"mean_score"`
+	Total          int     `json:"total"`
+	Passed         int     `json:"passed"`
+	Failed         int     `json:"failed"`
+	PassRate       float64 `json:"pass_rate"`
+	ErrorRate      float64 `json:"error_rate"`
+	MeanScore      float64 `json:"mean_score"`
+	TruePositives  int     `json:"true_positives"`
+	FalsePositives int     `json:"false_positives"`
+	FalseNegatives int     `json:"false_negatives"`
 }
 
 func printJSONSummary(w io.Writer, res *eval.RunResult) error {
 	summary := evalJSONSummary{
-		Total:      res.Total,
-		Passed:     res.Passed,
-		Failed:     res.Failed,
-		Skipped:    res.Skipped,
-		PassRate:   res.PassRate,
-		MeanScore:  res.MeanScore,
-		DurationMS: res.Duration.Milliseconds(),
-		Categories: make(map[string]evalJSONCategoryRow, len(res.ByCategory)),
+		Total:          res.Total,
+		Passed:         res.Passed,
+		Failed:         res.Failed,
+		Skipped:        res.Skipped,
+		PassRate:       res.PassRate,
+		ErrorRate:      res.ErrorRate,
+		MeanScore:      res.MeanScore,
+		TruePositives:  res.TruePositives,
+		FalsePositives: res.FalsePositives,
+		FalseNegatives: res.FalseNegatives,
+		DurationMS:     res.Duration.Milliseconds(),
+		Categories:     make(map[string]evalJSONCategoryRow, len(res.ByCategory)),
 	}
 	for category, row := range res.ByCategory {
 		summary.Categories[string(category)] = evalJSONCategoryRow{
-			Total:     row.Total,
-			Passed:    row.Passed,
-			PassRate:  row.PassRate,
-			MeanScore: row.MeanScore,
+			Total:          row.Total,
+			Passed:         row.Passed,
+			Failed:         row.Failed,
+			PassRate:       row.PassRate,
+			ErrorRate:      row.ErrorRate,
+			MeanScore:      row.MeanScore,
+			TruePositives:  row.TruePositives,
+			FalsePositives: row.FalsePositives,
+			FalseNegatives: row.FalseNegatives,
 		}
 	}
 	enc := json.NewEncoder(w)
@@ -315,7 +333,9 @@ func printSummary(w io.Writer, res *eval.RunResult) {
 	fmt.Fprintf(w, "Failed:     %d\n", res.Failed)
 	fmt.Fprintf(w, "Skipped:    %d\n", res.Skipped)
 	fmt.Fprintf(w, "Pass rate:  %.2f\n", res.PassRate)
+	fmt.Fprintf(w, "Error rate: %.2f\n", res.ErrorRate)
 	fmt.Fprintf(w, "Mean score: %.2f\n", res.MeanScore)
+	fmt.Fprintf(w, "TP/FP/FN:   %d/%d/%d\n", res.TruePositives, res.FalsePositives, res.FalseNegatives)
 	fmt.Fprintf(w, "Duration:   %s\n\n", res.Duration)
 
 	cats := make([]string, 0, len(res.ByCategory))
@@ -325,11 +345,12 @@ func printSummary(w io.Writer, res *eval.RunResult) {
 	sort.Strings(cats)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "CATEGORY\tTOTAL\tPASSED\tPASS_RATE\tMEAN_SCORE") //nolint:errcheck
+	fmt.Fprintln(tw, "CATEGORY\tTOTAL\tPASSED\tFAILED\tPASS_RATE\tERROR_RATE\tMEAN_SCORE\tTP\tFP\tFN") //nolint:errcheck
 	for _, c := range cats {
 		cr := res.ByCategory[eval.Category(c)]
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%.2f\t%.2f\n",
-			c, cr.Total, cr.Passed, cr.PassRate, cr.MeanScore)
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%.2f\t%.2f\t%.2f\t%d\t%d\t%d\n",
+			c, cr.Total, cr.Passed, cr.Failed, cr.PassRate, cr.ErrorRate, cr.MeanScore,
+			cr.TruePositives, cr.FalsePositives, cr.FalseNegatives)
 	}
 	_ = tw.Flush()
 	fmt.Fprintln(w) //nolint:errcheck

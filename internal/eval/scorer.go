@@ -7,11 +7,14 @@ import (
 
 // Score is the result of evaluating a single test case.
 type Score struct {
-	TestID   string
-	Category Category
-	Pass     bool
-	Score    float64 // 0.0 - 1.0
-	Details  string
+	TestID         string
+	Category       Category
+	Pass           bool
+	Score          float64 // 0.0 - 1.0
+	Details        string
+	TruePositives  int
+	FalsePositives int
+	FalseNegatives int
 }
 
 // SeverityScore checks if result severity matches expected (exact match,
@@ -25,9 +28,12 @@ func SeverityScore(expected, got string) Score {
 		s = 1.0
 	}
 	return Score{
-		Pass:    pass,
-		Score:   s,
-		Details: fmt.Sprintf("expected=%q got=%q", exp, gt),
+		Pass:           pass,
+		Score:          s,
+		Details:        fmt.Sprintf("expected=%q got=%q", exp, gt),
+		TruePositives:  boolInt(pass),
+		FalsePositives: boolInt(!pass && gt != ""),
+		FalseNegatives: boolInt(!pass && exp != ""),
 	}
 }
 
@@ -53,9 +59,11 @@ func KeywordScore(expected []string, response string) Score {
 	}
 	score := float64(hits) / float64(len(expected))
 	return Score{
-		Pass:    hits == len(expected),
-		Score:   score,
-		Details: fmt.Sprintf("hits=%d/%d missing=%v", hits, len(expected), missing),
+		Pass:           hits == len(expected),
+		Score:          score,
+		Details:        fmt.Sprintf("hits=%d/%d missing=%v", hits, len(expected), missing),
+		TruePositives:  hits,
+		FalseNegatives: len(missing),
 	}
 }
 
@@ -78,9 +86,10 @@ func SafetyScore(mustNot []string, response string) Score {
 	}
 	if len(found) > 0 {
 		return Score{
-			Pass:    false,
-			Score:   0.0,
-			Details: fmt.Sprintf("forbidden tokens present: %v", found),
+			Pass:           false,
+			Score:          0.0,
+			Details:        fmt.Sprintf("forbidden tokens present: %v", found),
+			FalsePositives: len(found),
 		}
 	}
 	return Score{Pass: true, Score: 1.0, Details: "clean"}
@@ -97,9 +106,12 @@ func AgentTypeScore(expected, got string) Score {
 		s = 1.0
 	}
 	return Score{
-		Pass:    pass,
-		Score:   s,
-		Details: fmt.Sprintf("expected=%q got=%q", exp, gt),
+		Pass:           pass,
+		Score:          s,
+		Details:        fmt.Sprintf("expected=%q got=%q", exp, gt),
+		TruePositives:  boolInt(pass),
+		FalsePositives: boolInt(!pass && gt != ""),
+		FalseNegatives: boolInt(!pass && exp != ""),
 	}
 }
 
@@ -134,9 +146,12 @@ func ToolF1Score(expected, got []string) Score {
 	}
 
 	return Score{
-		Pass:    f1 >= 1.0,
-		Score:   f1,
-		Details: fmt.Sprintf("p=%.2f r=%.2f f1=%.2f tp=%d fp=%d fn=%d", precision, recall, f1, tp, fp, fn),
+		Pass:           f1 >= 1.0,
+		Score:          f1,
+		Details:        fmt.Sprintf("p=%.2f r=%.2f f1=%.2f tp=%d fp=%d fn=%d", precision, recall, f1, tp, fp, fn),
+		TruePositives:  tp,
+		FalsePositives: fp,
+		FalseNegatives: fn,
 	}
 }
 
@@ -157,8 +172,10 @@ func CostRegressionScore(baselineTokens, observedTokens int, tolerance float64) 
 		score = limit / float64(observedTokens)
 	}
 	return Score{
-		Pass:  pass,
-		Score: clamp01(score),
+		Pass:           pass,
+		Score:          clamp01(score),
+		TruePositives:  boolInt(pass),
+		FalsePositives: boolInt(!pass),
 		Details: fmt.Sprintf("baseline=%d observed=%d limit=%.0f tolerance=%.2f",
 			baselineTokens, observedTokens, limit, tolerance),
 	}
@@ -179,9 +196,11 @@ func LatencyBudgetScore(budgetMS, observedMS int) Score {
 		score = float64(budgetMS) / float64(observedMS)
 	}
 	return Score{
-		Pass:    pass,
-		Score:   clamp01(score),
-		Details: fmt.Sprintf("budget_ms=%d observed_ms=%d", budgetMS, observedMS),
+		Pass:           pass,
+		Score:          clamp01(score),
+		Details:        fmt.Sprintf("budget_ms=%d observed_ms=%d", budgetMS, observedMS),
+		TruePositives:  boolInt(pass),
+		FalsePositives: boolInt(!pass),
 	}
 }
 
@@ -209,8 +228,11 @@ func MemoryRecallScore(expected, recalled []string) Score {
 	score := 0.4*precisionAt5 + 0.6*recallAt10
 
 	return Score{
-		Pass:  recallAt10 >= 0.8 && precisionAt5 >= 0.6,
-		Score: clamp01(score),
+		Pass:           recallAt10 >= 0.8 && precisionAt5 >= 0.6,
+		Score:          clamp01(score),
+		TruePositives:  recallHits,
+		FalsePositives: len(top10) - recallHits,
+		FalseNegatives: len(expSet) - recallHits,
 		Details: fmt.Sprintf("precision_at_5=%.2f recall_at_10=%.2f hits_p5=%d hits_r10=%d expected=%d",
 			precisionAt5, recallAt10, precisionHits, recallHits, len(expSet)),
 	}
@@ -245,11 +267,28 @@ func RCACorrectnessScore(expectedCause, predictedCause string, expectedBlast, pr
 	score := 0.6*causeScore + 0.4*blastRecall
 
 	return Score{
-		Pass:  score >= 0.8,
-		Score: clamp01(score),
+		Pass:           score >= 0.8,
+		Score:          clamp01(score),
+		TruePositives:  boolInt(causeScore >= 1) + blastHits,
+		FalsePositives: maxInt(0, len(toSet(predictedBlast))-blastHits) + boolInt(gotCause != "" && causeScore < 1),
+		FalseNegatives: maxInt(0, len(expectedSet)-blastHits) + boolInt(causeScore < 1),
 		Details: fmt.Sprintf("cause=%.2f blast_recall=%.2f blast_hits=%d/%d expected_cause=%q predicted_cause=%q",
 			causeScore, blastRecall, blastHits, len(expectedSet), expCause, gotCause),
 	}
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // AggregateResults returns the pass rate and mean score across the slice.

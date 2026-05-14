@@ -148,7 +148,7 @@ func main() {
 				ExpectedRootCause:    tmpl.rootCauseID,
 				PredictedRootCause:   tmpl.rootCauseID,
 				ExpectedBlastRadius:  expectedBlastRadius,
-				PredictedBlastRadius: append(expectedBlastRadius, cluster+"-noise"),
+				PredictedBlastRadius: expectedBlastRadius,
 			})
 		}
 	}

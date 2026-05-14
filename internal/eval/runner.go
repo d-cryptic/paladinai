@@ -18,23 +18,32 @@ type RunConfig struct {
 
 // CategoryResult aggregates results for a single category.
 type CategoryResult struct {
-	Total     int
-	Passed    int
-	PassRate  float64
-	MeanScore float64
+	Total          int
+	Passed         int
+	Failed         int
+	PassRate       float64
+	ErrorRate      float64
+	MeanScore      float64
+	TruePositives  int
+	FalsePositives int
+	FalseNegatives int
 }
 
 // RunResult is the result of a Runner.Run call.
 type RunResult struct {
-	Total      int
-	Passed     int
-	Failed     int
-	Skipped    int
-	PassRate   float64
-	MeanScore  float64
-	ByCategory map[Category]*CategoryResult
-	Scores     []Score
-	Duration   time.Duration
+	Total          int
+	Passed         int
+	Failed         int
+	Skipped        int
+	PassRate       float64
+	ErrorRate      float64
+	MeanScore      float64
+	TruePositives  int
+	FalsePositives int
+	FalseNegatives int
+	ByCategory     map[Category]*CategoryResult
+	Scores         []Score
+	Duration       time.Duration
 }
 
 // ScoreFunc receives a test case and a response string and returns a Score.
@@ -119,6 +128,7 @@ func (r *Runner) Run(
 			score := Score{TestID: tc.ID, Category: tc.Category, Pass: false, Score: 0, Details: err.Error()}
 			result.Scores = append(result.Scores, score)
 			recordCategory(result.ByCategory, score)
+			result.AddScoreMetrics(score)
 			continue
 		}
 
@@ -126,6 +136,7 @@ func (r *Runner) Run(
 		score.TestID = tc.ID
 		score.Category = tc.Category
 		result.Scores = append(result.Scores, score)
+		result.AddScoreMetrics(score)
 
 		result.Total++
 		if score.Pass {
@@ -138,10 +149,12 @@ func (r *Runner) Run(
 
 	if result.Total > 0 {
 		result.PassRate, result.MeanScore = AggregateResults(result.Scores)
+		result.ErrorRate = float64(result.Failed) / float64(result.Total)
 	}
 	for _, cat := range result.ByCategory {
 		if cat.Total > 0 {
 			cat.PassRate = float64(cat.Passed) / float64(cat.Total)
+			cat.ErrorRate = float64(cat.Failed) / float64(cat.Total)
 			cat.MeanScore = cat.MeanScore / float64(cat.Total)
 		}
 	}
@@ -166,6 +179,18 @@ func recordCategory(byCat map[Category]*CategoryResult, s Score) {
 	cat.Total++
 	if s.Pass {
 		cat.Passed++
+	} else {
+		cat.Failed++
 	}
 	cat.MeanScore += s.Score
+	cat.TruePositives += s.TruePositives
+	cat.FalsePositives += s.FalsePositives
+	cat.FalseNegatives += s.FalseNegatives
+}
+
+// AddScoreMetrics accumulates confusion-style counts into the run-level result.
+func (r *RunResult) AddScoreMetrics(s Score) {
+	r.TruePositives += s.TruePositives
+	r.FalsePositives += s.FalsePositives
+	r.FalseNegatives += s.FalseNegatives
 }
