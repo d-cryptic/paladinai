@@ -3,6 +3,9 @@ package handler_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/paladinai/paladinai/internal/alert"
+	webhookauth "github.com/paladinai/paladinai/internal/webhook"
 	"github.com/paladinai/paladinai/services/paladin-ingest/internal/handler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +127,50 @@ func TestWebhookHandler_AlertmanagerHeaderTenantRoute(t *testing.T) {
 	assert.Equal(t, "tenant-header", pub.published[0].TenantID)
 }
 
+func TestWebhookHandler_VerifierRejectsMissingSignature(t *testing.T) {
+	pub := &fakePublisher{}
+	secret := []byte("tenant-webhook-secret")
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop()).
+		WithVerifiers(map[string]webhookauth.Verifier{
+			"alertmanager": webhookauth.NewPaladinVerifier(secret),
+		})
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "Unsigned", "critical")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-123", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assert.Empty(t, pub.published)
+}
+
+func TestWebhookHandler_VerifierAcceptsValidSignature(t *testing.T) {
+	pub := &fakePublisher{}
+	secret := []byte("tenant-webhook-secret")
+	wh := handler.NewWebhookHandler(pub, newFakeDedup(), zap.NewNop()).
+		WithVerifiers(map[string]webhookauth.Verifier{
+			"alertmanager": webhookauth.NewPaladinVerifier(secret),
+		})
+
+	r := chi.NewRouter()
+	r.Mount("/webhook", wh.Routes())
+
+	payload := alertmanagerBody(t, "firing", "Signed", "critical")
+	req := httptest.NewRequest(http.MethodPost, "/webhook/alertmanager/tenant-123", bytes.NewReader(payload))
+	req.Header.Set("X-Paladin-Signature", paladinSignature(secret, payload))
+	rr := httptest.NewRecorder()
+
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+	require.Len(t, pub.published, 1)
+	assert.Equal(t, "tenant-123", pub.published[0].TenantID)
+}
+
 func TestWebhookHandler_AlertmanagerHeaderTenantRouteRequiresTenant(t *testing.T) {
 	wh := handler.NewWebhookHandler(&fakePublisher{}, newFakeDedup(), zap.NewNop())
 
@@ -137,6 +185,12 @@ func TestWebhookHandler_AlertmanagerHeaderTenantRouteRequiresTenant(t *testing.T
 	r.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func paladinSignature(secret, body []byte) string {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func TestWebhookHandler_Alertmanager_DeduplicatesSameFiring(t *testing.T) {

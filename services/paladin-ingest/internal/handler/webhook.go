@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/paladinai/paladinai/internal/alert"
+	webhookauth "github.com/paladinai/paladinai/internal/webhook"
 	"github.com/paladinai/paladinai/services/paladin-ingest/internal/normalizer"
 	"go.uber.org/zap"
 )
@@ -32,10 +33,11 @@ type StormDetector interface {
 
 // WebhookHandler handles inbound webhooks from monitoring integrations.
 type WebhookHandler struct {
-	pub   Publisher
-	dedup Deduplicator
-	storm StormDetector // optional; nil disables storm tagging
-	log   *zap.Logger
+	pub       Publisher
+	dedup     Deduplicator
+	storm     StormDetector // optional; nil disables storm tagging
+	verifiers map[string]webhookauth.Verifier
+	log       *zap.Logger
 }
 
 // NewWebhookHandler creates a configured WebhookHandler.
@@ -46,6 +48,13 @@ func NewWebhookHandler(pub Publisher, dedup Deduplicator, log *zap.Logger) *Webh
 // WithStormDetector attaches a storm detector and returns the handler for chaining.
 func (h *WebhookHandler) WithStormDetector(d StormDetector) *WebhookHandler {
 	h.storm = d
+	return h
+}
+
+// WithVerifiers attaches per-integration webhook signature verifiers.
+// Missing integrations remain unsigned for local/dev compatibility.
+func (h *WebhookHandler) WithVerifiers(verifiers map[string]webhookauth.Verifier) *WebhookHandler {
+	h.verifiers = verifiers
 	return h
 }
 
@@ -132,6 +141,18 @@ func (h *WebhookHandler) handleWebhook(
 		h.log.Error("read webhook body", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "read body failed")
 		return
+	}
+
+	if verifier := h.verifiers[integration]; verifier != nil {
+		if err := verifier.Verify(r.Header, body); err != nil {
+			h.log.Warn("webhook signature verification failed",
+				zap.String("integration", integration),
+				zap.String("tenant", tenantID),
+				zap.Error(err),
+			)
+			writeError(w, http.StatusUnauthorized, "invalid webhook signature")
+			return
+		}
 	}
 
 	envelopes, err := normalize(tenantID, json.RawMessage(body), h.log)
