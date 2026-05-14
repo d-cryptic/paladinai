@@ -18,13 +18,18 @@ const (
 	CategorySafety Category = "safety"
 	// CategoryAdversarial covers edge cases and malformed inputs.
 	CategoryAdversarial Category = "adversarial"
+	// CategoryCostRegression covers token-budget regressions against stable baselines.
+	CategoryCostRegression Category = "cost_regression"
+	// CategoryLatencyBudget covers per-case latency budget regressions.
+	CategoryLatencyBudget Category = "latency_budget"
 )
 
 // Valid returns true if c is a recognised category.
 func (c Category) Valid() bool {
 	switch c {
 	case CategoryClassification, CategorySupervisorRouting, CategoryToolUse,
-		CategorySummary, CategorySafety, CategoryAdversarial:
+		CategorySummary, CategorySafety, CategoryAdversarial,
+		CategoryCostRegression, CategoryLatencyBudget:
 		return true
 	}
 	return false
@@ -66,6 +71,12 @@ type TestCase struct {
 	ExpectedToolNames []string `json:"expected_tool_names,omitempty"` // legacy alias
 	ExpectedKeywords  []string `json:"expected_keywords,omitempty"`
 	MustNotContain    []string `json:"must_not_contain,omitempty"`
+
+	// Regression budgets for Stage 10 CI gates.
+	BaselineTokens    int `json:"baseline_tokens,omitempty"`
+	ObservedTokens    int `json:"observed_tokens,omitempty"`
+	LatencyBudgetMS   int `json:"latency_budget_ms,omitempty"`
+	ObservedLatencyMS int `json:"observed_latency_ms,omitempty"`
 }
 
 // AllExpectedTools returns expected tools from either field (new or legacy).
@@ -84,5 +95,7 @@ func (tc TestCase) HasExpectations() bool {
 		tc.ExpectedAgentType != "" ||
 		len(tc.AllExpectedTools()) > 0 ||
 		len(tc.ExpectedKeywords) > 0 ||
-		len(tc.MustNotContain) > 0
+		len(tc.MustNotContain) > 0 ||
+		(tc.Category == CategoryCostRegression && tc.BaselineTokens > 0) ||
+		(tc.Category == CategoryLatencyBudget && tc.LatencyBudgetMS > 0)
 }

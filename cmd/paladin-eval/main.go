@@ -22,7 +22,7 @@ import (
 func main() {
 	var (
 		fixturesDir = flag.String("fixtures", "test/fixtures", "directory containing *.jsonl fixtures")
-		category    = flag.String("category", "", "limit to a single category (classification|tool_use|summary|safety|adversarial)")
+		category    = flag.String("category", "", "limit to a single category (classification|supervisor_routing|tool_use|summary|safety|adversarial|cost_regression|latency_budget)")
 		threshold   = flag.Float64("threshold", 0.8, "minimum pass rate; exit 1 below this")
 		maxCases    = flag.Int("max", 0, "max cases to run (0 = all)")
 		timeout     = flag.Duration("timeout", 5*time.Second, "per-case timeout")
@@ -186,13 +186,17 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 			return eval.SeverityScore(tc.ExpectedSeverity, tc.Alert.Severity)
 		}
 		return eval.Score{Pass: true, Score: 1.0, Details: "adversarial parsed cleanly"}
+	case eval.CategoryCostRegression:
+		return eval.CostRegressionScore(tc.BaselineTokens, tc.ObservedTokens, 0.10)
+	case eval.CategoryLatencyBudget:
+		return eval.LatencyBudgetScore(tc.LatencyBudgetMS, tc.ObservedLatencyMS)
 	}
 	return eval.Score{Pass: false, Score: 0, Details: "unhandled category"}
 }
 
 func printSummary(w *os.File, res *eval.RunResult) {
 	fmt.Fprintf(w, "\nPaladin Eval Summary\n") //nolint:errcheck
-	fmt.Fprintf(w, "====================\n") //nolint:errcheck
+	fmt.Fprintf(w, "====================\n")   //nolint:errcheck
 	fmt.Fprintf(w, "Total:      %d\n", res.Total)
 	fmt.Fprintf(w, "Passed:     %d\n", res.Passed)
 	fmt.Fprintf(w, "Failed:     %d\n", res.Failed)
