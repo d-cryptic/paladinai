@@ -136,5 +136,8 @@ playwright-install: ## Install Playwright and its browser dependencies
 playwright: ## Run Playwright API tests (requires all services running via make up)
 	cd test/playwright && bun run test:api
 
+playwright-ui: ## Run local dashboard Playwright UI tests
+	cd test/playwright && bun run test -- --project=ui-dashboard
+
 playwright-ci: ## Run Playwright in CI mode (headless, GitHub reporter)
 	cd test/playwright && bun run test:ci

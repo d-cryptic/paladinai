@@ -31,7 +31,8 @@ tolerance, prompt caching paths, and prompt/eval tests. There is no standalone
 Stage 5.5 plan file in `docs/plans/`; the current `5.5` marker is Stage 8's
 audit log subsection, implemented as the `audit_logs` migration with tenant RLS.
 
-Phases 12 onward (specialised agents, gateway, observability, security, API, frontend, deployment, billing, DR, enterprise scale) are in design — see `docs/plans/12..25.*.md`.
+Phases 12 onward (specialised agents, gateway, observability, security, API, deployment, billing, DR, enterprise scale) are in design — see `docs/plans/12..25.*.md`.
+The web dashboard has a local, static v2 surface at `ui/dashboard` with Playwright coverage while the production Next.js Stage 21 build remains planned.
 
 ## Services
 
@@ -47,7 +48,7 @@ Phases 12 onward (specialised agents, gateway, observability, security, API, fro
 | `paladin-orchestrator` | Raw-alert pipeline runner and Hatchet boundary | `9008` |
 | `paladin-comms` | Triage/analyzed-alert notification worker | `9009` |
 
-CLI: `cmd/paladin` (Cobra + Bubble Tea TUI).
+CLI: `cmd/paladin` (Cobra + Bubble Tea TUI). Local dashboard: `ui/dashboard`.
 
 ## Quick Start
 
@@ -159,6 +160,12 @@ proto/            Proto3 definitions
 docs/plans/       Stage-by-stage architecture plans
 migrations/       golang-migrate SQL migrations
 infra/, ui/       Infra manifests and frontend
+```
+
+Dashboard UI validation:
+
+```bash
+make playwright-ui
 ```
 
 ## Documentation
