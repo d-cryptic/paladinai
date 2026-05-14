@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +16,13 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	counter := 0
 	dashboardSessionPath = func() string {
-		return filepath.Join(dir, "session.json")
+		counter++
+		return filepath.Join(dir, fmt.Sprintf("session-%d.json", counter))
+	}
+	if err := os.Setenv("PALADIN_TUI_SESSION_PATH", filepath.Join(dir, "external-session.json")); err != nil {
+		panic(err)
 	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
@@ -388,6 +394,99 @@ func TestDashboardModel_ViewShowsSummaryAndDetailPane(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestDashboardModel_SetSnapshotShowsLiveCollections(t *testing.T) {
+	m := New("tenant-1")
+	m = m.SetSnapshot(NewSnapshot(
+		[]Alert{{Fingerprint: "fp1", Severity: "P1", Status: "firing", Title: "DB Down", CorrelationID: "corr-1", Tenant: "tenant-1"}},
+		[]Runbook{{ID: "rb-1", Title: "Database pool recovery", Source: "github", Embedded: true, UpdatedAt: "2026-05-14T00:00:00Z"}},
+		[]Integration{{ID: "prom", Name: "Prometheus", Endpoint: "http://prometheus:9090", Healthy: true, Capabilities: []string{"query_metrics"}}},
+	))
+
+	view := m.View()
+	for _, want := range []string{"open=1", "critical=1", "runbooks=1", "integrations=1/1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing metric %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDashboardModel_RunbooksModeRendersRunbookTableAndDetail(t *testing.T) {
+	m := New("tenant-1").SetSnapshot(NewSnapshot(
+		nil,
+		[]Runbook{{ID: "rb-1", Title: "Redis OOM recovery", Source: "notion", Embedded: true, UpdatedAt: "2026-05-14T00:00:00Z"}},
+		nil,
+	))
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("runbooks")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	view := wm.View()
+	for _, want := range []string{"Runbook detail", "Redis OOM recovery", "embedded", "notion"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("runbooks view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDashboardModel_IntegrationsModeRendersIntegrationTableAndDetail(t *testing.T) {
+	m := New("tenant-1").SetSnapshot(NewSnapshot(
+		nil,
+		nil,
+		[]Integration{{ID: "grafana", Name: "Grafana MCP", Endpoint: "http://grafana:3000", Healthy: false, Capabilities: []string{"query_dashboards", "list_alerts"}}},
+	))
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("integrations")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	view := wm.View()
+	for _, want := range []string{"Integration detail", "Grafana MCP", "degraded", "query_dashboards"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("integrations view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDashboardModel_EvalsAndAgentsModes(t *testing.T) {
+	m := New("tenant-1").SetSnapshot(NewSnapshot(
+		[]Alert{{Fingerprint: "fp1", Severity: "P1", Status: "firing", Title: "DB Down", CorrelationID: "corr-1", Tenant: "tenant-1"}},
+		[]Runbook{{ID: "rb-1", Title: "Database pool recovery", Source: "github", Embedded: true}},
+		[]Integration{{ID: "prom", Name: "Prometheus", Healthy: true}},
+	))
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("evals")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.mode != "evals" || !strings.Contains(wm.View(), "golden-regression") {
+		t.Fatalf("evals mode did not render eval rows:\n%s", wm.View())
+	}
+
+	result, _ = wm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("agents")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm = result.(Model)
+	if wm.mode != "agents" || !strings.Contains(wm.View(), "triage-reactor") {
+		t.Fatalf("agents mode did not render agent rows:\n%s", wm.View())
+	}
+}
+
+func TestDashboardModel_TabCyclesPrimarySurfaces(t *testing.T) {
+	m := New("tenant-1").SetSnapshot(NewSnapshot(nil, nil, nil))
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	wm := result.(Model)
+	if wm.mode != "investigate" {
+		t.Fatalf("mode = %q, want investigate", wm.mode)
+	}
+	result, _ = wm.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	wm = result.(Model)
+	if wm.mode != "monitor" {
+		t.Fatalf("mode = %q, want monitor", wm.mode)
 	}
 }
 

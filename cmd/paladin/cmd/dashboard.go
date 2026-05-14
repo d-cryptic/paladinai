@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,27 +24,53 @@ var dashboardCmd = &cobra.Command{
 		}
 
 		apiURL, _ := cmd.Flags().GetString("api-url")
-		alerts, fetchErr := fetchAlerts(cmd, apiURL, tenant)
+		snapshot, fetchErr := fetchDashboardData(cmd, apiURL, tenant)
 		if isCIMode(cmd) || isSimpleMode(cmd) {
 			if fetchErr != nil {
 				return fetchErr
 			}
-			return writeDashboardSnapshot(cmd, tenant, alerts)
+			return writeDashboardSnapshot(cmd, tenant, snapshot)
 		}
 
 		m := tui.New(tenant)
+		m = m.SetSnapshot(snapshot)
 		if fetchErr != nil {
 			// Surface error in TUI rather than silently showing an empty dashboard.
 			updated, _ := m.Update(tui.ErrMsg{Err: fetchErr})
 			m = updated.(tui.Model)
-		} else {
-			m = m.SetAlerts(alerts)
 		}
 
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
 	},
+}
+
+func fetchDashboardData(cmd *cobra.Command, apiURL, tenant string) (tui.Snapshot, error) {
+	alerts, err := fetchAlerts(cmd, apiURL, tenant)
+	if err != nil {
+		return tui.Snapshot{}, err
+	}
+	runbooks, runbookErr := fetchDashboardRunbooks(cmd, apiURL, tenant)
+	integrations, integrationErr := fetchDashboardIntegrations(cmd, apiURL, tenant)
+	snapshot := tui.NewSnapshot(alerts, runbooks, integrations)
+	if runbookErr != nil || integrationErr != nil {
+		snapshot.Warnings = dashboardFetchWarnings(runbookErr, integrationErr)
+	}
+	return snapshot, nil
+}
+
+func dashboardFetchWarnings(errs ...error) []string {
+	parts := make([]string, 0, len(errs))
+	for _, err := range errs {
+		if err != nil {
+			parts = append(parts, err.Error())
+		}
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return []string{"partial dashboard fetch: " + strings.Join(parts, "; ")}
 }
 
 // fetchAlerts queries the API and converts the response to []tui.Alert.
@@ -93,9 +120,98 @@ func fetchAlerts(cmd *cobra.Command, apiURL, tenant string) ([]tui.Alert, error)
 	return alerts, nil
 }
 
+func fetchDashboardRunbooks(cmd *cobra.Command, apiURL, tenant string) ([]tui.Runbook, error) {
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid api-url: %w", err)
+	}
+	u.Path = "/api/v1/runbooks"
+	q := u.Query()
+	q.Set("limit", "20")
+	u.RawQuery = q.Encode()
+
+	opts, err := commandOptions(cmd, tenant)
+	if err != nil {
+		return nil, err
+	}
+	body, err := client.Get(cmd.Context(), u.String(), opts)
+	if err != nil {
+		return nil, fmt.Errorf("fetch runbooks: %w", err)
+	}
+
+	var response struct {
+		Data []struct {
+			ID        string `json:"id"`
+			Title     string `json:"title"`
+			Source    string `json:"source"`
+			Embedded  bool   `json:"embedded"`
+			UpdatedAt string `json:"updated_at"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("parse runbooks response: %w", err)
+	}
+	runbooks := make([]tui.Runbook, len(response.Data))
+	for i, runbook := range response.Data {
+		runbooks[i] = tui.Runbook{
+			ID:        runbook.ID,
+			Title:     runbook.Title,
+			Source:    runbook.Source,
+			Embedded:  runbook.Embedded,
+			UpdatedAt: runbook.UpdatedAt,
+		}
+	}
+	return runbooks, nil
+}
+
+func fetchDashboardIntegrations(cmd *cobra.Command, apiURL, tenant string) ([]tui.Integration, error) {
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid api-url: %w", err)
+	}
+	u.Path = "/api/v1/mcp/servers"
+
+	opts, err := commandOptions(cmd, tenant)
+	if err != nil {
+		return nil, err
+	}
+	body, err := client.Get(cmd.Context(), u.String(), opts)
+	if err != nil {
+		return nil, fmt.Errorf("fetch integrations: %w", err)
+	}
+
+	var response struct {
+		Data []struct {
+			ID           string   `json:"id"`
+			Name         string   `json:"name"`
+			Endpoint     string   `json:"endpoint"`
+			Healthy      bool     `json:"healthy"`
+			Capabilities []string `json:"capabilities"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("parse integrations response: %w", err)
+	}
+	integrations := make([]tui.Integration, len(response.Data))
+	for i, integration := range response.Data {
+		integrations[i] = tui.Integration{
+			ID:           integration.ID,
+			Name:         integration.Name,
+			Endpoint:     integration.Endpoint,
+			Healthy:      integration.Healthy,
+			Capabilities: append([]string(nil), integration.Capabilities...),
+		}
+	}
+	return integrations, nil
+}
+
 type dashboardSnapshot struct {
-	Tenant string           `json:"tenant"`
-	Alerts []dashboardAlert `json:"alerts"`
+	Tenant       string                 `json:"tenant"`
+	Alerts       []dashboardAlert       `json:"alerts"`
+	Runbooks     []dashboardRunbook     `json:"runbooks"`
+	Integrations []dashboardIntegration `json:"integrations"`
+	Metrics      tui.Metrics            `json:"metrics"`
+	Warnings     []string               `json:"warnings,omitempty"`
 }
 
 type dashboardAlert struct {
@@ -107,9 +223,32 @@ type dashboardAlert struct {
 	Tenant        string `json:"tenant"`
 }
 
-func writeDashboardSnapshot(cmd *cobra.Command, tenant string, alerts []tui.Alert) error {
-	snapshot := dashboardSnapshot{Tenant: tenant, Alerts: make([]dashboardAlert, len(alerts))}
-	for i, alert := range alerts {
+type dashboardRunbook struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Source    string `json:"source"`
+	Embedded  bool   `json:"embedded"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type dashboardIntegration struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Endpoint     string   `json:"endpoint"`
+	Healthy      bool     `json:"healthy"`
+	Capabilities []string `json:"capabilities"`
+}
+
+func writeDashboardSnapshot(cmd *cobra.Command, tenant string, data tui.Snapshot) error {
+	snapshot := dashboardSnapshot{
+		Tenant:       tenant,
+		Alerts:       make([]dashboardAlert, len(data.Alerts)),
+		Runbooks:     make([]dashboardRunbook, len(data.Runbooks)),
+		Integrations: make([]dashboardIntegration, len(data.Integrations)),
+		Metrics:      data.Metrics,
+		Warnings:     append([]string(nil), data.Warnings...),
+	}
+	for i, alert := range data.Alerts {
 		snapshot.Alerts[i] = dashboardAlert{
 			Fingerprint:   alert.Fingerprint,
 			Severity:      alert.Severity,
@@ -117,6 +256,24 @@ func writeDashboardSnapshot(cmd *cobra.Command, tenant string, alerts []tui.Aler
 			Title:         alert.Title,
 			CorrelationID: alert.CorrelationID,
 			Tenant:        alert.Tenant,
+		}
+	}
+	for i, runbook := range data.Runbooks {
+		snapshot.Runbooks[i] = dashboardRunbook{
+			ID:        runbook.ID,
+			Title:     runbook.Title,
+			Source:    runbook.Source,
+			Embedded:  runbook.Embedded,
+			UpdatedAt: runbook.UpdatedAt,
+		}
+	}
+	for i, integration := range data.Integrations {
+		snapshot.Integrations[i] = dashboardIntegration{
+			ID:           integration.ID,
+			Name:         integration.Name,
+			Endpoint:     integration.Endpoint,
+			Healthy:      integration.Healthy,
+			Capabilities: append([]string(nil), integration.Capabilities...),
 		}
 	}
 	if outputFormat(cmd) == "json" {
@@ -127,7 +284,13 @@ func writeDashboardSnapshot(cmd *cobra.Command, tenant string, alerts []tui.Aler
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "TENANT\tACTIVE_ALERTS\n%s\t%d\n\n", snapshot.Tenant, len(snapshot.Alerts))
+	fmt.Fprintf(w, "TENANT\tACTIVE_ALERTS\tRUNBOOKS\tINTEGRATIONS\n%s\t%d\t%d\t%d/%d healthy\n\n",
+		snapshot.Tenant,
+		len(snapshot.Alerts),
+		len(snapshot.Runbooks),
+		snapshot.Metrics.HealthyIntegrations,
+		snapshot.Metrics.TotalIntegrations,
+	)
 	fmt.Fprintln(w, "SEVERITY\tSTATUS\tTITLE\tCORRELATION\tFINGERPRINT")
 	for _, alert := range snapshot.Alerts {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
@@ -137,6 +300,23 @@ func writeDashboardSnapshot(cmd *cobra.Command, tenant string, alerts []tui.Aler
 			alert.CorrelationID,
 			alert.Fingerprint,
 		)
+	}
+	if len(snapshot.Runbooks) > 0 {
+		fmt.Fprintln(w, "\nRUNBOOK\tSOURCE\tEMBEDDED\tUPDATED")
+		for _, runbook := range snapshot.Runbooks {
+			fmt.Fprintf(w, "%s\t%s\t%t\t%s\n", runbook.Title, runbook.Source, runbook.Embedded, runbook.UpdatedAt)
+		}
+	}
+	if len(snapshot.Integrations) > 0 {
+		fmt.Fprintln(w, "\nINTEGRATION\tHEALTHY\tTOOLS\tENDPOINT")
+		for _, integration := range snapshot.Integrations {
+			fmt.Fprintf(w, "%s\t%t\t%d\t%s\n",
+				integration.Name,
+				integration.Healthy,
+				len(integration.Capabilities),
+				integration.Endpoint,
+			)
+		}
 	}
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("write dashboard table: %w", err)

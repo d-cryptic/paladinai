@@ -154,6 +154,52 @@ func TestDashboardCommand_SimpleModeWritesTableWithoutTUI(t *testing.T) {
 	}
 }
 
+func TestFetchDashboardData_HydratesRunbooksAndIntegrations(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/alerts", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"fingerprint":"abc123","severity":"P1","status":"firing","title":"Payments API down","correlation_id":"corr-001"}]}`))
+	})
+	mux.HandleFunc("/api/v1/runbooks", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"rb-1","title":"Payment failover","source":"github","embedded":true,"updated_at":"2026-05-14T00:00:00Z"}]}`))
+	})
+	mux.HandleFunc("/api/v1/mcp/servers", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"prom","name":"Prometheus","endpoint":"http://prometheus:9090","healthy":true,"capabilities":["query_metrics"]}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	cmd := cmdWithCtx("tenant-x", "", srv.URL)
+	snapshot, err := fetchDashboardData(cmd, srv.URL, "tenant-x")
+	if err != nil {
+		t.Fatalf("fetchDashboardData error: %v", err)
+	}
+	if len(snapshot.Alerts) != 1 || len(snapshot.Runbooks) != 1 || len(snapshot.Integrations) != 1 {
+		t.Fatalf("unexpected snapshot counts: alerts=%d runbooks=%d integrations=%d",
+			len(snapshot.Alerts), len(snapshot.Runbooks), len(snapshot.Integrations))
+	}
+	if snapshot.Metrics.CriticalIncidents != 1 || snapshot.Metrics.EmbeddedRunbooks != 1 || snapshot.Metrics.HealthyIntegrations != 1 {
+		t.Fatalf("unexpected metrics: %+v", snapshot.Metrics)
+	}
+}
+
+func TestFetchDashboardData_PartialCollectionsReturnWarning(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/alerts", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	cmd := cmdWithCtx("tenant-x", "", srv.URL)
+	snapshot, err := fetchDashboardData(cmd, srv.URL, "tenant-x")
+	if err != nil {
+		t.Fatalf("fetchDashboardData should tolerate supplementary fetch errors: %v", err)
+	}
+	if len(snapshot.Warnings) == 0 || !strings.Contains(snapshot.Warnings[0], "partial dashboard fetch") {
+		t.Fatalf("expected partial fetch warning, got %+v", snapshot.Warnings)
+	}
+}
+
 func newDashboardCommandForTest(tenant, apiURL string) *cobra.Command {
 	cmd := &cobra.Command{Use: "dashboard"}
 	cmd.SetContext(context.Background())

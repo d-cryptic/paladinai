@@ -66,6 +66,10 @@ var dashboardSessionPath = defaultDashboardSessionPath
 type Model struct {
 	table        table.Model
 	alerts       []Alert
+	runbooks     []Runbook
+	integrations []Integration
+	metrics      Metrics
+	warnings     []string
 	tenant       string
 	err          error
 	mode         string
@@ -86,16 +90,8 @@ type ErrMsg struct{ Err error }
 
 // New creates a dashboard Model for the given tenant.
 func New(tenant string) Model {
-	cols := []table.Column{
-		{Title: "SEV", Width: 4},
-		{Title: "STATUS", Width: 9},
-		{Title: "TITLE", Width: 32},
-		{Title: "CORRELATION", Width: 18},
-		{Title: "FINGERPRINT", Width: 16},
-	}
-
 	t := table.New(
-		table.WithColumns(cols),
+		table.WithColumns(incidentColumns()),
 		table.WithFocused(true),
 		table.WithHeight(15),
 	)
@@ -116,18 +112,21 @@ func New(tenant string) Model {
 
 // SetAlerts updates the model with a fresh batch of alerts.
 func (m Model) SetAlerts(alerts []Alert) Model {
-	m.alerts = alerts
-	rows := make([]table.Row, len(alerts))
-	for i, a := range alerts {
-		rows[i] = table.Row{
-			colourSeverity(a.Severity),
-			a.Status,
-			truncateStr(a.Title, 32),
-			truncateStr(a.CorrelationID, 18),
-			truncateStr(a.Fingerprint, 16),
-		}
+	m.mode = "monitor"
+	return m.SetSnapshot(NewSnapshot(alerts, m.runbooks, m.integrations))
+}
+
+// SetSnapshot updates the model with all dashboard collections.
+func (m Model) SetSnapshot(snapshot Snapshot) Model {
+	m.alerts = append([]Alert(nil), snapshot.Alerts...)
+	m.runbooks = append([]Runbook(nil), snapshot.Runbooks...)
+	m.integrations = append([]Integration(nil), snapshot.Integrations...)
+	m.metrics = snapshot.Metrics
+	m.warnings = append([]string(nil), snapshot.Warnings...)
+	if m.metrics == (Metrics{}) {
+		m.metrics = deriveMetrics(m.alerts, m.runbooks, m.integrations)
 	}
-	m.table.SetRows(rows)
+	m.refreshTableRows()
 	return m
 }
 
@@ -162,6 +161,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return next, cmd
 		}
 		switch msg.String() {
+		case "tab":
+			m.mode = nextDashboardMode(m.mode)
+			m.refreshTableRows()
+			return m, nil
+		case "shift+tab":
+			m.mode = previousDashboardMode(m.mode)
+			m.refreshTableRows()
+			return m, nil
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "r":
@@ -264,6 +271,10 @@ func (m Model) applySlashCommand(command string) (tea.Model, tea.Cmd) {
 		} else {
 			m.mode = "integrations"
 		}
+	case "evals":
+		m.mode = "evals"
+	case "agents":
+		m.mode = "agents"
 	case "audit":
 		m.mode = "audit"
 	case "memory":
@@ -277,6 +288,7 @@ func (m Model) applySlashCommand(command string) (tea.Model, tea.Cmd) {
 	default:
 		m.err = fmt.Errorf("unknown command: /%s", name[0])
 	}
+	m.refreshTableRows()
 	if err := saveSessionState(dashboardSessionPath(), m.sessionState()); err != nil {
 		m.err = fmt.Errorf("save session: %w", err)
 	}
@@ -318,14 +330,41 @@ func isDashboardMode(mode string) bool {
 	switch mode {
 	case "monitor", "tail", "investigate", "configure", "config-validate",
 		"runbooks", "runbook-search", "doctor", "integrations",
-		"integration-enable", "audit", "memory", "memory-query", "pinned":
+		"integration-enable", "evals", "agents", "audit", "memory", "memory-query", "pinned":
 		return true
 	default:
 		return false
 	}
 }
 
+func dashboardModes() []string {
+	return []string{"monitor", "investigate", "runbooks", "integrations", "evals", "agents", "doctor"}
+}
+
+func nextDashboardMode(current string) string {
+	modes := dashboardModes()
+	for i, mode := range modes {
+		if mode == current {
+			return modes[(i+1)%len(modes)]
+		}
+	}
+	return modes[0]
+}
+
+func previousDashboardMode(current string) string {
+	modes := dashboardModes()
+	for i, mode := range modes {
+		if mode == current {
+			return modes[(i+len(modes)-1)%len(modes)]
+		}
+	}
+	return modes[0]
+}
+
 func defaultDashboardSessionPath() string {
+	if path := strings.TrimSpace(os.Getenv("PALADIN_TUI_SESSION_PATH")); path != "" {
+		return path
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
@@ -374,7 +413,7 @@ func (m Model) View() string {
 	header := titleStyle.Width(contentWidth(m.width)).Render(
 		fmt.Sprintf(" PaladinAI Dashboard — tenant: %s • mode: %s ", m.tenant, m.mode),
 	)
-	help := helpStyle.Render("↑/↓ navigate  •  enter inspect  •  / commands  •  ? help  •  r refresh  •  q quit")
+	help := helpStyle.Render("↑/↓ navigate  •  tab surface  •  enter inspect  •  / commands  •  ? help  •  r refresh  •  q quit")
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top,
 		baseStyle.Render(m.table.View()),
@@ -387,10 +426,18 @@ func (m Model) View() string {
 		errLine = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Render(
 			fmt.Sprintf("Error: %v", m.err))
 	}
+	warningLine := ""
+	if len(m.warnings) > 0 {
+		warningLine = lipgloss.NewStyle().Foreground(lipgloss.Color("#D97706")).Render(
+			"Warning: " + strings.Join(m.warnings, "; "))
+	}
 
-	parts := []string{header, summaryStrip(m.alerts), body}
+	parts := []string{header, summaryStrip(m.alerts), metricsStrip(m.metrics), body}
 	if errLine != "" {
 		parts = append(parts, errLine)
+	}
+	if warningLine != "" {
+		parts = append(parts, warningLine)
 	}
 	if m.helpVisible {
 		parts = append(parts, helpOverlay())
@@ -409,7 +456,7 @@ func commandBar(m Model) string {
 	if len(m.recent) > 0 {
 		recent = "  recent: " + strings.Join(m.recent[:minInt(len(m.recent), 3)], "  ")
 	}
-	return helpStyle.Render("/incidents  /investigate  /tail  /runbooks  /integrations  /doctor  /config  /help"+recent) + "\n> " + input
+	return helpStyle.Render("/incidents  /investigate  /runbooks  /integrations  /evals  /agents  /doctor  /help"+recent) + "\n> " + input
 }
 
 func helpOverlay() string {
@@ -418,12 +465,16 @@ func helpOverlay() string {
 		"  /      command mode",
 		"  ?      toggle help",
 		"  q      quit",
+		"  tab    next surface",
+		"  shift+tab previous surface",
 		"Commands",
 		"  /incidents  monitor mode",
 		"  /investigate <id>  incident deep-dive",
 		"  /tail       live tail mode",
 		"  /runbooks   runbook explorer",
 		"  /integrations  integration health",
+		"  /evals      eval summary",
+		"  /agents     agent queues",
 		"  /audit      audit log viewer",
 		"  /memory query <text>  memory search",
 		"  /pinned     pinned items",
@@ -431,51 +482,6 @@ func helpOverlay() string {
 		"  /config     configure mode",
 		"  /quit       exit",
 	}, "\n"))
-}
-
-func (m Model) detailPane() string {
-	if len(m.alerts) == 0 {
-		return strings.Join([]string{
-			"Incident detail",
-			"",
-			"No active alerts.",
-			"Run `paladin tail` for the live stream or press r to refresh.",
-		}, "\n")
-	}
-	alert := m.selectedAlert()
-	return strings.Join([]string{
-		"Incident detail",
-		"",
-		"Title:       " + nonEmpty(alert.Title, "untitled"),
-		"Severity:    " + strings.ToUpper(nonEmpty(alert.Severity, "unknown")),
-		"Status:      " + nonEmpty(alert.Status, "unknown"),
-		"Correlation: " + nonEmpty(alert.CorrelationID, "none"),
-		"Fingerprint: " + nonEmpty(alert.Fingerprint, "none"),
-		"Tenant:      " + nonEmpty(alert.Tenant, m.tenant),
-		"Focused ID:  " + nonEmpty(m.focusedID, "none"),
-		"",
-		modeHint(m.mode),
-	}, "\n")
-}
-
-func (m Model) selectedAlert() Alert {
-	if len(m.alerts) == 0 {
-		return Alert{}
-	}
-	cursor := m.table.Cursor()
-	if cursor < 0 || cursor >= len(m.alerts) {
-		return m.alerts[0]
-	}
-	return m.alerts[cursor]
-}
-
-func incidentID(alert Alert) string {
-	for _, candidate := range []string{alert.CorrelationID, alert.Fingerprint, alert.Title} {
-		if strings.TrimSpace(candidate) != "" {
-			return candidate
-		}
-	}
-	return "selected"
 }
 
 func summaryStrip(alerts []Alert) string {
@@ -492,6 +498,19 @@ func summaryStrip(alerts []Alert) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", status, statuses[status]))
 	}
 	return helpStyle.Render(strings.Join(parts, "  "))
+}
+
+func metricsStrip(metrics Metrics) string {
+	health := "n/a"
+	if metrics.TotalIntegrations > 0 {
+		health = fmt.Sprintf("%d/%d", metrics.HealthyIntegrations, metrics.TotalIntegrations)
+	}
+	return helpStyle.Render(strings.Join([]string{
+		fmt.Sprintf("open=%d", metrics.OpenIncidents),
+		fmt.Sprintf("critical=%d", metrics.CriticalIncidents),
+		fmt.Sprintf("runbooks=%d", metrics.EmbeddedRunbooks),
+		"integrations=" + health,
+	}, "  "))
 }
 
 func severityCounts(alerts []Alert) map[string]int {
@@ -539,6 +558,10 @@ func modeHint(mode string) string {
 		return "Doctor mode: verify API, auth, integration, and stream health."
 	case "integrations", "integration-enable":
 		return "Integrations mode: review tool health and enable response sources."
+	case "evals":
+		return "Evals mode: review regression coverage and replay readiness."
+	case "agents":
+		return "Agents mode: inspect queue pressure and runtime readiness."
 	case "audit":
 		return "Audit mode: review incident decisions and approval history."
 	case "memory", "memory-query":
