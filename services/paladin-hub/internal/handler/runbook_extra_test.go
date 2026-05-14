@@ -3,10 +3,12 @@ package handler_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -86,6 +88,45 @@ func TestRunbookList_InvalidLimitIsIgnored(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200 with invalid limit (uses default), got %d", rec.Code)
 	}
+}
+
+func TestRunbookRecords_ConcurrentImportAndList(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "runbook.md")
+	if err := os.WriteFile(p, []byte("# Runbook\n\nStep 1: check logs.\n"), 0600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	h, _ := newTestRunbookHandler()
+	srv := mountRunbookRoutes(h)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			body, _ := json.Marshal(map[string]any{"source": "file", "path": p})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Tenant-ID", fmt.Sprintf("tenant-%d", i%3))
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if rec.Code != http.StatusCreated {
+				t.Errorf("import status = %d", rec.Code)
+			}
+		}(i)
+		go func(i int) {
+			defer wg.Done()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks?limit=10", nil)
+			req.Header.Set("X-Tenant-ID", fmt.Sprintf("tenant-%d", i%3))
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("list status = %d", rec.Code)
+			}
+		}(i)
+	}
+	wg.Wait()
 }
 
 // ── searchRunbooks coverage ───────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -43,6 +44,7 @@ type RunbookHandler struct {
 	httpClient *http.Client
 	// records is a simple in-memory index of imported runbooks.
 	// Production would persist this to Postgres.
+	mu      sync.RWMutex
 	records map[string]*RunbookRecord
 }
 
@@ -115,7 +117,9 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 		rec.Chunks = n
 	}
 
+	h.mu.Lock()
 	h.records[rec.ID] = rec
+	h.mu.Unlock()
 	h.log.Info("runbook imported",
 		zap.String("id", rec.ID),
 		zap.String("tenant", tenantID),
@@ -148,6 +152,9 @@ func (h *RunbookHandler) listRunbooks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sourceFilter := r.URL.Query().Get("source")
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 
 	out := make([]*RunbookRecord, 0, len(h.records))
 	for _, rec := range h.records {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -18,15 +19,22 @@ import (
 
 // stubPointStore satisfies qdrant.PointStore with in-memory storage.
 type stubPointStore struct {
+	mu     sync.RWMutex
 	points []qdrant.Point
 }
 
 func (s *stubPointStore) Upsert(_ context.Context, _ string, points []qdrant.Point) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.points = append(s.points, points...)
 	return nil
 }
 
 func (s *stubPointStore) Search(_ context.Context, _ string, _ []float32, topK int) ([]qdrant.SearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	results := make([]qdrant.SearchResult, 0, len(s.points))
 	for _, p := range s.points {
 		results = append(results, qdrant.SearchResult{
@@ -39,6 +47,13 @@ func (s *stubPointStore) Search(_ context.Context, _ string, _ []float32, topK i
 		}
 	}
 	return results, nil
+}
+
+func (s *stubPointStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.points)
 }
 
 func newTestRunbookHandler() (*handler.RunbookHandler, *stubPointStore) {
@@ -117,7 +132,7 @@ func TestRunbookImport_GitHubSource(t *testing.T) {
 	if resp["imported"] == nil {
 		t.Error("want imported field in response")
 	}
-	if len(store.points) == 0 {
+	if store.Count() == 0 {
 		t.Error("want at least one chunk indexed in store")
 	}
 }
