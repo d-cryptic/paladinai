@@ -56,6 +56,7 @@ import {
 } from "@/data"
 import { cn } from "@/lib/utils"
 import { WorkspacePage, type DashboardView } from "@/pages"
+import { loadDashboardData, mockDashboardData, type DashboardData } from "@/api"
 
 const navItems = [
   { label: "Dashboard", view: "dashboard", icon: LayoutDashboard, count: 3 },
@@ -92,8 +93,9 @@ const sloToneClass: Record<string, string> = {
 }
 
 export function Dashboard() {
+  const [dashboardData, setDashboardData] = useState<DashboardData>(() => mockDashboardData())
   const [view, setView] = useState<DashboardView>(() => readView())
-  const [selectedID, setSelectedID] = useState(incidents[0].id)
+  const [selectedID, setSelectedID] = useState(dashboardData.incidents[0].id)
   const [severity, setSeverity] = useState("all")
   const [query, setQuery] = useState("")
   const [commandOpen, setCommandOpen] = useState(false)
@@ -123,17 +125,26 @@ export function Dashboard() {
     window.localStorage.setItem("paladin-theme", dark ? "dark" : "light")
   }, [dark])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    loadDashboardData(controller.signal).then((data) => {
+      setDashboardData(data)
+      setSelectedID((current) => (data.incidents.some((incident) => incident.id === current) ? current : data.incidents[0]?.id ?? ""))
+    })
+    return () => controller.abort()
+  }, [])
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return incidents.filter((incident) => {
+    return dashboardData.incidents.filter((incident) => {
       if (severity !== "all" && incident.severity !== severity) return false
       if (!needle) return true
       return `${incident.id} ${incident.title} ${incident.service}`.toLowerCase().includes(needle)
     })
-  }, [severity, query])
+  }, [dashboardData.incidents, severity, query])
 
-  const selected = filtered.find((incident) => incident.id === selectedID) ?? filtered[0] ?? incidents[0]
-  const active = incidents.filter((incident) => incident.status !== "Resolved")
+  const selected = filtered.find((incident) => incident.id === selectedID) ?? filtered[0] ?? dashboardData.incidents[0]
+  const active = dashboardData.incidents.filter((incident) => incident.status !== "Resolved")
   const p1 = active.filter((incident) => incident.severity === "P1").length
   const p2 = active.filter((incident) => incident.severity === "P2").length
   const navigate = (nextView: DashboardView) => {
@@ -150,6 +161,7 @@ export function Dashboard() {
           {view === "dashboard" ? (
             <>
               <OverviewTabs />
+              <BackendStatus data={dashboardData} />
               <SystemHealthPanel />
 
               <motion.section
@@ -272,13 +284,14 @@ export function Dashboard() {
               </section>
             </>
           ) : (
-            <WorkspacePage view={view} onNavigate={navigate} />
+            <WorkspacePage view={view} onNavigate={navigate} data={dashboardData} />
           )}
         </main>
       </div>
       <CommandPalette
         open={commandOpen}
         onOpenChange={setCommandOpen}
+        incidents={dashboardData.incidents}
         onSelectIncident={(id) => {
           setSelectedID(id)
           setSeverity("all")
@@ -367,6 +380,25 @@ function Topbar({ dark, onTheme, onCommand }: { dark: boolean; onTheme: () => vo
         </Button>
       </div>
     </header>
+  )
+}
+
+function BackendStatus({ data }: { data: DashboardData }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <Badge
+        variant="secondary"
+        className={cn(
+          data.mode === "live"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+            : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300",
+        )}
+      >
+        {data.mode === "live" ? "Live backend" : "Mock fallback"}
+      </Badge>
+      <span>API {data.apiBaseURL}</span>
+      <span>WS {data.wsURL}</span>
+    </div>
   )
 }
 
@@ -587,12 +619,14 @@ function ComputeLoadCard() {
 function CommandPalette({
   open,
   onOpenChange,
+  incidents,
   onSelectIncident,
   onSetSeverity,
   onNavigate,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  incidents: Incident[]
   onSelectIncident: (id: string) => void
   onSetSeverity: (severity: string) => void
   onNavigate: (view: DashboardView) => void

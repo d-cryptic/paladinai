@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Area,
   AreaChart,
@@ -41,17 +41,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  activity,
-  agentTimeline,
-  incidents,
-  integrations,
-  modelMix,
-  qualityTrend,
-  runbooks,
-  sloBudget,
-  type Incident,
-} from "@/data"
+import type { DashboardData, IntegrationRecord, RunbookRecord } from "@/api"
+import type { Incident } from "@/data"
 import { cn } from "@/lib/utils"
 
 export type DashboardView = "dashboard" | "incidents" | "runbooks" | "integrations" | "evals" | "agents" | "settings"
@@ -59,6 +50,7 @@ export type DashboardView = "dashboard" | "incidents" | "runbooks" | "integratio
 type WorkspacePageProps = {
   view: DashboardView
   onNavigate: (view: DashboardView) => void
+  data: DashboardData
 }
 
 const pageCopy: Record<Exclude<DashboardView, "dashboard">, { eyebrow: string; title: string; description: string }> = {
@@ -115,18 +107,18 @@ const auditRows = [
   ["19:29", "paladin-eval", "ran 1000-case golden suite", "evals"],
 ]
 
-export function WorkspacePage({ view, onNavigate }: WorkspacePageProps) {
+export function WorkspacePage({ view, onNavigate, data }: WorkspacePageProps) {
   if (view === "dashboard") return null
   const copy = pageCopy[view]
 
   return (
     <div className="grid gap-3">
       <PageHeader copy={copy} view={view} onNavigate={onNavigate} />
-      {view === "incidents" ? <IncidentsPage /> : null}
-      {view === "runbooks" ? <RunbooksPage /> : null}
-      {view === "integrations" ? <IntegrationsPage /> : null}
-      {view === "evals" ? <EvalsPage /> : null}
-      {view === "agents" ? <AgentsPage /> : null}
+      {view === "incidents" ? <IncidentsPage incidents={data.incidents} activity={data.activity} /> : null}
+      {view === "runbooks" ? <RunbooksPage runbooks={data.runbooks} /> : null}
+      {view === "integrations" ? <IntegrationsPage integrations={data.integrations} /> : null}
+      {view === "evals" ? <EvalsPage data={data} /> : null}
+      {view === "agents" ? <AgentsPage data={data} /> : null}
       {view === "settings" ? <SettingsPage /> : null}
     </div>
   )
@@ -178,14 +170,21 @@ function PageHeader({
   )
 }
 
-function IncidentsPage() {
+function IncidentsPage({ incidents, activity }: { incidents: Incident[]; activity: DashboardData["activity"] }) {
   const [selected, setSelected] = useState<Incident>(incidents[0])
   const [approvalOpen, setApprovalOpen] = useState(false)
   const [query, setQuery] = useState("")
+
+  useEffect(() => {
+    if (!incidents.some((incident) => incident.id === selected.id)) {
+      setSelected(incidents[0])
+    }
+  }, [incidents, selected.id])
+
   const filtered = useMemo(() => {
     const needle = query.toLowerCase()
     return incidents.filter((incident) => `${incident.id} ${incident.title} ${incident.service}`.toLowerCase().includes(needle))
-  }, [query])
+  }, [incidents, query])
 
   return (
     <section className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -268,7 +267,7 @@ function IncidentsPage() {
   )
 }
 
-function RunbooksPage() {
+function RunbooksPage({ runbooks }: { runbooks: RunbookRecord[] }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   return (
     <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -284,13 +283,13 @@ function RunbooksPage() {
           </Button>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {runbooks.map(([title, slug, status]) => (
-            <div key={slug} className="grid gap-2 rounded-lg border bg-background/55 p-3 md:grid-cols-[1fr_auto_auto] md:items-center">
+          {runbooks.map((runbook) => (
+            <div key={runbook.id} className="grid gap-2 rounded-lg border bg-background/55 p-3 md:grid-cols-[1fr_auto_auto] md:items-center">
               <div>
-                <div className="font-medium">{title}</div>
-                <div className="text-sm text-muted-foreground">{slug}</div>
+                <div className="font-medium">{runbook.title}</div>
+                <div className="text-sm text-muted-foreground">{runbook.slug}</div>
               </div>
-              <Badge variant={status === "pending review" ? "warning" : "secondary"}>{status}</Badge>
+              <Badge variant={runbook.status === "pending review" ? "warning" : "secondary"}>{runbook.status}</Badge>
               <Button variant="outline" size="sm">Edit</Button>
             </div>
           ))}
@@ -318,24 +317,24 @@ function RunbooksPage() {
   )
 }
 
-function IntegrationsPage() {
+function IntegrationsPage({ integrations }: { integrations: IntegrationRecord[] }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   return (
     <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="grid gap-3 md:grid-cols-2">
-        {integrations.map(([name, detail, status]) => (
-          <Card key={name}>
+        {integrations.map((integration) => (
+          <Card key={integration.name}>
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <CardDescription>Connector</CardDescription>
-                  <CardTitle>{name}</CardTitle>
+                  <CardTitle>{integration.name}</CardTitle>
                 </div>
-                <Badge variant={status === "degraded" ? "warning" : "secondary"}>{status}</Badge>
+                <Badge variant={integration.status === "degraded" ? "warning" : "secondary"}>{integration.status}</Badge>
               </div>
             </CardHeader>
             <CardContent className="grid gap-3">
-              <div className="text-sm text-muted-foreground">{detail}</div>
+              <div className="text-sm text-muted-foreground">{integration.detail}</div>
               <Button variant="outline" onClick={() => setDialogOpen(true)}>Configure</Button>
             </CardContent>
           </Card>
@@ -362,7 +361,7 @@ function IntegrationsPage() {
   )
 }
 
-function EvalsPage() {
+function EvalsPage({ data }: { data: DashboardData }) {
   return (
     <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Card>
@@ -373,7 +372,7 @@ function EvalsPage() {
         <CardContent>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={qualityTrend} margin={{ left: -28, right: 8, top: 8, bottom: 0 }}>
+              <AreaChart data={data.qualityTrend} margin={{ left: -28, right: 8, top: 8, bottom: 0 }}>
                 <XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
                 <YAxis hide />
                 <Tooltip />
@@ -390,7 +389,7 @@ function EvalsPage() {
           <CardTitle>Tier mix</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {modelMix.map((model) => (
+          {data.modelMix.map((model) => (
             <div key={model.tier}>
               <div className="mb-1 flex justify-between text-sm"><span>{model.tier}</span><span>{model.share}%</span></div>
               <div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${model.share}%` }} /></div>
@@ -422,7 +421,7 @@ function EvalsPage() {
   )
 }
 
-function AgentsPage() {
+function AgentsPage({ data }: { data: DashboardData }) {
   return (
     <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Card>
@@ -448,7 +447,7 @@ function AgentsPage() {
         <CardContent>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={agentTimeline} layout="vertical" margin={{ left: -28, right: 8, top: 0, bottom: 0 }}>
+              <BarChart data={data.agentTimeline} layout="vertical" margin={{ left: -28, right: 8, top: 0, bottom: 0 }}>
                 <XAxis type="number" hide />
                 <YAxis dataKey="label" type="category" width={120} tickLine={false} axisLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
                 <Tooltip />

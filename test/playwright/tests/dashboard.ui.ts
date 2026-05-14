@@ -93,6 +93,60 @@ test.describe("local dashboard", () => {
     await expect(page.getByText("Recent changes")).toBeVisible();
   });
 
+  test("loads incidents and runbooks from backend API when credentials exist", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("paladin-auth-token", "test-token");
+      window.localStorage.setItem("paladin-tenant-id", "tenant-live");
+    });
+    await page.route("http://127.0.0.1:9002/api/v1/incidents", async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          data: [
+            {
+              id: "live-1",
+              status: "open",
+              severity: "critical",
+              title: "Live API outage",
+              alert_count: 2,
+              labels: { service: "edge-api", owner: "@live" },
+              triage_result: {
+                root_cause: "Edge proxy returned 502 from upstream.",
+                confidence: 88,
+                recommended_action: "Fail over edge-api to secondary region",
+                evidence: ["502 spike", "upstream pool empty"],
+              },
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      });
+    });
+    await page.route("http://127.0.0.1:9002/api/v1/runbooks", async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          data: [{ id: "rb-live", title: "Live failover", source: "github", embedded: true, updated_at: "2026-05-14T00:00:00Z" }],
+        }),
+      });
+    });
+
+    await page.goto(dashboardURL);
+
+    await expect(page.getByText("Live backend")).toBeVisible();
+    await expect(page.getByText("Live API outage")).toBeVisible();
+    await page.getByRole("button", { name: "Runbooks" }).click();
+    await expect(page.getByText("Live failover")).toBeVisible();
+  });
+
   test("keeps mobile layout within viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
