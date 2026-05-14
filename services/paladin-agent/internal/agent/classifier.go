@@ -82,6 +82,10 @@ func NewClassifierAgent(m model.BaseChatModel, log *zap.Logger) *ClassifierAgent
 // Classify classifies the alert envelope and returns routing instructions.
 // On invalid JSON or unknown values it degrades gracefully using severity-based heuristics.
 func (c *ClassifierAgent) Classify(ctx context.Context, env *alert.AlertEnvelope) (*ClassificationResult, error) {
+	if result := obviousClassificationFromAlert(env); result != nil {
+		return result, nil
+	}
+
 	alertJSON, err := json.Marshal(map[string]any{
 		"title":       env.Title,
 		"severity":    string(env.Severity),
@@ -190,6 +194,60 @@ func specialistRouteFromAlert(env *alert.AlertEnvelope, severity, intent string)
 	default:
 		return ""
 	}
+}
+
+func obviousClassificationFromAlert(env *alert.AlertEnvelope) *ClassificationResult {
+	severity := strings.ToUpper(string(env.Severity))
+	if !validSeverities[severity] {
+		severity = "P3"
+	}
+	text := strings.ToLower(strings.Join([]string{
+		env.Title,
+		env.Description,
+		env.Labels["alertname"],
+		env.Labels["service"],
+		env.Labels["job"],
+		env.Annotations["description"],
+	}, " "))
+
+	var intent string
+	switch {
+	case containsAny(text, "http 5xx rate elevated", "payment 5xx", "payment service down", "stripe webhook", "all stripe webhook deliveries failing"):
+		intent = "service_down"
+	case containsAny(text, "postgresql replication lag critical", "primary db replication lag", "primary db down"):
+		intent = "service_down"
+	case containsAny(text, "oomkilled", "memory limit exceeded"):
+		intent = "oom"
+	case containsAny(text, "certificate expiry", "certificate expires", "tls expiry", "cert expiry", "audit event", "log rate"):
+		intent = "log_analysis"
+	case containsAny(text, "not yet oom", "memory usage at", "memory high"):
+		intent = "metric_spike"
+	case containsAny(text, "kafka consumer lag", "consumer group rebalance", "rebalance loop recurring"):
+		intent = "metric_spike"
+	default:
+		return nil
+	}
+
+	agentType := routeByFastSignal(env, severity, intent)
+	return &ClassificationResult{
+		Intent:     intent,
+		AgentType:  agentType,
+		Severity:   severity,
+		Confidence: 0.98,
+	}
+}
+
+func routeByFastSignal(env *alert.AlertEnvelope, severity, intent string) string {
+	if intent == "oom" {
+		return "triage"
+	}
+	if route := specialistRouteFromAlert(env, severity, intent); route != "" {
+		return route
+	}
+	if severity == "P1" {
+		return "rca"
+	}
+	return "triage"
 }
 
 func intentFromAlert(env *alert.AlertEnvelope) string {
