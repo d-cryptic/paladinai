@@ -51,7 +51,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("telemetry: %w", err)
 	}
-	defer otel.Shutdown(ctx) //nolint:errcheck
+	defer func() {
+		if err := otel.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
 
 	// Use Postgres if DATABASE_URL is set, otherwise fall back to in-memory
 	// (useful for unit tests and dev without a local Postgres).

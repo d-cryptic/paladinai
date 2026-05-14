@@ -45,7 +45,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("telemetry: %w", err)
 	}
-	defer otel.Shutdown(ctx) //nolint:errcheck
+	defer func() {
+		if err := otel.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
 
 	natsClient, err := inats.Connect(conf.Base.NatsURL, log)
 	if err != nil {

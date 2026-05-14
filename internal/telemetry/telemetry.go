@@ -4,6 +4,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -15,6 +16,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// DefaultShutdownTimeout bounds OTel exporter flush during service shutdown.
+const DefaultShutdownTimeout = 5 * time.Second
 
 // Provider wraps the OTel TracerProvider for lifecycle management.
 type Provider struct {
@@ -73,6 +77,16 @@ func Init(ctx context.Context, serviceName, serviceVersion, endpoint string, log
 // Shutdown flushes pending spans.
 func (p *Provider) Shutdown(ctx context.Context) error {
 	return p.tp.Shutdown(ctx)
+}
+
+// ShutdownWithTimeout flushes pending spans with a bounded background context.
+func (p *Provider) ShutdownWithTimeout(timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = DefaultShutdownTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return p.Shutdown(ctx)
 }
 
 // noopExporter discards all spans (used when no OTel endpoint configured).

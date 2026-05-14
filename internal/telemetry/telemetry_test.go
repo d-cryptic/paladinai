@@ -6,6 +6,7 @@ package telemetry
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,18 @@ func TestInit_EmptyEndpoint_ShutdownOK(t *testing.T) {
 	p, err := Init(context.Background(), "test-svc", "0.0.1", "", zap.NewNop())
 	require.NoError(t, err)
 	assert.NoError(t, p.Shutdown(context.Background()))
+}
+
+func TestProvider_ShutdownWithTimeout(t *testing.T) {
+	p, err := Init(context.Background(), "test-svc", "0.0.1", "", zap.NewNop())
+	require.NoError(t, err)
+	assert.NoError(t, p.ShutdownWithTimeout(time.Second))
+}
+
+func TestProvider_ShutdownWithTimeoutUsesDefaultForInvalidTimeout(t *testing.T) {
+	p, err := Init(context.Background(), "test-svc", "0.0.1", "", zap.NewNop())
+	require.NoError(t, err)
+	assert.NoError(t, p.ShutdownWithTimeout(0))
 }
 
 func TestInit_EmptyServiceName_NoError(t *testing.T) {
