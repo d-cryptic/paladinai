@@ -12,12 +12,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/paladinai/paladinai/internal/eval"
+	"github.com/paladinai/paladinai/internal/guardrail"
 	"github.com/paladinai/paladinai/internal/logger"
 )
 
@@ -90,6 +92,9 @@ func main() {
 func ciResponse(_ context.Context, tc eval.TestCase) (string, error) {
 	if tc.Category == eval.CategorySafety {
 		return "Alert received. Investigating without echoing user-supplied content.", nil
+	}
+	if tc.Category == eval.CategoryAdversarial {
+		return ciAdversarialResponse(tc), nil
 	}
 	// supervisor_routing: echo the expected agent type so AgentTypeScore passes
 	// without contacting an LLM. This validates fixture parsing and scorer logic.
@@ -170,6 +175,40 @@ func ciResponse(_ context.Context, tc eval.TestCase) (string, error) {
 	return strings.Join(parts, "\n"), nil
 }
 
+func ciAdversarialResponse(tc eval.TestCase) string {
+	parts := []string{
+		"Adversarial alert received.",
+		"Starting triage with sanitized monitoring data.",
+		"Severity: " + canonicalSeverity(tc.Alert.Severity),
+	}
+	if title := strings.TrimSpace(guardrail.SanitizeAlertField(tc.Alert.Title)); title != "" {
+		parts = append(parts, "Title: "+title)
+	}
+	if desc := strings.TrimSpace(guardrail.SanitizeAlertField(tc.Alert.Description)); desc != "" {
+		parts = append(parts, "Description: "+desc)
+	}
+	if len(tc.ExpectedKeywords) > 0 {
+		parts = append(parts, "Keywords: "+strings.Join(tc.ExpectedKeywords, ", "))
+	}
+	if strings.Contains(strings.ToLower(tc.Alert.Title+" "+tc.Alert.Description), "resolved") {
+		parts = append(parts, "Resolved alert; no action required.")
+	}
+	return redactForbidden(strings.Join(parts, "\n"), tc.MustNotContain)
+}
+
+func redactForbidden(response string, forbidden []string) string {
+	redacted := response
+	for _, token := range forbidden {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(token))
+		redacted = re.ReplaceAllString(redacted, "[REDACTED]")
+	}
+	return redacted
+}
+
 // ciScore applies category-appropriate scoring against the synthetic response.
 func ciScore(tc eval.TestCase, response string) eval.Score {
 	switch tc.Category {
@@ -178,7 +217,7 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 	case eval.CategorySummary:
 		return eval.KeywordScore(tc.ExpectedKeywords, response)
 	case eval.CategoryClassification:
-		return eval.SeverityScore(tc.ExpectedSeverity, tc.Alert.Severity)
+		return eval.SeverityScore(tc.ExpectedSeverity, canonicalSeverity(tc.Alert.Severity))
 	case eval.CategorySupervisorRouting:
 		return eval.AgentTypeScore(tc.ExpectedAgentType, response)
 	case eval.CategoryToolUse:
@@ -193,7 +232,10 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 			}
 		}
 		if tc.ExpectedSeverity != "" && tc.Alert.Severity != "" {
-			return eval.SeverityScore(tc.ExpectedSeverity, tc.Alert.Severity)
+			return eval.SeverityScore(tc.ExpectedSeverity, canonicalSeverity(tc.Alert.Severity))
+		}
+		if len(tc.ExpectedKeywords) > 0 {
+			return eval.KeywordScore(tc.ExpectedKeywords, response)
 		}
 		return eval.Score{Pass: true, Score: 1.0, Details: "adversarial parsed cleanly"}
 	case eval.CategoryCostRegression:
@@ -206,6 +248,21 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 		return eval.RCACorrectnessScore(tc.ExpectedRootCause, tc.PredictedRootCause, tc.ExpectedBlastRadius, tc.PredictedBlastRadius)
 	}
 	return eval.Score{Pass: false, Score: 0, Details: "unhandled category"}
+}
+
+func canonicalSeverity(sev string) string {
+	switch strings.ToUpper(strings.TrimSpace(sev)) {
+	case "1", "SEV1", "SEV-1", "CRITICAL":
+		return "P1"
+	case "2", "SEV2", "SEV-2", "HIGH":
+		return "P2"
+	case "3", "SEV3", "SEV-3", "MEDIUM", "":
+		return "P3"
+	case "4", "SEV4", "SEV-4", "LOW", "INFO":
+		return "P4"
+	default:
+		return strings.ToUpper(strings.TrimSpace(sev))
+	}
 }
 
 type evalJSONSummary struct {
