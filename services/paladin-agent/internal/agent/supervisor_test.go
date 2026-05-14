@@ -123,9 +123,11 @@ func TestSupervisorPipeline_P1_RoutesToRCA(t *testing.T) {
 	assert.Equal(t, "P1", state.Severity)
 	assert.Equal(t, "service_down", state.Intent)
 	assert.InDelta(t, 0.95, state.RoutingConfidence, 0.001)
-	assert.Equal(t, 1, triager.calls, "triager runs before rca")
+	assert.Equal(t, 0, triager.calls, "rca route uses deterministic triage context")
 	assert.Equal(t, 1, rca.calls, "rca runs for P1")
 	require.NotNil(t, state.TriageResult)
+	assert.Equal(t, "P1", state.TriageResult.ConfirmedSeverity)
+	assert.Contains(t, state.TriageResult.AffectedServices, "api")
 	require.NotNil(t, state.RCAResult)
 	assert.True(t, state.NeedsHuman)
 }
@@ -241,6 +243,7 @@ func TestSupervisorPipeline_RCAFailure_KeepsTriage(t *testing.T) {
 	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
 	require.NoError(t, err, "rca failure must not fail the whole pipeline")
 
+	assert.Equal(t, 0, triager.calls)
 	require.NotNil(t, state.TriageResult)
 	assert.Nil(t, state.RCAResult)
 }
@@ -261,7 +264,7 @@ func TestSupervisorPipeline_RCATimeoutIsStepScoped(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Less(t, time.Since(start), 500*time.Millisecond)
-	assert.Equal(t, 1, triager.calls)
+	assert.Equal(t, 0, triager.calls)
 	assert.Equal(t, 1, rca.calls)
 	require.NotNil(t, state.TriageResult)
 	assert.Nil(t, state.RCAResult, "RCA timeout should degrade to triage-only")

@@ -243,10 +243,7 @@ func (e *liveEvaluator) run(ctx context.Context, tc eval.TestCase) caseResult {
 		res.Details = score.Details
 		return finishResult(res, start)
 	case eval.CategoryRCACorrectness:
-		tr, err := e.triager.Triage(ctx, &env)
-		if err != nil {
-			return errorResult(res, start, err)
-		}
+		tr := agent.TriageContextFromAlert(&env, string(env.Severity), "")
 		rr, err := e.rca.Analyze(ctx, &env, tr)
 		if err != nil {
 			return errorResult(res, start, err)
