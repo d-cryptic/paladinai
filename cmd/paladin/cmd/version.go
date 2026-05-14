@@ -20,7 +20,10 @@ var (
 	Commit  = "none"
 )
 
-const defaultLatestVersionURL = "https://releases.paladinai.io/latest.json"
+const (
+	defaultLatestVersionURL = "https://releases.paladinai.io/latest.json"
+	maxLatestVersionBytes   = 64 * 1024
+)
 
 var versionHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
@@ -98,9 +101,12 @@ func fetchLatestVersion(ctx context.Context, latestURL, current string) (version
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return versionResult{}, fmt.Errorf("fetch latest version: HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxLatestVersionBytes+1))
 	if err != nil {
 		return versionResult{}, fmt.Errorf("read latest version response: %w", err)
+	}
+	if len(body) > maxLatestVersionBytes {
+		return versionResult{}, fmt.Errorf("latest version response exceeds %d bytes", maxLatestVersionBytes)
 	}
 	var latest latestVersionResponse
 	if err := json.Unmarshal(body, &latest); err != nil {

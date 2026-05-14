@@ -104,6 +104,19 @@ func TestVersionCmd_CheckJSON(t *testing.T) {
 	assert.NotEmpty(t, result.Upgrade)
 }
 
+func TestFetchLatestVersionRejectsOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Repeat("x", maxLatestVersionBytes+1)))
+	}))
+	defer srv.Close()
+
+	_, err := fetchLatestVersion(t.Context(), srv.URL, "v2.0.0")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "latest version response exceeds")
+}
+
 func TestRunBackgroundUpdateCheckSkipsWhenRecent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Date(2026, 5, 14, 6, 0, 0, 0, time.UTC)
