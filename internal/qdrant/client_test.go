@@ -179,3 +179,43 @@ func TestClient_ErrorStatusTruncatesBody(t *testing.T) {
 		t.Fatalf("error body was not capped: %d x chars", strings.Count(err.Error(), "x"))
 	}
 }
+
+func TestClient_SearchRejectsOversizedResponse(t *testing.T) {
+	t.Parallel()
+	skipIfNoNetwork(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"result":[],"padding":"` + strings.Repeat("x", maxJSONBodyBytes) + `"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "", nil)
+	_, err := c.Search(context.Background(), "rb", []float32{0.1}, 1)
+	if err == nil {
+		t.Fatal("expected oversized response error")
+	}
+	if !strings.Contains(err.Error(), "response body exceeds") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClient_SearchRejectsMultipleJSONDocuments(t *testing.T) {
+	t.Parallel()
+	skipIfNoNetwork(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"result":[]} {}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "", nil)
+	_, err := c.Search(context.Background(), "rb", []float32{0.1}, 1)
+	if err == nil {
+		t.Fatal("expected multiple JSON document error")
+	}
+	if !strings.Contains(err.Error(), "single JSON document") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

@@ -98,9 +98,28 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		return fmt.Errorf("qdrant: %s %s: status %d: %s", method, path, resp.StatusCode, string(b))
 	}
 	if out != nil {
-		if err := json.NewDecoder(io.LimitReader(resp.Body, maxJSONBodyBytes+1)).Decode(out); err != nil {
+		if err := decodeLimitedJSON(resp.Body, maxJSONBodyBytes, out); err != nil {
 			return fmt.Errorf("qdrant: decode response: %w", err)
 		}
+	}
+	return nil
+}
+
+func decodeLimitedJSON(r io.Reader, maxBytes int64, out any) error {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxBytes {
+		return fmt.Errorf("response body exceeds %d bytes", maxBytes)
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var extra struct{}
+	if err := dec.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("response body must contain a single JSON document")
 	}
 	return nil
 }

@@ -63,6 +63,19 @@ func TestHTTPEmbedder_Embed_ServerErrorTruncatesBody(t *testing.T) {
 	}
 }
 
+func TestHTTPEmbedder_Embed_RejectsOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[],"padding":"` + strings.Repeat("x", maxEmbedderResponseBytes) + `"}`))
+	}))
+	defer srv.Close()
+
+	emb := NewHTTPEmbedder(srv.URL, "", "test-model", 4)
+	_, err := emb.Embed(context.Background(), "test")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "response body exceeds")
+}
+
 func TestHTTPEmbedder_Embed_EmptyResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := map[string]any{"data": []any{}}

@@ -74,7 +74,7 @@ func (e *HTTPEmbedder) Embed(ctx context.Context, text string) ([]float32, error
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxEmbedderResponseBytes+1)).Decode(&out); err != nil {
+	if err := decodeLimitedJSON(resp.Body, maxEmbedderResponseBytes, &out); err != nil {
 		return nil, fmt.Errorf("embedder: decode: %w", err)
 	}
 	if len(out.Data) == 0 || len(out.Data[0].Embedding) == 0 {
