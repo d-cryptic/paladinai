@@ -206,9 +206,13 @@ func TestDoctorCmd_JSONMode_EmitsValidJSON(t *testing.T) {
 	var report DoctorReport
 	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &report)
 	require.NoError(t, err, "--json output must be valid JSON; got: %s", output)
+	assert.Equal(t, "pass", report.Overall)
 	assert.NotEmpty(t, report.Checks, "checks array must not be empty")
+	assert.NotEmpty(t, report.Timestamp)
 	for _, c := range report.Checks {
 		assert.NotEmpty(t, c.Name, "every check must have a name")
+		assert.NotEmpty(t, c.Status, "every check must have a status")
+		assert.GreaterOrEqual(t, c.DurationMS, int64(0))
 	}
 }
 
@@ -239,6 +243,46 @@ func TestDoctorCmd_JSONMode_SuppressesCobraUsageOnFailure(t *testing.T) {
 	assert.Empty(t, strings.TrimSpace(stderr), "doctor --json should not print Cobra usage to stderr")
 }
 
+func TestDoctorCmd_JSONMode_ReportsFailureStatusAndDetail(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	t.Setenv("PALADIN_TOKEN", "test-token")
+	t.Setenv("QDRANT_URL", "http://127.0.0.1:1")
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer stub.Close()
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		_ = rootCmd.Execute()
+	})
+
+	var report DoctorReport
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(output)), &report))
+	assert.Equal(t, "fail", report.Overall)
+	assert.False(t, report.Passed)
+	for _, check := range report.Checks {
+		switch {
+		case check.Status == "fail" && !check.Passed:
+			assert.NotEmpty(t, check.Detail)
+			assert.NotEmpty(t, check.Name)
+			return
+		case check.Status == "pass":
+			assert.Equal(t, "pass", check.Status)
+		}
+	}
+	t.Fatalf("expected at least one failed check in JSON output: %+v", report.Checks)
+}
+
 func TestDoctorCmd_JSONMode_IncludesMemoryReadinessCheck(t *testing.T) {
 	skipIfNoNetwork(t)
 	t.Setenv("HOME", t.TempDir())
@@ -267,6 +311,7 @@ func TestDoctorCmd_JSONMode_IncludesMemoryReadinessCheck(t *testing.T) {
 	for _, c := range report.Checks {
 		if c.Name == "paladin-memory ready" {
 			assert.True(t, c.Passed)
+			assert.Equal(t, "pass", c.Status)
 			return
 		}
 	}
