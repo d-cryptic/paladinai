@@ -22,6 +22,8 @@ const (
 	// SemanticCollection is the Qdrant collection name for semantic fact chunks.
 	SemanticCollection = "paladin_semantic_facts"
 	defaultTimeout     = 10 * time.Second
+	maxErrorBodyBytes  = 64 * 1024
+	maxJSONBodyBytes   = 4 << 20
 )
 
 // Point represents a Qdrant vector point.
@@ -92,11 +94,11 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return fmt.Errorf("qdrant: %s %s: status %d: %s", method, path, resp.StatusCode, string(b))
 	}
 	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		if err := json.NewDecoder(io.LimitReader(resp.Body, maxJSONBodyBytes+1)).Decode(out); err != nil {
 			return fmt.Errorf("qdrant: decode response: %w", err)
 		}
 	}

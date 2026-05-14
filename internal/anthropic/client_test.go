@@ -250,6 +250,22 @@ func TestComplete_APIError(t *testing.T) {
 	}
 }
 
+func TestComplete_ResponseTooLarge(t *testing.T) {
+	srv, _ := stubServer(t, http.StatusOK, `{"id":"msg","content":[{"type":"text","text":"`+strings.Repeat("x", maxResponseBytes)+`"}]}`)
+	c := newTestClient(t, srv.URL)
+
+	_, err := c.Complete(context.Background(), Request{
+		SystemPrompt: "sys",
+		Messages:     cache.PlainChatMessages([][2]string{{"user", "hi"}}),
+	})
+	if err == nil {
+		t.Fatal("expected oversized response error")
+	}
+	if !strings.Contains(err.Error(), "response body exceeds") {
+		t.Errorf("error = %q, want response size mention", err.Error())
+	}
+}
+
 func TestResponse_TextContent_MultipleBlocks(t *testing.T) {
 	r := Response{
 		Content: []ResponseBlock{

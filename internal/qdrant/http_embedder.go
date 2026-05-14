@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const maxEmbedderResponseBytes = 4 << 20
+
 // HTTPEmbedder calls an OpenAI-compatible embeddings endpoint (e.g. Triton,
 // Ollama, or OpenRouter) to produce dense embeddings.
 type HTTPEmbedder struct {
@@ -63,7 +65,7 @@ func (e *HTTPEmbedder) Embed(ctx context.Context, text string) ([]float32, error
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return nil, fmt.Errorf("embedder: status %d: %s", resp.StatusCode, string(b))
 	}
 
@@ -72,7 +74,7 @@ func (e *HTTPEmbedder) Embed(ctx context.Context, text string) ([]float32, error
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxEmbedderResponseBytes+1)).Decode(&out); err != nil {
 		return nil, fmt.Errorf("embedder: decode: %w", err)
 	}
 	if len(out.Data) == 0 || len(out.Data[0].Embedding) == 0 {

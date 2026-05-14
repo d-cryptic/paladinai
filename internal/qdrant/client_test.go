@@ -159,3 +159,23 @@ func TestClient_ErrorStatus(t *testing.T) {
 		t.Fatalf("expected error on 400 status")
 	}
 }
+
+func TestClient_ErrorStatusTruncatesBody(t *testing.T) {
+	t.Parallel()
+	skipIfNoNetwork(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(strings.Repeat("x", maxErrorBodyBytes+1024)))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "", nil)
+	err := c.EnsureCollection(context.Background(), "rb", 8)
+	if err == nil {
+		t.Fatalf("expected error on 400 status")
+	}
+	if strings.Count(err.Error(), "x") > maxErrorBodyBytes {
+		t.Fatalf("error body was not capped: %d x chars", strings.Count(err.Error(), "x"))
+	}
+}

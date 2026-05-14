@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,21 @@ func TestHTTPEmbedder_Embed_ServerError(t *testing.T) {
 	_, err := emb.Embed(context.Background(), "test")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "503")
+}
+
+func TestHTTPEmbedder_Embed_ServerErrorTruncatesBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(strings.Repeat("x", maxErrorBodyBytes+1024)))
+	}))
+	defer srv.Close()
+
+	emb := NewHTTPEmbedder(srv.URL, "", "test-model", 4)
+	_, err := emb.Embed(context.Background(), "test")
+	require.Error(t, err)
+	if strings.Count(err.Error(), "x") > maxErrorBodyBytes {
+		t.Fatalf("error body was not capped: %d x chars", strings.Count(err.Error(), "x"))
+	}
 }
 
 func TestHTTPEmbedder_Embed_EmptyResponse(t *testing.T) {

@@ -36,6 +36,7 @@ const (
 	anthropicVersion  = "2023-06-01"
 	betaPromptCaching = "prompt-caching-2024-07-31"
 	defaultTimeout    = 60 * time.Second
+	maxResponseBytes  = 4 << 20
 )
 
 // Config holds credentials and model selection for the Anthropic client.
@@ -175,9 +176,12 @@ func (c *Client) Complete(ctx context.Context, req Request) (*Response, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: read response body: %w", err)
+	}
+	if len(respBody) > maxResponseBytes {
+		return nil, fmt.Errorf("anthropic: response body exceeds %d bytes", maxResponseBytes)
 	}
 
 	if resp.StatusCode != http.StatusOK {

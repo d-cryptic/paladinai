@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +172,20 @@ func TestAddEpisode_ServerError_ReturnsError(t *testing.T) {
 	err := c.AddEpisode(context.Background(), zep.Episode{ID: "ep-1", TenantID: "t1"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
+}
+
+func TestAddEpisode_ServerError_TruncatesBody(t *testing.T) {
+	ts := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("x", 70*1024)))
+	}))
+
+	c := zep.NewClient(ts.URL, "", nil)
+	err := c.AddEpisode(context.Background(), zep.Episode{ID: "ep-1", TenantID: "t1"})
+	require.Error(t, err)
+	if strings.Count(err.Error(), "x") > 64*1024 {
+		t.Fatalf("error body was not capped: %d x chars", strings.Count(err.Error(), "x"))
+	}
 }
 
 // ─── SearchEpisodes ───────────────────────────────────────────────────────────

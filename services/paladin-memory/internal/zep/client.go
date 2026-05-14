@@ -173,7 +173,7 @@ func (c *Client) DeleteSession(ctx context.Context, tenantID string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return fmt.Errorf("zep: DELETE session returned %d: %s", resp.StatusCode, body)
 	}
 	return nil
@@ -190,6 +190,11 @@ var decayLambda = map[string]float64{
 
 // defaultDecayLambda is used for unknown or empty domain.
 const defaultDecayLambda = 0.30
+
+const (
+	maxErrorBodyBytes = 64 * 1024
+	maxJSONBodyBytes  = 4 << 20
+)
 
 // ApplyDecay computes time-decayed relevance score.
 // relevance(t) = rawScore × exp(-λ × t_days)
@@ -231,7 +236,7 @@ func (c *Client) post(ctx context.Context, url string, body any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return fmt.Errorf("zep: POST %s returned %d: %s", url, resp.StatusCode, body)
 	}
 	return nil
@@ -253,10 +258,10 @@ func (c *Client) postDecode(ctx context.Context, url string, reqBody, out any) e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return fmt.Errorf("zep: POST %s returned %d: %s", url, resp.StatusCode, body)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxJSONBodyBytes+1)).Decode(out); err != nil {
 		return fmt.Errorf("zep: decode response from %s: %w", url, err)
 	}
 	return nil
