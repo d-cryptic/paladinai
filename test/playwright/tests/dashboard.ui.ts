@@ -29,6 +29,8 @@ test.describe("local dashboard", () => {
     await expect(page.getByText("Connection pool saturation")).toBeVisible();
     await expect(page.getByText("Severity split")).toBeVisible();
     await expect(page.getByText("Agent path")).toBeVisible();
+    await expect(page.getByText("Error budget")).toBeVisible();
+    await expect(page.getByText("Activity")).toBeVisible();
   });
 
   test("filters incidents and updates selected detail", async ({ page }) => {
@@ -49,6 +51,18 @@ test.describe("local dashboard", () => {
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     expect(overflow).toBe(false);
+  });
+
+  test("opens command palette and jumps to incidents", async ({ page }) => {
+    await page.getByRole("button", { name: "Open command menu" }).click();
+
+    await expect(page.getByRole("dialog", { name: "Command menu" })).toBeVisible();
+    await page.getByPlaceholder("Jump to incident, runbook, integration, filter...").fill("auth latency");
+    await page.getByRole("button", { name: /INC-2039/ }).click();
+
+    await expect(page.getByRole("dialog", { name: "Command menu" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: /INC-2039/ })).toBeVisible();
+    await expect(page.getByTestId("detail-action")).toHaveText("Scale auth-cache read replicas");
   });
 
   test("keeps mobile layout within viewport", async ({ page }) => {

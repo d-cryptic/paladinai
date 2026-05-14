@@ -105,6 +105,19 @@ export const agentTimeline = [
   { label: "RCA verify", ms: 1260, status: "running" },
 ]
 
+export const activity = [
+  { time: "19:47", label: "RCA verified payments DB saturation", tone: "critical" },
+  { time: "19:45", label: "Runbook match: payments-db-pool", tone: "info" },
+  { time: "19:42", label: "OpenRouter eval sample passed 8/8", tone: "success" },
+  { time: "19:38", label: "Memory specialist linked worker pressure", tone: "info" },
+]
+
+export const sloBudget = [
+  { service: "payments-api", budget: 73, tone: "good" },
+  { service: "auth-service", budget: 48, tone: "warn" },
+  { service: "job-queue", budget: 64, tone: "good" },
+]
+
 export const runbooks = [
   ["Pool exhaustion", "payments-db-pool", "embedded"],
   ["Redis latency", "auth-cache-latency", "embedded"],

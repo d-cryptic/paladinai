@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowRight,
   AlertTriangle,
   Bell,
   BookOpen,
@@ -14,9 +15,10 @@ import {
   ShieldCheck,
   Sparkles,
   TerminalSquare,
+  X,
 } from "lucide-react"
-import { motion } from "framer-motion"
-import { useMemo, useState } from "react"
+import { AnimatePresence, motion } from "framer-motion"
+import { useEffect, useMemo, useState } from "react"
 import {
   Area,
   AreaChart,
@@ -37,7 +39,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { agentTimeline, incidentTrend, incidents, integrations, runbooks, severitySplit, type Incident } from "@/data"
+import {
+  activity,
+  agentTimeline,
+  incidentTrend,
+  incidents,
+  integrations,
+  runbooks,
+  severitySplit,
+  sloBudget,
+  type Incident,
+} from "@/data"
 import { cn } from "@/lib/utils"
 
 const navItems = [
@@ -61,11 +73,41 @@ const cardMotion = {
   transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] },
 }
 
+const activityToneClass: Record<string, string> = {
+  critical: "bg-orange-500 shadow-[0_0_0_4px_rgba(249,115,22,0.12)]",
+  info: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.12)]",
+  success: "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]",
+}
+
+const sloToneClass: Record<string, string> = {
+  good: "from-emerald-500 to-cyan-500",
+  warn: "from-amber-500 to-orange-500",
+}
+
 export function Dashboard() {
   const [selectedID, setSelectedID] = useState(incidents[0].id)
   const [severity, setSeverity] = useState("all")
   const [query, setQuery] = useState("")
-  const [dark, setDark] = useState(false)
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [dark, setDark] = useState(() => window.localStorage.getItem("paladin-theme") === "dark")
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setCommandOpen(true)
+      }
+      if (event.key === "Escape") {
+        setCommandOpen(false)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem("paladin-theme", dark ? "dark" : "light")
+  }, [dark])
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -86,7 +128,7 @@ export function Dashboard() {
       <div className="linear-surface grid min-h-screen grid-cols-1 lg:grid-cols-[228px_minmax(0,1fr)]">
         <Sidebar />
         <main className="min-w-0 px-4 py-4 sm:px-6 lg:px-6">
-          <Topbar dark={dark} onTheme={() => setDark((value) => !value)} />
+          <Topbar dark={dark} onTheme={() => setDark((value) => !value)} onCommand={() => setCommandOpen(true)} />
 
           <motion.section
             aria-label="Incident metrics"
@@ -199,11 +241,22 @@ export function Dashboard() {
 
             <div className="grid gap-2.5">
               <SeverityDonut />
+              <SLOBudgetCard />
+              <ActivityStream />
               <SideStacks />
             </div>
           </section>
         </main>
       </div>
+      <CommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        onSelectIncident={(id) => {
+          setSelectedID(id)
+          setSeverity("all")
+        }}
+        onSetSeverity={setSeverity}
+      />
     </div>
   )
 }
@@ -247,7 +300,7 @@ function Sidebar() {
   )
 }
 
-function Topbar({ dark, onTheme }: { dark: boolean; onTheme: () => void }) {
+function Topbar({ dark, onTheme, onCommand }: { dark: boolean; onTheme: () => void; onCommand: () => void }) {
   return (
     <header className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
       <div>
@@ -255,7 +308,12 @@ function Topbar({ dark, onTheme }: { dark: boolean; onTheme: () => void }) {
         <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em]">Operations dashboard</h1>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <button className="flex h-8 min-w-[320px] items-center gap-2 rounded-md border bg-card/80 px-3 text-left text-sm text-muted-foreground shadow-[0_1px_0_rgba(15,23,42,0.03)] max-sm:min-w-0">
+        <button
+          className="flex h-8 min-w-[320px] items-center gap-2 rounded-md border bg-card/80 px-3 text-left text-sm text-muted-foreground shadow-[0_1px_0_rgba(15,23,42,0.03)] transition-all hover:-translate-y-px hover:bg-accent hover:text-accent-foreground hover:shadow-md max-sm:min-w-0"
+          type="button"
+          aria-label="Open command menu"
+          onClick={onCommand}
+        >
           <Search className="size-4" />
           <span className="flex-1">Search incidents, runbooks, services</span>
           <kbd className="rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">Cmd K</kbd>
@@ -270,6 +328,92 @@ function Topbar({ dark, onTheme }: { dark: boolean; onTheme: () => void }) {
         </Button>
       </div>
     </header>
+  )
+}
+
+function CommandPalette({
+  open,
+  onOpenChange,
+  onSelectIncident,
+  onSetSeverity,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSelectIncident: (id: string) => void
+  onSetSeverity: (severity: string) => void
+}) {
+  const [value, setValue] = useState("")
+  const commands = [
+    ...incidents.map((incident) => ({
+      key: incident.id,
+      title: `${incident.id} · ${incident.title}`,
+      detail: `${incident.service} · ${incident.status}`,
+      action: () => onSelectIncident(incident.id),
+    })),
+    { key: "severity-p1", title: "Show P1 incidents", detail: "Filter incident table", action: () => onSetSeverity("P1") },
+    { key: "severity-all", title: "Show all incidents", detail: "Clear severity filter", action: () => onSetSeverity("all") },
+    { key: "runbooks", title: "Open runbooks", detail: "Response library", action: () => undefined },
+    { key: "integrations", title: "Open integrations", detail: "Tool health", action: () => undefined },
+  ]
+  const filtered = commands.filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(value.toLowerCase()))
+
+  function run(action: () => void) {
+    action()
+    onOpenChange(false)
+    setValue("")
+  }
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-50 grid place-items-start bg-slate-950/20 px-4 pt-24 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            role="dialog"
+            aria-label="Command menu"
+            className="mx-auto w-full max-w-2xl overflow-hidden rounded-xl border bg-card shadow-2xl"
+            initial={{ y: -10, scale: 0.985 }}
+            animate={{ y: 0, scale: 1 }}
+            exit={{ y: -8, scale: 0.985 }}
+            transition={{ duration: 0.16 }}
+          >
+            <div className="flex items-center gap-2 border-b px-3 py-2">
+              <Search className="size-4 text-muted-foreground" />
+              <input
+                autoFocus
+                className="h-9 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                placeholder="Jump to incident, runbook, integration, filter..."
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+              />
+              <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="Close command menu">
+                <X className="size-4" />
+              </Button>
+            </div>
+            <div className="max-h-[420px] overflow-y-auto p-2">
+              {filtered.map((item) => (
+                <button
+                  key={item.key}
+                  className="group grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                  type="button"
+                  onClick={() => run(item.action)}
+                >
+                  <span>
+                    <span className="block font-medium">{item.title}</span>
+                    <span className="text-xs text-muted-foreground">{item.detail}</span>
+                  </span>
+                  <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   )
 }
 
@@ -288,18 +432,23 @@ function Metric({
 }) {
   return (
     <motion.div variants={cardMotion}>
-      <Card className="relative overflow-hidden">
+      <Card className="relative overflow-hidden transition-all hover:-translate-y-px hover:shadow-lg">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-      <CardContent className="p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-[13px] text-muted-foreground">{title}</span>
-          <Icon className="size-4 text-muted-foreground/80" />
-        </div>
-        <div className="text-[32px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{value}</div>
-        <div className={cn("mt-2 text-[13px] text-muted-foreground", intent === "good" && "text-emerald-600 dark:text-emerald-400")}>
-          {detail}
-        </div>
-      </CardContent>
+        <CardContent className="p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground">{title}</span>
+            <Icon className="size-4 text-muted-foreground/80" />
+          </div>
+          <div className="text-[32px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{value}</div>
+          <div
+            className={cn(
+              "mt-2 text-[13px] text-muted-foreground",
+              intent === "good" && "text-emerald-600 dark:text-emerald-400",
+            )}
+          >
+            {detail}
+          </div>
+        </CardContent>
       </Card>
     </motion.div>
   )
@@ -438,6 +587,66 @@ function SeverityDonut() {
             </div>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SLOBudgetCard() {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">SLO control</CardDescription>
+            <CardTitle className="text-[15px]">Error budget</CardTitle>
+          </div>
+          <Badge variant="secondary">live</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {sloBudget.map((item) => (
+          <div key={item.service} className="grid gap-1.5">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-medium">{item.service}</span>
+              <span className="tabular-nums text-muted-foreground">{item.budget}% left</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <motion.div
+                className={cn("h-full rounded-full bg-gradient-to-r", sloToneClass[item.tone])}
+                initial={{ width: 0 }}
+                animate={{ width: `${item.budget}%` }}
+                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              />
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ActivityStream() {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-2">
+        <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">Control loop</CardDescription>
+        <CardTitle className="text-[15px]">Activity</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-1">
+        {activity.map((item) => (
+          <motion.div
+            key={`${item.time}-${item.label}`}
+            className="grid grid-cols-[42px_12px_minmax(0,1fr)] items-start gap-2 rounded-md px-1.5 py-1.5 text-sm transition-colors hover:bg-accent/60"
+            initial={{ opacity: 0.72, y: 3 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <span className="text-xs tabular-nums text-muted-foreground">{item.time}</span>
+            <span className={cn("mt-1.5 size-2 rounded-full", activityToneClass[item.tone])} />
+            <span className="leading-snug">{item.label}</span>
+          </motion.div>
+        ))}
       </CardContent>
     </Card>
   )
