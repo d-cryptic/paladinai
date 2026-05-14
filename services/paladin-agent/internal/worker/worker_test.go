@@ -372,7 +372,7 @@ func TestWorkerWithSupervisor_ProcessEnvelopeRoutesToRCA(t *testing.T) {
 
 	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("tenant-sup", "fp-sup-rca")))
 
-	assert.Equal(t, 1, triager.callCount())
+	assert.Equal(t, 0, triager.callCount(), "RCA supervisor path uses deterministic triage context")
 	assert.Equal(t, 1, rca.callCount())
 	assert.Equal(t, 1, pub.count())
 	assert.Contains(t, pub.lastSubject(), "paladin.alerts.analyzed.")

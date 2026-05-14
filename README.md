@@ -91,11 +91,13 @@ LIVE_EVAL_RETRIES=6 LIVE_EVAL_CASE_DELAY=3s make eval-live
 ```
 
 Current live smoke baseline with `qwen/qwen3.6-flash` on OpenRouter:
-20 random real LLM-backed cases reached 95% pass rate, 100% model pass rate
-after excluding one provider-side 429, p50 8.2s, p95 16.0s, max 19.1s.
-`make eval-live` defaults to four transient-provider retries and a 2s
-inter-case delay to reduce OpenRouter rate-limit noise. Follow-up focused
-slices passed 5/5 for classification, adversarial, and RCA correctness.
+12 random real LLM-backed cases reached 100% pass rate, 100% model pass
+rate, 0 provider errors, p50 7.1s, p95 17.7s, max 17.7s. RCA now skips
+the extra triage LLM call by deriving RCA context from classifier + alert
+data; focused RCA passed 5/5 with p50 9.9s and p95 13.0s. `make
+eval-live` defaults to four transient-provider retries and a 2s inter-case
+delay to reduce OpenRouter rate-limit noise. Follow-up focused slices passed
+5/5 for classification, adversarial, and RCA correctness.
 Supervisor routing now supports
 `triage`, `rca`, `runbook`, `integration`, and `memory`; specialist routes
 fall back to triage execution until those workers are wired.
