@@ -19,7 +19,6 @@ import (
 
 const (
 	maxDeliveries = 5
-	dlqSubjectFmt = "paladin.alerts.triage.dlq.%s"
 )
 
 // Triager is satisfied by agent.TriageAgent, agent.CachedTriager, and test fakes.
@@ -314,7 +313,11 @@ func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triag
 		"correlation_id": env.CorrelationID,
 		"error":          triageErr.Error(),
 	})
-	subject := fmt.Sprintf(dlqSubjectFmt, env.TenantID)
+	subject, err := triageDLQSubject(env.TenantID)
+	if err != nil {
+		w.log.Error("worker: invalid DLQ subject", zap.Error(err))
+		return
+	}
 	if _, err := w.pub.Publish(ctx, subject, payload); err != nil {
 		w.log.Error("worker: DLQ publish failed", zap.Error(err))
 	}

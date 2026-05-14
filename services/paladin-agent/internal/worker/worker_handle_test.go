@@ -156,6 +156,30 @@ func TestHandleMsg_TriageError_AtMaxDeliveries_RoutesToDLQ(t *testing.T) {
 	assert.Contains(t, pub.subjects[0], "paladin.alerts.triage.dlq.acme")
 }
 
+func TestPublishDLQ_InvalidTenantDoesNotPublish(t *testing.T) {
+	pub := &fakePublisher{}
+	w := New(&fakeTriager{}, pub, 5*time.Second, 1, zap.NewNop())
+	env := &alert.AlertEnvelope{TenantID: "bad.tenant", Fingerprint: "fp-dlq"}
+
+	w.publishDLQ(context.Background(), env, errors.New("triage failed"))
+
+	assert.Empty(t, pub.subjects)
+}
+
+func TestTriageDLQSubject_ValidatesTenant(t *testing.T) {
+	subject, err := triageDLQSubject("tenant-1")
+	require.NoError(t, err)
+	assert.Equal(t, "paladin.alerts.triage.dlq.tenant-1", subject)
+
+	for _, tenantID := range []string{"", "bad.tenant", "bad*tenant", "bad>tenant", "bad tenant"} {
+		t.Run(tenantID, func(t *testing.T) {
+			_, err := triageDLQSubject(tenantID)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "tenant")
+		})
+	}
+}
+
 func TestHandleMsg_PublishFailure_NaksWithBackoff(t *testing.T) {
 	w := newHandleWorker(&agent.TriageResult{ConfirmedSeverity: "P2"}, nil, errors.New("nats disconnected"))
 	msg := msgWithDeliveries(validEnvJSON("t1", "fp-pub-err"), 1)
