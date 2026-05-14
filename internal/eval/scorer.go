@@ -185,6 +185,37 @@ func LatencyBudgetScore(budgetMS, observedMS int) Score {
 	}
 }
 
+// MemoryRecallScore computes a Stage 10 memory retrieval score using
+// Precision@5 and Recall@10 over incident IDs. The final score weights recall
+// higher because missing a relevant prior incident is more damaging than
+// returning one extra neighbor.
+func MemoryRecallScore(expected, recalled []string) Score {
+	expSet := toSet(expected)
+	if len(expSet) == 0 {
+		return Score{Pass: false, Score: 0, Details: "expected_incident_ids must not be empty"}
+	}
+	top5 := firstN(recalled, 5)
+	top10 := firstN(recalled, 10)
+
+	precisionDenom := len(top5)
+	if precisionDenom == 0 {
+		precisionDenom = 5
+	}
+	precisionHits := countHits(expSet, top5)
+	recallHits := countHits(expSet, top10)
+
+	precisionAt5 := float64(precisionHits) / float64(precisionDenom)
+	recallAt10 := float64(recallHits) / float64(len(expSet))
+	score := 0.4*precisionAt5 + 0.6*recallAt10
+
+	return Score{
+		Pass:  recallAt10 >= 0.8 && precisionAt5 >= 0.6,
+		Score: clamp01(score),
+		Details: fmt.Sprintf("precision_at_5=%.2f recall_at_10=%.2f hits_p5=%d hits_r10=%d expected=%d",
+			precisionAt5, recallAt10, precisionHits, recallHits, len(expSet)),
+	}
+}
+
 // AggregateResults returns the pass rate and mean score across the slice.
 func AggregateResults(scores []Score) (passRate, meanScore float64) {
 	if len(scores) == 0 {
@@ -209,6 +240,32 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
+}
+
+func firstN(items []string, n int) []string {
+	if len(items) <= n {
+		return items
+	}
+	return items[:n]
+}
+
+func countHits(want map[string]struct{}, got []string) int {
+	hits := 0
+	seen := make(map[string]struct{}, len(got))
+	for _, item := range got {
+		key := strings.TrimSpace(item)
+		if key == "" {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		if _, ok := want[key]; ok {
+			hits++
+		}
+	}
+	return hits
 }
 
 func toSet(items []string) map[string]struct{} {

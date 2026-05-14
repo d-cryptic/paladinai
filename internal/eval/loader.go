@@ -97,7 +97,8 @@ func validateCase(tc TestCase) error {
 		tc.Category != CategoryToolUse &&
 		tc.Category != CategoryAdversarial &&
 		tc.Category != CategoryCostRegression &&
-		tc.Category != CategoryLatencyBudget {
+		tc.Category != CategoryLatencyBudget &&
+		tc.Category != CategoryMemoryRecall {
 		if strings.TrimSpace(tc.Alert.Title) == "" {
 			return fmt.Errorf("missing alert.title")
 		}
@@ -117,6 +118,9 @@ func validateCase(tc TestCase) error {
 		if tc.ObservedLatencyMS < 0 {
 			return fmt.Errorf("observed_latency_ms must not be negative")
 		}
+	}
+	if tc.Category == CategoryMemoryRecall && len(tc.ExpectedIncidentIDs) == 0 {
+		return fmt.Errorf("expected_incident_ids must not be empty")
 	}
 	if !tc.HasExpectations() {
 		return fmt.Errorf("test case has no expected outputs")

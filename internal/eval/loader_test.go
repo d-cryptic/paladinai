@@ -98,6 +98,7 @@ func TestLoadFixtures_RealFixtures(t *testing.T) {
 	assert.GreaterOrEqual(t, cats[CategorySupervisorRouting], 200, "expect 200+ supervisor routing cases")
 	assert.GreaterOrEqual(t, cats[CategoryCostRegression], 50, "expect 50+ cost regression cases")
 	assert.GreaterOrEqual(t, cats[CategoryLatencyBudget], 50, "expect 50+ latency budget cases")
+	assert.GreaterOrEqual(t, cats[CategoryMemoryRecall], 150, "expect 150+ memory recall cases")
 }
 
 func TestLoadFixtures_SupervisorRoutingCategory(t *testing.T) {
@@ -146,4 +147,26 @@ func TestLoadFixtures_CostRegressionRequiresBaseline(t *testing.T) {
 	_, err := LoadFixtures(dir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "baseline_tokens")
+}
+
+func TestLoadFixtures_MemoryRecallCategory(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"id":"mem-001","category":"memory_recall","description":"memory recall","expected_incident_ids":["inc-1","inc-2"],"recalled_incident_ids":["inc-1","inc-2","inc-x"]}` + "\n"
+	writeJSONL(t, dir, "memory.jsonl", content)
+
+	cases, err := LoadFixtures(dir)
+	require.NoError(t, err)
+	require.Len(t, cases, 1)
+	assert.Equal(t, CategoryMemoryRecall, cases[0].Category)
+	assert.Equal(t, []string{"inc-1", "inc-2"}, cases[0].ExpectedIncidentIDs)
+}
+
+func TestLoadFixtures_MemoryRecallRequiresExpectedIncidents(t *testing.T) {
+	dir := t.TempDir()
+	writeJSONL(t, dir, "memory.jsonl",
+		`{"id":"mem-001","category":"memory_recall","description":"memory recall","recalled_incident_ids":["inc-1"]}`)
+
+	_, err := LoadFixtures(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected_incident_ids")
 }
