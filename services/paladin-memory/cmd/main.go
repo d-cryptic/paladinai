@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -91,19 +92,9 @@ func main() {
 	if cfg.QdrantURL != "" {
 		qc := qdrant.New(cfg.QdrantURL, cfg.QdrantAPIKey, log)
 
-		// Use real HTTP embedder when OPENROUTER_API_KEY is set; otherwise stub.
-		var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
-		if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-			gatewayURL := os.Getenv("LLM_GATEWAY_URL")
-			if gatewayURL == "" {
-				gatewayURL = "https://openrouter.ai/api/v1"
-			}
-			embedModel := os.Getenv("EMBED_MODEL")
-			if embedModel == "" {
-				embedModel = "BAAI/bge-m3"
-			}
-			embedder = qdrant.NewHTTPEmbedder(gatewayURL, apiKey, embedModel, qdrant.EmbeddingDim)
-			log.Info("using HTTP embedder", zap.String("model", embedModel))
+		embedder, err := memoryEmbedder(cfg, log)
+		if err != nil {
+			log.Fatal("qdrant embedder config failed", zap.Error(err))
 		}
 
 		baseIdx := qdrant.NewIndexer(qc, embedder)
@@ -203,6 +194,43 @@ func main() {
 		grpcServer.Stop()
 	}
 	log.Info("paladin-memory stopped")
+}
+
+func memoryEmbedder(cfg *memcfg.Config, log *zap.Logger) (qdrant.Embedder, error) {
+	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
+		gatewayURL := os.Getenv("LLM_GATEWAY_URL")
+		if gatewayURL == "" {
+			gatewayURL = "https://openrouter.ai/api/v1"
+		}
+		embedModel := os.Getenv("EMBED_MODEL")
+		if embedModel == "" {
+			embedModel = "BAAI/bge-m3"
+		}
+		log.Info("using HTTP embedder", zap.String("model", embedModel))
+		return qdrant.NewHTTPEmbedder(gatewayURL, apiKey, embedModel, qdrant.EmbeddingDim), nil
+	}
+
+	if stubEmbedderAllowed(cfg) {
+		log.Warn("using deterministic stub embedder",
+			zap.String("env", cfg.Env),
+			zap.Bool("explicit_allow", cfg.AllowStubEmbedder),
+		)
+		return &qdrant.StubEmbedder{}, nil
+	}
+
+	return nil, fmt.Errorf("OPENROUTER_API_KEY is required when QDRANT_URL is set outside development/test")
+}
+
+func stubEmbedderAllowed(cfg *memcfg.Config) bool {
+	if cfg.AllowStubEmbedder {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Env)) {
+	case "", "development", "dev", "test", "local":
+		return true
+	default:
+		return false
+	}
 }
 
 func memoryHealthServer(addr string, pool *pgxpool.Pool, rdb *redis.Client) *http.Server {

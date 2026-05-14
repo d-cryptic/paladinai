@@ -9,6 +9,8 @@ import (
 
 // Config holds paladin-memory service settings.
 type Config struct {
+	// Env is the deployment environment. Development/test may use local fakes.
+	Env string
 	// GRPCAddr is the gRPC listener address (e.g. ":9010").
 	GRPCAddr string
 	// HTTPAddr is the health/metrics listener address (e.g. ":9011").
@@ -26,6 +28,8 @@ type Config struct {
 	QdrantAPIKey string
 	// FalkorDBURL is the Redis-protocol URL for FalkorDB (topology graph). Optional.
 	FalkorDBURL string
+	// AllowStubEmbedder permits deterministic fake embeddings outside development/test.
+	AllowStubEmbedder bool
 }
 
 // Load reads Config from environment variables.
@@ -34,20 +38,37 @@ func Load() (*Config, error) {
 	if dbURL == "" {
 		return nil, fmt.Errorf("memory: config: DATABASE_URL is required")
 	}
+	allowStubEmbedder, err := getEnvBool("PALADIN_MEMORY_ALLOW_STUB_EMBEDDER", false)
+	if err != nil {
+		return nil, fmt.Errorf("memory: config: PALADIN_MEMORY_ALLOW_STUB_EMBEDDER: %w", err)
+	}
 	c := &Config{
-		GRPCAddr:     getEnv("GRPC_ADDR", ":9010"),
-		HTTPAddr:     getEnv("MEMORY_HTTP_ADDR", ":9011"),
-		DatabaseURL:  dbURL,
-		ValkeyURL:    getEnv("VALKEY_URL", "redis://localhost:6379"),
-		WorkingTTL:   getEnvInt("WORKING_MEMORY_TTL_SECONDS", 1800),
-		QdrantURL:    os.Getenv("QDRANT_URL"),
-		QdrantAPIKey: os.Getenv("QDRANT_API_KEY"),
-		FalkorDBURL:  os.Getenv("FALKORDB_URL"),
+		Env:               getEnv("ENV", "development"),
+		GRPCAddr:          getEnv("GRPC_ADDR", ":9010"),
+		HTTPAddr:          getEnv("MEMORY_HTTP_ADDR", ":9011"),
+		DatabaseURL:       dbURL,
+		ValkeyURL:         getEnv("VALKEY_URL", "redis://localhost:6379"),
+		WorkingTTL:        getEnvInt("WORKING_MEMORY_TTL_SECONDS", 1800),
+		QdrantURL:         os.Getenv("QDRANT_URL"),
+		QdrantAPIKey:      os.Getenv("QDRANT_API_KEY"),
+		FalkorDBURL:       os.Getenv("FALKORDB_URL"),
+		AllowStubEmbedder: allowStubEmbedder,
 	}
 	if c.WorkingTTL <= 0 {
 		return nil, fmt.Errorf("memory: config: WORKING_MEMORY_TTL_SECONDS must be > 0")
 	}
 	return c, nil
+}
+
+func getEnvBool(key string, fallback bool) (bool, error) {
+	if v := os.Getenv(key); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return false, err
+		}
+		return parsed, nil
+	}
+	return fallback, nil
 }
 
 func getEnv(key, fallback string) string {

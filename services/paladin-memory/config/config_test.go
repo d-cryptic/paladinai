@@ -11,7 +11,18 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"GRPC_ADDR", "MEMORY_HTTP_ADDR", "DATABASE_URL", "VALKEY_URL", "WORKING_MEMORY_TTL_SECONDS"} {
+	for _, k := range []string{
+		"ENV",
+		"GRPC_ADDR",
+		"MEMORY_HTTP_ADDR",
+		"DATABASE_URL",
+		"VALKEY_URL",
+		"WORKING_MEMORY_TTL_SECONDS",
+		"QDRANT_URL",
+		"QDRANT_API_KEY",
+		"FALKORDB_URL",
+		"PALADIN_MEMORY_ALLOW_STUB_EMBEDDER",
+	} {
 		t.Setenv(k, "")
 	}
 }
@@ -35,6 +46,8 @@ func TestLoad_DefaultsWhenSet(t *testing.T) {
 	assert.Equal(t, "redis://localhost:6379", c.ValkeyURL)
 	assert.Equal(t, 1800, c.WorkingTTL)
 	assert.Equal(t, "postgres://user:pass@localhost/memory", c.DatabaseURL)
+	assert.Equal(t, "development", c.Env)
+	assert.False(t, c.AllowStubEmbedder)
 }
 
 func TestLoad_OverridesFromEnv(t *testing.T) {
@@ -44,6 +57,11 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	t.Setenv("MEMORY_HTTP_ADDR", ":9998")
 	t.Setenv("VALKEY_URL", "redis://valkey:6380")
 	t.Setenv("WORKING_MEMORY_TTL_SECONDS", "60")
+	t.Setenv("ENV", "production")
+	t.Setenv("QDRANT_URL", "http://qdrant:6333")
+	t.Setenv("QDRANT_API_KEY", "qdrant-key")
+	t.Setenv("FALKORDB_URL", "redis://falkordb:6379")
+	t.Setenv("PALADIN_MEMORY_ALLOW_STUB_EMBEDDER", "true")
 
 	c, err := config.Load()
 	require.NoError(t, err)
@@ -51,6 +69,11 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	assert.Equal(t, ":9998", c.HTTPAddr)
 	assert.Equal(t, "redis://valkey:6380", c.ValkeyURL)
 	assert.Equal(t, 60, c.WorkingTTL)
+	assert.Equal(t, "production", c.Env)
+	assert.Equal(t, "http://qdrant:6333", c.QdrantURL)
+	assert.Equal(t, "qdrant-key", c.QdrantAPIKey)
+	assert.Equal(t, "redis://falkordb:6379", c.FalkorDBURL)
+	assert.True(t, c.AllowStubEmbedder)
 }
 
 func TestLoad_RejectsNonPositiveTTL(t *testing.T) {
@@ -60,4 +83,14 @@ func TestLoad_RejectsNonPositiveTTL(t *testing.T) {
 
 	_, err := config.Load()
 	require.Error(t, err)
+}
+
+func TestLoad_RejectsInvalidAllowStubEmbedder(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("DATABASE_URL", "postgres://x/y")
+	t.Setenv("PALADIN_MEMORY_ALLOW_STUB_EMBEDDER", "sometimes")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PALADIN_MEMORY_ALLOW_STUB_EMBEDDER")
 }
