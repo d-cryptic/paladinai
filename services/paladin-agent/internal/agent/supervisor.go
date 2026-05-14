@@ -80,13 +80,7 @@ func (s *SupervisorPipeline) Process(ctx context.Context, state *IncidentState) 
 	switch state.AgentType {
 	case "rca":
 		if s.rca != nil {
-			// First triage (RCA needs triage context), then RCA.
-			triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
-			tr, err := s.triager.Triage(triageCtx, &state.Alert)
-			triageCancel()
-			if err != nil {
-				return state, fmt.Errorf("supervisor: triage before rca: %w", err)
-			}
+			tr := TriageContextFromAlert(&state.Alert, state.Severity, state.Intent)
 			state.TriageResult = tr
 			state.NeedsHuman = tr.NeedsHuman
 
