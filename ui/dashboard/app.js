@@ -73,6 +73,19 @@ function byID(id) {
   return document.getElementById(id);
 }
 
+function textElement(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  node.textContent = text;
+  return node;
+}
+
+function tableCell(text) {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  return cell;
+}
+
 function renderMetrics() {
   const active = data.incidents.filter((incident) => incident.status !== "resolved");
   const p1 = active.filter((incident) => incident.severity === "P1").length;
@@ -105,14 +118,14 @@ function renderIncidents() {
     const tr = document.createElement("tr");
     tr.dataset.incidentId = incident.id;
     tr.className = incident.id === selectedID ? "selected" : "";
-    tr.innerHTML = `
-      <td><span class="badge ${incident.severity.toLowerCase()}">${incident.severity}</span></td>
-      <td>${incident.id} · ${incident.title}</td>
-      <td>${incident.service}</td>
-      <td>${incident.age}</td>
-      <td>${incident.status}</td>
-      <td>${incident.agent}</td>
-    `;
+    const severityCell = document.createElement("td");
+    severityCell.appendChild(textElement("span", `badge ${incident.severity.toLowerCase()}`, incident.severity));
+    tr.appendChild(severityCell);
+    tr.appendChild(tableCell(`${incident.id} · ${incident.title}`));
+    tr.appendChild(tableCell(incident.service));
+    tr.appendChild(tableCell(incident.age));
+    tr.appendChild(tableCell(incident.status));
+    tr.appendChild(tableCell(incident.agent));
     tr.addEventListener("click", () => {
       selectedID = incident.id;
       renderIncidents();
@@ -159,11 +172,15 @@ function renderCharts() {
     const count = counts[severity] || 0;
     const row = document.createElement("div");
     row.className = "severity-row";
-    row.innerHTML = `
-      <strong>${severity}</strong>
-      <span class="track"><span class="fill" style="width:${(count / data.incidents.length) * 100}%"></span></span>
-      <span>${count}</span>
-    `;
+    row.appendChild(textElement("strong", "", severity));
+    const track = document.createElement("span");
+    track.className = "track";
+    const fill = document.createElement("span");
+    fill.className = "fill";
+    fill.style.width = `${(count / data.incidents.length) * 100}%`;
+    track.appendChild(fill);
+    row.appendChild(track);
+    row.appendChild(textElement("span", "", String(count)));
     split.appendChild(row);
   }
 }
@@ -173,7 +190,9 @@ function renderLists() {
   runbooks.replaceChildren();
   for (const [slug, title, status] of data.runbooks) {
     const item = document.createElement("li");
-    item.innerHTML = `<strong>${title}</strong><span>${slug}</span><small>${status}</small>`;
+    item.appendChild(textElement("strong", "", title));
+    item.appendChild(textElement("span", "", slug));
+    item.appendChild(textElement("small", "", status));
     runbooks.appendChild(item);
   }
 
@@ -181,7 +200,9 @@ function renderLists() {
   integrations.replaceChildren();
   for (const [name, status, detail] of data.integrations) {
     const item = document.createElement("li");
-    item.innerHTML = `<strong>${name}</strong><span>${detail}</span><small>${status}</small>`;
+    item.appendChild(textElement("strong", "", name));
+    item.appendChild(textElement("span", "", detail));
+    item.appendChild(textElement("small", "", status));
     integrations.appendChild(item);
   }
 }
