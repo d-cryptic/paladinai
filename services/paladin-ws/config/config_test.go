@@ -11,7 +11,7 @@ import (
 
 func clearWSEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"JWT_SECRET", "NATS_ALERTS_SUBJECT", "NATS_CONSUMER_NAME", "PALADIN_WS_PORT"} {
+	for _, k := range []string{"JWT_SECRET", "NATS_ALERTS_SUBJECT", "NATS_CONSUMER_NAME", "PALADIN_WS_PORT", "PALADIN_WS_ADMIN_PORT"} {
 		t.Setenv(k, "")
 	}
 }
@@ -71,4 +71,43 @@ func TestLoad_DefaultPort(t *testing.T) {
 	c, err := config.Load()
 	require.NoError(t, err)
 	assert.Equal(t, 9007, c.Server.Port)
+}
+
+func TestLoad_DefaultAdminPortKeepsAdminRoutesOnPublicServer(t *testing.T) {
+	clearWSEnv(t)
+	t.Setenv("JWT_SECRET", "ws-secret-at-least-32-bytes!!!!!")
+
+	c, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 0, c.AdminPort)
+}
+
+func TestLoad_AdminPortOverride(t *testing.T) {
+	clearWSEnv(t)
+	t.Setenv("JWT_SECRET", "ws-secret-at-least-32-bytes!!!!!")
+	t.Setenv("PALADIN_WS_ADMIN_PORT", "9107")
+
+	c, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 9107, c.AdminPort)
+}
+
+func TestLoad_InvalidAdminPortReturnsError(t *testing.T) {
+	clearWSEnv(t)
+	t.Setenv("JWT_SECRET", "ws-secret-at-least-32-bytes!!!!!")
+	t.Setenv("PALADIN_WS_ADMIN_PORT", "not-a-port")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PALADIN_WS_ADMIN_PORT")
+}
+
+func TestLoad_OutOfRangeAdminPortReturnsError(t *testing.T) {
+	clearWSEnv(t)
+	t.Setenv("JWT_SECRET", "ws-secret-at-least-32-bytes!!!!!")
+	t.Setenv("PALADIN_WS_ADMIN_PORT", "70000")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PALADIN_WS_ADMIN_PORT")
 }
