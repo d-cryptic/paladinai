@@ -26,6 +26,7 @@ import (
 	inats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/storm"
 	"github.com/paladinai/paladinai/internal/telemetry"
+	webhookauth "github.com/paladinai/paladinai/internal/webhook"
 )
 
 func main() {
@@ -75,6 +76,9 @@ func run() error {
 	ded := dedup.New(dedup.NewValkeyStore(rdb), log)
 	stormDet := storm.New(&valkeyStormStore{rdb: rdb}, log)
 	webhooks := handler.NewWebhookHandler(pub, ded, log).WithStormDetector(stormDet)
+	if conf.WebhookSecret != "" {
+		webhooks.WithVerifiers(webhookVerifiers([]byte(conf.WebhookSecret)))
+	}
 	health := handler.NewHealthHandler("paladin-ingest",
 		handler.NewNATSChecker(natsClient.Conn()),
 		handler.NewValkeyChecker(rdb),
@@ -123,6 +127,17 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func webhookVerifiers(secret []byte) map[string]webhookauth.Verifier {
+	return map[string]webhookauth.Verifier{
+		"alertmanager": webhookauth.NewPaladinVerifier(secret),
+		"datadog":      webhookauth.NewPaladinVerifier(secret),
+		"cloudwatch":   webhookauth.NewPaladinVerifier(secret),
+		"pagerduty":    webhookauth.NewPagerDutyVerifier(secret),
+		"slack":        webhookauth.NewSlackVerifier(secret),
+		"github":       webhookauth.NewGitHubVerifier(secret),
+	}
 }
 
 // valkeyStormStore adapts *redis.Client to storm.Store.
