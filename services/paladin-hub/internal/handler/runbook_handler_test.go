@@ -224,6 +224,50 @@ func TestRunbookList(t *testing.T) {
 	}
 }
 
+func TestRunbookList_IsTenantScoped(t *testing.T) {
+	h, _ := newTestRunbookHandler()
+	srv := mountRunbookRoutes(h)
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("# Tenant Runbook\n\nOnly visible to owning tenant."))
+	}))
+	defer source.Close()
+
+	for _, tenantID := range []string{"tenant-alpha", "tenant-beta"} {
+		body, _ := json.Marshal(map[string]any{"source": "github", "repo": source.URL})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", tenantID)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("import %s: want 201, got %d: %s", tenantID, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks", nil)
+	req.Header.Set("X-Tenant-ID", "tenant-alpha")
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Data []handler.RunbookRecord `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("tenant-alpha should see exactly one runbook, got %+v", resp.Data)
+	}
+	if resp.Data[0].TenantID != "tenant-alpha" {
+		t.Fatalf("tenant leak: got record for %q", resp.Data[0].TenantID)
+	}
+}
+
 func TestRunbookSearch(t *testing.T) {
 	h, _ := newTestRunbookHandler()
 	srv := mountRunbookRoutes(h)
