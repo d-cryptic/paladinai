@@ -63,41 +63,35 @@ func run() error {
 
 	wsH := wshandler.New(h, log)
 
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
-
-	r.Get("/healthz", healthz)
-	r.Get("/readyz", readyz)
-
-	// Metrics on the same port but unauthenticated — only expose internally.
-	// TODO: move to a separate admin port if this service faces the internet.
-	r.Get("/metrics", promhttp.Handler().ServeHTTP)
-
-	// WebSocket alerts endpoint: JWT required, tenantID derived from claims.
-	r.With(jwtmw.JWTMiddleware(conf.JWTSecret, log)).
-		Get("/v2/ws/alerts", wsH.ServeHTTP)
-
-	srv := &http.Server{
+	publicRouter := newPublicRouter(conf, log, wsH)
+	publicServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", conf.Server.Port),
-		Handler: r,
+		Handler: publicRouter,
 		// WriteTimeout is intentionally 0 for long-lived WebSocket connections.
 		// Health and metrics responses complete well within IdleTimeout.
 		WriteTimeout: 0,
 		ReadTimeout:  conf.Server.ReadTimeout,
 		IdleTimeout:  conf.Server.IdleTimeout,
 	}
+	adminServer := newAdminServer(conf)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		log.Info("paladin-ws listening", zap.Int("port", conf.Server.Port))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := publicServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("server error", zap.Error(err))
 		}
 	}()
+	if adminServer != nil {
+		go func() {
+			log.Info("paladin-ws admin listening", zap.Int("port", conf.AdminPort))
+			if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatal("admin server error", zap.Error(err))
+			}
+		}()
+	}
 
 	<-quit
 	log.Info("shutting down")
@@ -111,7 +105,64 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	if adminServer != nil {
+		if err := adminServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown admin server: %w", err)
+		}
+	}
+	if err := publicServer.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown public server: %w", err)
+	}
+	return nil
+}
+
+func newPublicRouter(conf cfg.Config, log *zap.Logger, wsH http.Handler) http.Handler {
+	r := newBaseRouter()
+	if adminRoutesOnPublicPort(conf) {
+		mountAdminRoutes(r)
+	}
+
+	// WebSocket alerts endpoint: JWT required, tenantID derived from claims.
+	r.With(jwtmw.JWTMiddleware(conf.JWTSecret, log)).
+		Get("/v2/ws/alerts", wsH.ServeHTTP)
+	return r
+}
+
+func newAdminServer(conf cfg.Config) *http.Server {
+	if adminRoutesOnPublicPort(conf) {
+		return nil
+	}
+	return &http.Server{
+		Addr:         fmt.Sprintf(":%d", conf.AdminPort),
+		Handler:      newAdminRouter(),
+		ReadTimeout:  conf.Server.ReadTimeout,
+		WriteTimeout: conf.Server.WriteTimeout,
+		IdleTimeout:  conf.Server.IdleTimeout,
+	}
+}
+
+func adminRoutesOnPublicPort(conf cfg.Config) bool {
+	return conf.AdminPort == 0 || conf.AdminPort == conf.Server.Port
+}
+
+func newAdminRouter() http.Handler {
+	r := newBaseRouter()
+	mountAdminRoutes(r)
+	return r
+}
+
+func newBaseRouter() chi.Router {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Recoverer)
+	return r
+}
+
+func mountAdminRoutes(r chi.Router) {
+	r.Get("/healthz", healthz)
+	r.Get("/readyz", readyz)
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 }
 
 // startNATSConsumer creates a durable push consumer on the alerts stream.

@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	base "github.com/paladinai/paladinai/internal/config"
 )
@@ -12,6 +13,7 @@ import (
 type Config struct {
 	Base         base.Base
 	Server       base.Server
+	AdminPort    int
 	NATSSubject  string
 	NATSConsumer string
 	JWTSecret    []byte
@@ -27,6 +29,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("server config: %w", err)
 	}
+	adminPort, err := loadAdminPort()
+	if err != nil {
+		return Config{}, err
+	}
 
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
@@ -39,6 +45,7 @@ func Load() (Config, error) {
 	return Config{
 		Base:         b,
 		Server:       srv,
+		AdminPort:    adminPort,
 		NATSSubject:  getEnvOr("NATS_ALERTS_SUBJECT", "paladin.alerts.processed"),
 		NATSConsumer: getEnvOr("NATS_CONSUMER_NAME", "paladin-ws"),
 		JWTSecret:    []byte(secret),
@@ -50,4 +57,19 @@ func getEnvOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func loadAdminPort() (int, error) {
+	value := os.Getenv("PALADIN_WS_ADMIN_PORT")
+	if value == "" {
+		return 0, nil
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("PALADIN_WS_ADMIN_PORT must be an integer: %w", err)
+	}
+	if port < 0 || port > 65535 {
+		return 0, fmt.Errorf("PALADIN_WS_ADMIN_PORT must be between 0 and 65535")
+	}
+	return port, nil
 }
