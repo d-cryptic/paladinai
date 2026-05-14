@@ -143,6 +143,62 @@ func TestDashboardModel_SlashCommandDoctor(t *testing.T) {
 	}
 }
 
+func TestDashboardModel_SlashCommandInvestigate(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("investigate inc-123")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.mode != "investigate" {
+		t.Fatalf("mode = %q, want investigate", wm.mode)
+	}
+	if wm.focusedID != "inc-123" {
+		t.Fatalf("focusedID = %q, want inc-123", wm.focusedID)
+	}
+}
+
+func TestDashboardModel_EnterInvestigatesSelectedAlert(t *testing.T) {
+	m := New("tenant-1")
+	m = m.SetAlerts([]Alert{
+		{Fingerprint: "fp1", Severity: "P1", Status: "firing", Title: "DB Down", CorrelationID: "corr-1", Tenant: "tenant-1"},
+	})
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.mode != "investigate" {
+		t.Fatalf("mode = %q, want investigate", wm.mode)
+	}
+	if wm.focusedID != "corr-1" {
+		t.Fatalf("focusedID = %q, want corr-1", wm.focusedID)
+	}
+}
+
+func TestDashboardModel_SlashCommandStage11Coverage(t *testing.T) {
+	cases := []struct {
+		command string
+		mode    string
+	}{
+		{command: "integrations", mode: "integrations"},
+		{command: "integrations enable github", mode: "integration-enable"},
+		{command: "audit severity=p1", mode: "audit"},
+		{command: "memory query payments", mode: "memory-query"},
+		{command: "pinned", mode: "pinned"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.command, func(t *testing.T) {
+			m := New("tenant-1")
+			result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+			result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tc.command)})
+			result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+			wm := result.(Model)
+			if wm.mode != tc.mode {
+				t.Fatalf("mode = %q, want %q", wm.mode, tc.mode)
+			}
+		})
+	}
+}
+
 func TestDashboardModel_SlashCommandConfigValidate(t *testing.T) {
 	m := New("tenant-1")
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})

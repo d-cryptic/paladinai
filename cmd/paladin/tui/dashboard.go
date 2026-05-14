@@ -26,8 +26,9 @@ type Alert struct {
 }
 
 type SessionState struct {
-	Mode   string   `json:"mode"`
-	Recent []string `json:"recent"`
+	Mode            string   `json:"mode"`
+	Recent          []string `json:"recent"`
+	FocusedIncident string   `json:"focused_incident,omitempty"`
 }
 
 // severityColor maps severity to a lipgloss color.
@@ -74,6 +75,7 @@ type Model struct {
 	recent       []string
 	width        int
 	height       int
+	focusedID    string
 }
 
 // AlertsLoadedMsg is sent when alerts are fetched from the API.
@@ -164,6 +166,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "r":
 			return m, nil // caller can wire a refresh command
+		case "enter":
+			if len(m.alerts) > 0 {
+				m.focusedID = incidentID(m.selectedAlert())
+				m.mode = "investigate"
+				if err := saveSessionState(dashboardSessionPath(), m.sessionState()); err != nil {
+					m.err = fmt.Errorf("save session: %w", err)
+				}
+				return m, nil
+			}
 		case "/":
 			m.slashMode = true
 			m.commandInput = "/"
@@ -224,6 +235,13 @@ func (m Model) applySlashCommand(command string) (tea.Model, tea.Cmd) {
 		m.helpVisible = true
 	case "tail":
 		m.mode = "tail"
+	case "investigate":
+		m.mode = "investigate"
+		if len(name) > 1 {
+			m.focusedID = name[1]
+		} else if len(m.alerts) > 0 {
+			m.focusedID = incidentID(m.selectedAlert())
+		}
 	case "config":
 		if len(name) > 1 && name[1] == "validate" {
 			m.mode = "config-validate"
@@ -240,6 +258,22 @@ func (m Model) applySlashCommand(command string) (tea.Model, tea.Cmd) {
 		}
 	case "doctor":
 		m.mode = "doctor"
+	case "integrations":
+		if len(name) > 2 && name[1] == "enable" {
+			m.mode = "integration-enable"
+		} else {
+			m.mode = "integrations"
+		}
+	case "audit":
+		m.mode = "audit"
+	case "memory":
+		if len(name) > 1 && name[1] == "query" {
+			m.mode = "memory-query"
+		} else {
+			m.mode = "memory"
+		}
+	case "pinned":
+		m.mode = "pinned"
 	default:
 		m.err = fmt.Errorf("unknown command: /%s", name[0])
 	}
@@ -254,12 +288,14 @@ func (m *Model) applySessionState(state SessionState) {
 		m.mode = state.Mode
 	}
 	m.recent = append([]string(nil), state.Recent...)
+	m.focusedID = state.FocusedIncident
 }
 
 func (m Model) sessionState() SessionState {
 	return SessionState{
-		Mode:   m.mode,
-		Recent: append([]string(nil), m.recent...),
+		Mode:            m.mode,
+		Recent:          append([]string(nil), m.recent...),
+		FocusedIncident: m.focusedID,
 	}
 }
 
@@ -280,7 +316,9 @@ func prependRecentCommand(recent []string, command string) []string {
 
 func isDashboardMode(mode string) bool {
 	switch mode {
-	case "monitor", "tail", "configure", "config-validate", "runbooks", "runbook-search", "doctor":
+	case "monitor", "tail", "investigate", "configure", "config-validate",
+		"runbooks", "runbook-search", "doctor", "integrations",
+		"integration-enable", "audit", "memory", "memory-query", "pinned":
 		return true
 	default:
 		return false
@@ -371,7 +409,7 @@ func commandBar(m Model) string {
 	if len(m.recent) > 0 {
 		recent = "  recent: " + strings.Join(m.recent[:minInt(len(m.recent), 3)], "  ")
 	}
-	return helpStyle.Render("/incidents  /tail  /runbooks  /doctor  /config  /help  /quit"+recent) + "\n> " + input
+	return helpStyle.Render("/incidents  /investigate  /tail  /runbooks  /integrations  /doctor  /config  /help"+recent) + "\n> " + input
 }
 
 func helpOverlay() string {
@@ -382,8 +420,13 @@ func helpOverlay() string {
 		"  q      quit",
 		"Commands",
 		"  /incidents  monitor mode",
+		"  /investigate <id>  incident deep-dive",
 		"  /tail       live tail mode",
 		"  /runbooks   runbook explorer",
+		"  /integrations  integration health",
+		"  /audit      audit log viewer",
+		"  /memory query <text>  memory search",
+		"  /pinned     pinned items",
 		"  /doctor     health checks",
 		"  /config     configure mode",
 		"  /quit       exit",
@@ -409,6 +452,7 @@ func (m Model) detailPane() string {
 		"Correlation: " + nonEmpty(alert.CorrelationID, "none"),
 		"Fingerprint: " + nonEmpty(alert.Fingerprint, "none"),
 		"Tenant:      " + nonEmpty(alert.Tenant, m.tenant),
+		"Focused ID:  " + nonEmpty(m.focusedID, "none"),
 		"",
 		modeHint(m.mode),
 	}, "\n")
@@ -423,6 +467,15 @@ func (m Model) selectedAlert() Alert {
 		return m.alerts[0]
 	}
 	return m.alerts[cursor]
+}
+
+func incidentID(alert Alert) string {
+	for _, candidate := range []string{alert.CorrelationID, alert.Fingerprint, alert.Title} {
+		if strings.TrimSpace(candidate) != "" {
+			return candidate
+		}
+	}
+	return "selected"
 }
 
 func summaryStrip(alerts []Alert) string {
@@ -478,10 +531,20 @@ func modeHint(mode string) string {
 	switch mode {
 	case "tail":
 		return "Tail mode: watch alert flow and correlation changes."
+	case "investigate":
+		return "Investigate mode: inspect the selected incident timeline and actions."
 	case "runbooks", "runbook-search":
 		return "Runbooks mode: search response procedures before approving actions."
 	case "doctor":
 		return "Doctor mode: verify API, auth, integration, and stream health."
+	case "integrations", "integration-enable":
+		return "Integrations mode: review tool health and enable response sources."
+	case "audit":
+		return "Audit mode: review incident decisions and approval history."
+	case "memory", "memory-query":
+		return "Memory mode: query prior incidents, runbooks, and learned procedures."
+	case "pinned":
+		return "Pinned mode: revisit saved incidents, runbooks, and actions."
 	case "configure", "config-validate":
 		return "Config mode: inspect local settings and validate paladin.yaml."
 	default:
