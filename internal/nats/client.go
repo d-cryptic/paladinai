@@ -25,6 +25,11 @@ const (
 	StreamEvals        = "PALADIN_EVALS"  // eval replay harness
 )
 
+const (
+	defaultConnectTimeout      = 5 * time.Second
+	defaultEnsureStreamTimeout = 10 * time.Second
+)
+
 // Subject patterns.
 //
 // Note: the Stage 2 spec describes alert subjects in the form
@@ -58,10 +63,25 @@ type Client struct {
 
 // Connect establishes a NATS connection and ensures all streams exist.
 func Connect(url string, log *zap.Logger) (*Client, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEnsureStreamTimeout)
+	defer cancel()
+	return ConnectWithContext(ctx, url, log)
+}
+
+// ConnectWithContext establishes a NATS connection and ensures all streams
+// exist before returning. The context bounds JetStream setup.
+func ConnectWithContext(ctx context.Context, url string, log *zap.Logger) (*Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("nats connect setup context: %w", err)
+	}
+	if log == nil {
+		log = zap.NewNop()
+	}
 	nc, err := nats.Connect(url,
 		nats.Name("paladin"),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2*time.Second),
+		nats.Timeout(defaultConnectTimeout),
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
 			log.Warn("nats disconnected", zap.Error(err))
 		}),
@@ -80,7 +100,7 @@ func Connect(url string, log *zap.Logger) (*Client, error) {
 	}
 
 	c := &Client{nc: nc, js: js, log: log}
-	if err := c.ensureStreams(context.Background()); err != nil {
+	if err := c.ensureStreams(ctx); err != nil {
 		nc.Close()
 		return nil, err
 	}

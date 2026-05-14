@@ -98,6 +98,19 @@ func TestConnect_IsIdempotent(t *testing.T) {
 	defer c2.Close()
 }
 
+func TestConnectWithContext_CanceledContext(t *testing.T) {
+	url, stop := startInProcessJetStream(t)
+	defer stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	client, err := inats.ConnectWithContext(ctx, url, zap.NewNop())
+	require.Error(t, err)
+	assert.Nil(t, client)
+	assert.Contains(t, err.Error(), "context canceled")
+}
+
 // TestConnect_BadURL exercises the failure path when NATS is unreachable.
 func TestConnect_BadURL(t *testing.T) {
 	// Use NoReconnect via an explicit invalid URL so Connect errors fast.
