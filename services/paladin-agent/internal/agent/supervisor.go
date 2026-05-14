@@ -19,6 +19,7 @@ type SupervisorPipeline struct {
 	triager       Triager
 	rca           RCAAnalyzer // optional; if nil, alerts routed to "rca" fall back to triage
 	runbook       RunbookSpecialist
+	integration   IntegrationSpecialist
 	log           *zap.Logger
 	triageTimeout time.Duration
 	rcaTimeout    time.Duration
@@ -48,6 +49,12 @@ func (s *SupervisorPipeline) WithTimeouts(triageTimeout, rcaTimeout time.Duratio
 // WithRunbookSpecialist configures the runbook execution path.
 func (s *SupervisorPipeline) WithRunbookSpecialist(runbook RunbookSpecialist) *SupervisorPipeline {
 	s.runbook = runbook
+	return s
+}
+
+// WithIntegrationSpecialist configures the integration diagnosis path.
+func (s *SupervisorPipeline) WithIntegrationSpecialist(integration IntegrationSpecialist) *SupervisorPipeline {
+	s.integration = integration
 	return s
 }
 
@@ -128,7 +135,29 @@ func (s *SupervisorPipeline) Process(ctx context.Context, state *IncidentState) 
 		state.TriageResult = tr
 		state.NeedsHuman = tr.NeedsHuman
 
-	case "memory", "integration":
+	case "integration":
+		if s.integration != nil {
+			integrationCtx, integrationCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
+			result, err := s.integration.DiagnoseIntegration(integrationCtx, &state.Alert)
+			integrationCancel()
+			if err != nil {
+				return state, fmt.Errorf("supervisor: integration: %w", err)
+			}
+			state.IntegrationResult = result
+			state.NeedsHuman = result.NeedsHuman
+			return state, nil
+		}
+		s.log.Info("supervisor: integration not configured, falling back to triage")
+		triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
+		tr, err := s.triager.Triage(triageCtx, &state.Alert)
+		triageCancel()
+		if err != nil {
+			return state, fmt.Errorf("supervisor: integration fallback triage: %w", err)
+		}
+		state.TriageResult = tr
+		state.NeedsHuman = tr.NeedsHuman
+
+	case "memory":
 		s.log.Info("supervisor: specialist route falling back to triage", zap.String("agent_type", state.AgentType))
 		triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
 		tr, err := s.triager.Triage(triageCtx, &state.Alert)

@@ -230,6 +230,7 @@ func main() {
 	// instead of calling triager/rca directly, giving us the classifier gate.
 	supervisor := agent.NewSupervisorPipeline(classifierAgent, triageAgent, rcaAgent, log).
 		WithRunbookSpecialist(agent.NewPlanningRunbookSpecialist(agent.StaticRunbookSelector{}, nil, log)).
+		WithIntegrationSpecialist(agent.StaticIntegrationSpecialist{}).
 		WithTimeouts(cfg.TriageTimeout, cfg.RCATimeout)
 
 	// ── NATS ─────────────────────────────────────────────────────────────────
