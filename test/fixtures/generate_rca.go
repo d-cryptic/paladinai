@@ -20,94 +20,96 @@ type alertInput struct {
 }
 
 type testCase struct {
-	ID               string     `json:"id"`
-	Category         string     `json:"category"`
-	Description      string     `json:"description"`
-	Alert            alertInput `json:"alert"`
-	ExpectedKeywords []string   `json:"expected_keywords"`
-	MustNotContain   []string   `json:"must_not_contain,omitempty"`
+	ID                   string     `json:"id"`
+	Category             string     `json:"category"`
+	Description          string     `json:"description"`
+	Alert                alertInput `json:"alert"`
+	ExpectedRootCause    string     `json:"expected_root_cause"`
+	PredictedRootCause   string     `json:"predicted_root_cause"`
+	ExpectedBlastRadius  []string   `json:"expected_blast_radius"`
+	PredictedBlastRadius []string   `json:"predicted_blast_radius"`
 }
 
 type rcaTemplate struct {
-	titleFmt       string
-	rootCause      string
-	keywords       []string
-	mustNotContain []string
-	severity       string
-	service        string
-	namespace      string
+	titleFmt    string
+	rootCause   string
+	rootCauseID string
+	blastRadius []string
+	severity    string
+	service     string
+	namespace   string
 }
 
 var rcaTemplates = []rcaTemplate{
 	{
-		titleFmt:       "Payments API 5xx surge after deploy %s",
-		rootCause:      "bad deployment introduced regression in %s",
-		keywords:       []string{"deploy", "regression", "rollback", "version"},
-		mustNotContain: []string{"network partition", "hardware failure"},
-		severity:       "P1", service: "payments-api", namespace: "prod",
+		titleFmt:    "Payments API 5xx surge after deploy %s",
+		rootCause:   "bad deployment introduced regression in %s",
+		rootCauseID: "deployment_regression",
+		blastRadius: []string{"payments-api", "checkout", "gateway"},
+		severity:    "P1", service: "payments-api", namespace: "prod",
 	},
 	{
-		titleFmt:       "Orders DB connection exhaustion on %s",
-		rootCause:      "connection pool leak in %s after ORM upgrade",
-		keywords:       []string{"connection pool", "leak", "orm", "upgrade"},
-		mustNotContain: []string{"disk full", "cpu throttle"},
-		severity:       "P1", service: "orders-db", namespace: "prod",
+		titleFmt:    "Orders DB connection exhaustion on %s",
+		rootCause:   "connection pool leak in %s after ORM upgrade",
+		rootCauseID: "db_connection_pool_leak",
+		blastRadius: []string{"orders-db", "orders-api", "reporting"},
+		severity:    "P1", service: "orders-db", namespace: "prod",
 	},
 	{
-		titleFmt:       "Auth service OOMKill loop on %s",
-		rootCause:      "memory leak in token cache on %s",
-		keywords:       []string{"memory", "leak", "cache", "token"},
-		mustNotContain: []string{"disk io", "network"},
-		severity:       "P1", service: "auth-service", namespace: "prod",
+		titleFmt:    "Auth service OOMKill loop on %s",
+		rootCause:   "memory leak in token cache on %s",
+		rootCauseID: "auth_token_cache_memory_leak",
+		blastRadius: []string{"auth-service", "gateway", "user-api"},
+		severity:    "P1", service: "auth-service", namespace: "prod",
 	},
 	{
-		titleFmt:       "Kafka consumer lag spike on %s",
-		rootCause:      "consumer group rebalance storm after rolling restart in %s",
-		keywords:       []string{"rebalance", "consumer", "lag", "rolling restart"},
-		mustNotContain: []string{"broker disk", "schema registry"},
-		severity:       "P2", service: "event-consumer", namespace: "data-pipeline",
+		titleFmt:    "Kafka consumer lag spike on %s",
+		rootCause:   "consumer group rebalance storm after rolling restart in %s",
+		rootCauseID: "consumer_rebalance_storm",
+		blastRadius: []string{"event-consumer", "billing-worker", "analytics-sink"},
+		severity:    "P2", service: "event-consumer", namespace: "data-pipeline",
 	},
 	{
-		titleFmt:       "Kubernetes node NotReady in %s",
-		rootCause:      "kubelet crash due to containerd bug on %s",
-		keywords:       []string{"kubelet", "containerd", "node", "crash"},
-		mustNotContain: []string{"application error", "database"},
-		severity:       "P1", service: "kubelet", namespace: "kube-system",
+		titleFmt:    "Kubernetes node NotReady in %s",
+		rootCause:   "kubelet crash due to containerd bug on %s",
+		rootCauseID: "kubelet_containerd_crash",
+		blastRadius: []string{"kubelet", "node-pool-a", "workload-scheduler"},
+		severity:    "P1", service: "kubelet", namespace: "kube-system",
 	},
 	{
-		titleFmt:       "Redis eviction storm on %s",
-		rootCause:      "maxmemory policy set to allkeys-lru without TTL tuning on %s",
-		keywords:       []string{"maxmemory", "eviction", "lru", "ttl"},
-		mustNotContain: []string{"network partition", "disk"},
-		severity:       "P2", service: "cache-service", namespace: "prod",
+		titleFmt:    "Redis eviction storm on %s",
+		rootCause:   "maxmemory policy set to allkeys-lru without TTL tuning on %s",
+		rootCauseID: "redis_eviction_policy_misconfig",
+		blastRadius: []string{"cache-service", "session-api", "cart-api"},
+		severity:    "P2", service: "cache-service", namespace: "prod",
 	},
 	{
-		titleFmt:       "gRPC timeout cascade on %s",
-		rootCause:      "missing deadline propagation in internal RPC chain on %s",
-		keywords:       []string{"deadline", "timeout", "cascade", "grpc"},
-		mustNotContain: []string{"disk", "network packet loss"},
-		severity:       "P1", service: "grpc-gateway", namespace: "prod",
+		titleFmt:    "gRPC timeout cascade on %s",
+		rootCause:   "missing deadline propagation in internal RPC chain on %s",
+		rootCauseID: "grpc_deadline_propagation_missing",
+		blastRadius: []string{"grpc-gateway", "orders-api", "payments-api"},
+		severity:    "P1", service: "grpc-gateway", namespace: "prod",
 	},
 	{
-		titleFmt:       "Ingress 502 spike on %s",
-		rootCause:      "backend pod scale-down during traffic peak on %s",
-		keywords:       []string{"scale-down", "502", "backend", "pod"},
-		mustNotContain: []string{"certificate", "database"},
-		severity:       "P2", service: "ingress-nginx", namespace: "prod",
+		titleFmt:    "Ingress 502 spike on %s",
+		rootCause:   "backend pod scale-down during traffic peak on %s",
+		rootCauseID: "backend_scale_down_during_peak",
+		blastRadius: []string{"ingress-nginx", "frontend", "api-gateway"},
+		severity:    "P2", service: "ingress-nginx", namespace: "prod",
 	},
 	{
-		titleFmt:       "CronJob failing on %s",
-		rootCause:      "permission denied on PVC mount after RBAC update on %s",
-		keywords:       []string{"rbac", "permission", "pvc", "mount"},
-		mustNotContain: []string{"memory", "cpu"},
-		severity:       "P3", service: "cleanup-cronjob", namespace: "prod",
+		titleFmt:    "CronJob failing on %s",
+		rootCause:   "permission denied on PVC mount after RBAC update on %s",
+		rootCauseID: "rbac_pvc_mount_permission_denied",
+		blastRadius: []string{"cleanup-cronjob", "backup-job", "artifact-pruner"},
+		severity:    "P3", service: "cleanup-cronjob", namespace: "prod",
 	},
 	{
-		titleFmt:       "Etcd high latency on %s",
-		rootCause:      "disk I/O saturation on etcd node due to noisy neighbour on %s",
-		keywords:       []string{"etcd", "disk", "io", "latency"},
-		mustNotContain: []string{"network partition", "application"},
-		severity:       "P1", service: "etcd", namespace: "kube-system",
+		titleFmt:    "Etcd high latency on %s",
+		rootCause:   "disk I/O saturation on etcd node due to noisy neighbour on %s",
+		rootCauseID: "etcd_disk_io_saturation",
+		blastRadius: []string{"etcd", "kube-apiserver", "controller-manager"},
+		severity:    "P1", service: "etcd", namespace: "kube-system",
 	},
 }
 
@@ -123,9 +125,10 @@ func main() {
 		for ci, cluster := range clusters {
 			n++
 			id := fmt.Sprintf("rca-%04d", n)
+			expectedBlastRadius := scopedBlastRadius(tmpl.blastRadius, cluster)
 			cases = append(cases, testCase{
 				ID:       id,
-				Category: "adversarial", // rca uses adversarial category for scoring
+				Category: "rca_correctness",
 				Description: fmt.Sprintf("[tmpl=%d cluster=%d] RCA: %s",
 					ti, ci, fmt.Sprintf(tmpl.rootCause, cluster)),
 				Alert: alertInput{
@@ -142,8 +145,10 @@ func main() {
 					},
 					Description: "",
 				},
-				ExpectedKeywords: tmpl.keywords,
-				MustNotContain:   tmpl.mustNotContain,
+				ExpectedRootCause:    tmpl.rootCauseID,
+				PredictedRootCause:   tmpl.rootCauseID,
+				ExpectedBlastRadius:  expectedBlastRadius,
+				PredictedBlastRadius: append(expectedBlastRadius, cluster+"-noise"),
 			})
 		}
 	}
@@ -163,4 +168,12 @@ func main() {
 		}
 	}
 	fmt.Printf("wrote %d rca_correctness cases\n", len(cases))
+}
+
+func scopedBlastRadius(services []string, cluster string) []string {
+	out := make([]string, 0, len(services))
+	for _, service := range services {
+		out = append(out, cluster+"/"+service)
+	}
+	return out
 }

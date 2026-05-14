@@ -205,6 +205,67 @@ func TestMemoryRecallScore(t *testing.T) {
 	}
 }
 
+func TestRCACorrectnessScore(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		expectedCause  string
+		predictedCause string
+		expectedBlast  []string
+		predictedBlast []string
+		wantPass       bool
+	}{
+		{
+			name:           "exact cause and full blast radius",
+			expectedCause:  "deployment_regression",
+			predictedCause: "deployment_regression",
+			expectedBlast:  []string{"payments", "checkout"},
+			predictedBlast: []string{"payments", "checkout", "gateway"},
+			wantPass:       true,
+		},
+		{
+			name:           "same family partial credit fails without enough blast radius",
+			expectedCause:  "postgres_connection_pool_exhaustion",
+			predictedCause: "db_connection_leak",
+			expectedBlast:  []string{"orders", "checkout", "reporting"},
+			predictedBlast: []string{"orders"},
+			wantPass:       false,
+		},
+		{
+			name:           "wrong cause fails",
+			expectedCause:  "memory_leak",
+			predictedCause: "network_partition",
+			expectedBlast:  []string{"auth", "gateway"},
+			predictedBlast: []string{"auth", "gateway"},
+			wantPass:       false,
+		},
+		{
+			name:           "duplicate blast radius does not inflate recall",
+			expectedCause:  "disk_io_saturation",
+			predictedCause: "disk_io_saturation",
+			expectedBlast:  []string{"etcd", "apiserver", "controller-manager"},
+			predictedBlast: []string{"etcd", "etcd"},
+			wantPass:       false,
+		},
+		{
+			name:           "missing expected cause fails",
+			expectedCause:  "",
+			predictedCause: "deployment_regression",
+			expectedBlast:  []string{"payments"},
+			predictedBlast: []string{"payments"},
+			wantPass:       false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := RCACorrectnessScore(tc.expectedCause, tc.predictedCause, tc.expectedBlast, tc.predictedBlast)
+			assert.Equal(t, tc.wantPass, s.Pass)
+			assert.GreaterOrEqual(t, s.Score, 0.0)
+			assert.LessOrEqual(t, s.Score, 1.0)
+		})
+	}
+}
+
 func TestAggregateResults(t *testing.T) {
 	t.Parallel()
 	t.Run("empty", func(t *testing.T) {

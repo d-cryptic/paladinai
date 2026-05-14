@@ -24,6 +24,8 @@ const (
 	CategoryLatencyBudget Category = "latency_budget"
 	// CategoryMemoryRecall covers episodic/procedural memory retrieval quality.
 	CategoryMemoryRecall Category = "memory_recall"
+	// CategoryRCACorrectness covers root-cause and blast-radius accuracy.
+	CategoryRCACorrectness Category = "rca_correctness"
 )
 
 // Valid returns true if c is a recognised category.
@@ -31,7 +33,8 @@ func (c Category) Valid() bool {
 	switch c {
 	case CategoryClassification, CategorySupervisorRouting, CategoryToolUse,
 		CategorySummary, CategorySafety, CategoryAdversarial,
-		CategoryCostRegression, CategoryLatencyBudget, CategoryMemoryRecall:
+		CategoryCostRegression, CategoryLatencyBudget, CategoryMemoryRecall,
+		CategoryRCACorrectness:
 		return true
 	}
 	return false
@@ -83,6 +86,12 @@ type TestCase struct {
 	// Memory recall expectations for Stage 10 retrieval gates.
 	ExpectedIncidentIDs []string `json:"expected_incident_ids,omitempty"`
 	RecalledIncidentIDs []string `json:"recalled_incident_ids,omitempty"`
+
+	// RCA correctness expectations for Stage 10 root-cause gates.
+	ExpectedRootCause    string   `json:"expected_root_cause,omitempty"`
+	PredictedRootCause   string   `json:"predicted_root_cause,omitempty"`
+	ExpectedBlastRadius  []string `json:"expected_blast_radius,omitempty"`
+	PredictedBlastRadius []string `json:"predicted_blast_radius,omitempty"`
 }
 
 // AllExpectedTools returns expected tools from either field (new or legacy).
@@ -104,5 +113,6 @@ func (tc TestCase) HasExpectations() bool {
 		len(tc.MustNotContain) > 0 ||
 		(tc.Category == CategoryCostRegression && tc.BaselineTokens > 0) ||
 		(tc.Category == CategoryLatencyBudget && tc.LatencyBudgetMS > 0) ||
-		(tc.Category == CategoryMemoryRecall && len(tc.ExpectedIncidentIDs) > 0)
+		(tc.Category == CategoryMemoryRecall && len(tc.ExpectedIncidentIDs) > 0) ||
+		(tc.Category == CategoryRCACorrectness && tc.ExpectedRootCause != "")
 }

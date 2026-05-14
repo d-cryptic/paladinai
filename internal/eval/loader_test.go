@@ -99,6 +99,7 @@ func TestLoadFixtures_RealFixtures(t *testing.T) {
 	assert.GreaterOrEqual(t, cats[CategoryCostRegression], 50, "expect 50+ cost regression cases")
 	assert.GreaterOrEqual(t, cats[CategoryLatencyBudget], 50, "expect 50+ latency budget cases")
 	assert.GreaterOrEqual(t, cats[CategoryMemoryRecall], 150, "expect 150+ memory recall cases")
+	assert.GreaterOrEqual(t, cats[CategoryRCACorrectness], 100, "expect 100+ rca correctness cases")
 }
 
 func TestLoadFixtures_SupervisorRoutingCategory(t *testing.T) {
@@ -169,4 +170,27 @@ func TestLoadFixtures_MemoryRecallRequiresExpectedIncidents(t *testing.T) {
 	_, err := LoadFixtures(dir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expected_incident_ids")
+}
+
+func TestLoadFixtures_RCACorrectnessCategory(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"id":"rca-001","category":"rca_correctness","description":"rca","alert":{"title":"Payments 5xx","severity":"P1","status":"firing","labels":{},"annotations":{},"description":""},"expected_root_cause":"deployment_regression","predicted_root_cause":"deployment_regression","expected_blast_radius":["payments","checkout"],"predicted_blast_radius":["payments","checkout","gateway"]}` + "\n"
+	writeJSONL(t, dir, "rca.jsonl", content)
+
+	cases, err := LoadFixtures(dir)
+	require.NoError(t, err)
+	require.Len(t, cases, 1)
+	assert.Equal(t, CategoryRCACorrectness, cases[0].Category)
+	assert.Equal(t, "deployment_regression", cases[0].ExpectedRootCause)
+	assert.Equal(t, []string{"payments", "checkout"}, cases[0].ExpectedBlastRadius)
+}
+
+func TestLoadFixtures_RCACorrectnessRequiresRootCause(t *testing.T) {
+	dir := t.TempDir()
+	writeJSONL(t, dir, "rca.jsonl",
+		`{"id":"rca-001","category":"rca_correctness","description":"rca","alert":{"title":"Payments 5xx","severity":"P1","status":"firing","labels":{},"annotations":{},"description":""},"expected_blast_radius":["payments"]}`)
+
+	_, err := LoadFixtures(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected_root_cause")
 }
