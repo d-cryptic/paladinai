@@ -204,6 +204,9 @@ func main() {
 			case *agent.TriageAgent:
 				at.WithRAG(ragBuilder)
 				log.Info("rag: runbook context injection enabled (qdrant)")
+			case *agent.CachedTriager:
+				at.WithRAG(ragBuilder)
+				log.Info("rag: runbook context injection enabled through l1 cache (qdrant)")
 			default:
 				log.Warn("rag: triage backend does not support context injection")
 			}

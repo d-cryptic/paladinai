@@ -45,6 +45,18 @@ func NewCachedTriager(inner Triager, l1 cache.L1Cache, modelID string, log *zap.
 	}
 }
 
+// WithRAG delegates runbook context injection to the wrapped triager when it
+// supports RAG. This preserves Stage 6 context injection when L1 caching wraps
+// the concrete triage backend.
+func (c *CachedTriager) WithRAG(r *RAGContextBuilder) {
+	switch inner := c.inner.(type) {
+	case *TriageAgent:
+		inner.WithRAG(r)
+	case *AnthropicTriager:
+		inner.WithRAG(r)
+	}
+}
+
 // Triage checks L1 cache first; on miss calls inner.Triage and caches result.
 func (c *CachedTriager) Triage(ctx context.Context, env *alert.AlertEnvelope) (*TriageResult, error) {
 	req := cache.TriageRequest{

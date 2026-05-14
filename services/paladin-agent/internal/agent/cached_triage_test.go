@@ -13,6 +13,7 @@ import (
 
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/internal/cache"
+	"github.com/paladinai/paladinai/internal/qdrant"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 )
 
@@ -142,4 +143,39 @@ func TestCachedTriager_ModelIDChangesKey(t *testing.T) {
 	_, err = ctB.Triage(ctx, env)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), inner.calls.Load(), "different models = different keys")
+}
+
+func TestCachedTriager_WithRAGDelegatesToWrappedTriageAgent(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{
+		"confirmed_severity": "P2",
+		"summary": "High error rate on api service",
+		"likely_cause": "Connection pool exhausted",
+		"affected_services": ["api"],
+		"recommended_action": "Follow database pool runbook",
+		"needs_human": true
+	}`}
+	inner, err := agent.NewTriageAgent(ctx, stub, zap.NewNop())
+	require.NoError(t, err)
+
+	ct := agent.NewCachedTriager(inner, cache.NewMemL1(), "model-a", zap.NewNop())
+	ct.WithRAG(agent.NewRAGContextBuilder(triageRAGRetriever{
+		chunks: []qdrant.RunbookChunk{
+			{Source: "db-pool-runbook", Content: "restart api pods after reducing pool size"},
+		},
+	}, zap.NewNop()))
+
+	_, err = ct.Triage(ctx, &alert.AlertEnvelope{
+		TenantID:    "t1",
+		Fingerprint: "fp-rag-cache",
+		Title:       "API 5xx spike",
+		Severity:    alert.SeverityP2,
+		Status:      alert.StatusFiring,
+		Labels:      map[string]string{"service": "api"},
+		StartsAt:    time.Now(),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, stub.lastMessages)
+	assert.Contains(t, stub.lastMessages[len(stub.lastMessages)-1].Content, "Relevant Runbooks")
+	assert.Contains(t, stub.lastMessages[len(stub.lastMessages)-1].Content, "db-pool-runbook")
 }
