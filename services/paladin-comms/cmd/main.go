@@ -82,6 +82,15 @@ func main() {
 		log.Fatal("comms: start message fetch failed", zap.Error(err))
 	}
 	defer msgs.Stop()
+	stopMsgs := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			msgs.Stop()
+		case <-stopMsgs:
+		}
+	}()
+	defer close(stopMsgs)
 
 	// ── Health endpoint ───────────────────────────────────────────────────────
 	commsPort := commsHTTPPort()
