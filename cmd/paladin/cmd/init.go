@@ -20,6 +20,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/paladinai/paladinai/cmd/paladin/client"
 	"github.com/paladinai/paladinai/cmd/paladin/tui"
+	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/internal/projectconfig"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -174,6 +175,9 @@ func runInitDryRun(cmd *cobra.Command, apiEndpoint, authEndpoint, tenant, token,
 	if _, err := url.ParseRequestURI(authEndpoint); err != nil {
 		return fmt.Errorf("invalid auth URL %q: %w", authEndpoint, err)
 	}
+	if err := validateInitInputs(tenant, tier); err != nil {
+		return err
+	}
 
 	activeToken := token
 	if t := os.Getenv("PALADIN_TOKEN"); t != "" {
@@ -293,6 +297,9 @@ func applyAndSave(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, authEndpo
 }
 
 func applyAndSaveProject(cmd *cobra.Command, cfg *PaladinConfig, apiEndpoint, authEndpoint, tenant, token string, tokenFromEnv bool, tier string, integrations []string) error {
+	if err := validateInitInputs(tenant, tier); err != nil {
+		return err
+	}
 	activeToken := token
 	if t := os.Getenv("PALADIN_TOKEN"); t != "" {
 		activeToken = t
@@ -403,6 +410,25 @@ func resolveDeploymentMode(rawMode, tier string) (deploymentMode, error) {
 		return mode, nil
 	default:
 		return "", fmt.Errorf("unsupported deployment mode %q — use auto, hosted, k8s, docker, or binary", rawMode)
+	}
+}
+
+func validateInitInputs(tenant, tier string) error {
+	if err := alert.ValidateTenantID(tenant); err != nil {
+		return fmt.Errorf("invalid tenant ID %q: %w", tenant, err)
+	}
+	if err := validateTier(tier); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateTier(tier string) error {
+	switch normalizeTier(tier) {
+	case "pool", "bridge", "silo":
+		return nil
+	default:
+		return fmt.Errorf("unsupported deployment tier %q — use pool, bridge, or silo", tier)
 	}
 }
 

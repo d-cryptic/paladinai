@@ -210,6 +210,81 @@ func TestRunInitDryRun_DoesNotWriteProjectOrToken(t *testing.T) {
 	}
 }
 
+func TestRunInitDryRun_InvalidTenantReturnsError(t *testing.T) {
+	setupInitTest(t)
+	t.Setenv("PALADIN_TOKEN", "")
+	t.Setenv("PALADIN_TENANT", "")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := &PaladinConfig{
+		APIEndpoint:   srv.URL,
+		AuthEndpoint:  "http://localhost:9003",
+		DefaultTenant: "bad.tenant",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCmd.SetArgs([]string{"init", "--dry-run"})
+	err := rootCmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected invalid tenant error")
+	}
+	if !strings.Contains(err.Error(), "invalid tenant ID") {
+		t.Fatalf("error = %q, want invalid tenant ID", err.Error())
+	}
+}
+
+func TestRunInitDryRun_InvalidTierReturnsError(t *testing.T) {
+	setupInitTest(t)
+	t.Setenv("PALADIN_TOKEN", "")
+	t.Setenv("PALADIN_TENANT", "")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := &PaladinConfig{
+		APIEndpoint:   srv.URL,
+		AuthEndpoint:  "http://localhost:9003",
+		DefaultTenant: "dry-run-tenant",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCmd.SetArgs([]string{"init", "--dry-run", "--tier", "enterprise"})
+	err := rootCmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected invalid tier error")
+	}
+	if !strings.Contains(err.Error(), "pool, bridge, or silo") {
+		t.Fatalf("error = %q, want supported tier hint", err.Error())
+	}
+}
+
+func TestApplyAndSaveProject_InvalidInputsDoNotWrite(t *testing.T) {
+	_, projectDir := setupInitTest(t)
+	cfg := &PaladinConfig{}
+	cmd := newTestCmd("", "", "")
+
+	err := applyAndSaveProject(cmd, cfg, "http://localhost:9002", "http://localhost:9003", "bad.tenant", "", true, "pool", nil)
+
+	if err == nil {
+		t.Fatal("expected invalid tenant error")
+	}
+	if _, statErr := os.Stat(filepath.Join(projectDir, "paladin.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid init must not write paladin.yaml, stat err=%v", statErr)
+	}
+}
+
 func TestResolveDeploymentModeRejectsInvalid(t *testing.T) {
 	_, err := resolveDeploymentMode("nomad", "silo")
 	if err == nil {
