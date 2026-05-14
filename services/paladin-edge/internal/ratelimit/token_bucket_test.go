@@ -88,7 +88,10 @@ func newMemLimitStore() *memLimitStore {
 	return &memLimitStore{entries: make(map[string]*memEntry)}
 }
 
-func (m *memLimitStore) IncrWithExpire(key string, window time.Duration) (int, error) {
+func (m *memLimitStore) IncrWithExpire(ctx context.Context, key string, window time.Duration) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	e, ok := m.entries[key]
 	if !ok || time.Now().After(e.expiry) {
 		m.entries[key] = &memEntry{count: 1, expiry: time.Now().Add(window)}
@@ -100,4 +103,17 @@ func (m *memLimitStore) IncrWithExpire(key string, window time.Duration) (int, e
 
 func (m *memLimitStore) Reset(key string) {
 	delete(m.entries, key)
+}
+
+func TestValkeyLimiter_PropagatesCanceledContextToStore(t *testing.T) {
+	store := newMemLimitStore()
+	limiter := ratelimit.NewTestLimiter(store, 5)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	allowed, remaining, _, err := limiter.Allow(ctx, "tenant-canceled")
+
+	require.NoError(t, err, "store errors fail open")
+	assert.True(t, allowed)
+	assert.Equal(t, limiter.Limit(), remaining)
 }

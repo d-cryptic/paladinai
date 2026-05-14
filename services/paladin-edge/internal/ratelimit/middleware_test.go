@@ -187,7 +187,7 @@ func TestMiddleware_LimitHeaderReflectsConfiguredLimit(t *testing.T) {
 
 type errLimitStore struct{ err error }
 
-func (e *errLimitStore) IncrWithExpire(_ string, _ time.Duration) (int, error) {
+func (e *errLimitStore) IncrWithExpire(_ context.Context, _ string, _ time.Duration) (int, error) {
 	return 0, e.err
 }
 

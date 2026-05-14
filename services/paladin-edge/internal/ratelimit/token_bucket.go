@@ -19,7 +19,7 @@ import (
 // Store is the minimal interface for the rate-limit counter.
 // Decoupled from go-redis for testability.
 type Store interface {
-	IncrWithExpire(key string, window time.Duration) (count int, err error)
+	IncrWithExpire(ctx context.Context, key string, window time.Duration) (count int, err error)
 }
 
 // Limiter is the rate-limiting interface consumed by HTTP middleware.
@@ -60,7 +60,7 @@ func (l *ValkeyLimiter) Allow(ctx context.Context, tenantID string) (bool, int, 
 	now := time.Now()
 	resetAt := now.Truncate(l.window).Add(l.window)
 
-	count, err := l.store.IncrWithExpire(key, l.window)
+	count, err := l.store.IncrWithExpire(ctx, key, l.window)
 	if err != nil {
 		// Fail open — don't block real traffic on store errors.
 		l.log.Error("rate limit store error, failing open",
@@ -82,8 +82,7 @@ type valkeyStore struct {
 	rdb *redis.Client
 }
 
-func (s *valkeyStore) IncrWithExpire(key string, window time.Duration) (int, error) {
-	ctx := context.Background()
+func (s *valkeyStore) IncrWithExpire(ctx context.Context, key string, window time.Duration) (int, error) {
 	pipe := s.rdb.Pipeline()
 	incrCmd := pipe.Incr(ctx, key)
 	pipe.ExpireNX(ctx, key, window)
