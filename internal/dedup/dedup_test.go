@@ -133,3 +133,18 @@ func TestDeduplicator_DifferentFingerprints_Independent(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, isDup, "different fingerprints in same tenant must not interfere")
 }
+
+func TestDeduplicator_KeyPrefixesAreIndependent(t *testing.T) {
+	store := newMemStore()
+	ingestDedup := dedup.NewWithKeyPrefix(store, "paladin:ingest:dedup", zap.NewNop())
+	orchestratorDedup := dedup.NewWithKeyPrefix(store, "paladin:orchestrator:dedup", zap.NewNop())
+	env := &alert.AlertEnvelope{ID: "a1", TenantID: "t1", Fingerprint: "fp1", Status: alert.StatusFiring}
+
+	isDup, err := ingestDedup.IsDuplicate(context.Background(), env)
+	require.NoError(t, err)
+	assert.False(t, isDup)
+
+	isDup, err = orchestratorDedup.IsDuplicate(context.Background(), env)
+	require.NoError(t, err)
+	assert.False(t, isDup, "separate pipeline stages must not share dedup state")
+}

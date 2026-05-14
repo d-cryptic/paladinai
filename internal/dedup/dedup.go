@@ -13,6 +13,7 @@ import (
 )
 
 const defaultWindow = 5 * time.Minute
+const defaultKeyPrefix = "paladin:dedup"
 
 // Store is the minimal interface needed for dedup.
 // Using plain return types keeps it backend-agnostic (Valkey, Dragonfly, in-memory).
@@ -23,17 +24,26 @@ type Store interface {
 
 // Deduplicator uses a Store to track seen alert fingerprints.
 type Deduplicator struct {
-	store  Store
-	window time.Duration
-	log    *zap.Logger
+	store     Store
+	window    time.Duration
+	keyPrefix string
+	log       *zap.Logger
 }
 
 // New creates a Deduplicator backed by a redis-compatible Store.
 func New(store Store, log *zap.Logger) *Deduplicator {
+	return NewWithKeyPrefix(store, defaultKeyPrefix, log)
+}
+
+// NewWithKeyPrefix creates a Deduplicator using an explicit backend key prefix.
+func NewWithKeyPrefix(store Store, keyPrefix string, log *zap.Logger) *Deduplicator {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	return &Deduplicator{store: store, window: defaultWindow, log: log}
+	if keyPrefix == "" {
+		keyPrefix = defaultKeyPrefix
+	}
+	return &Deduplicator{store: store, window: defaultWindow, keyPrefix: keyPrefix, log: log}
 }
 
 // IsDuplicate returns true if the alert's fingerprint was already seen within the dedup window.
@@ -79,5 +89,5 @@ func (d *Deduplicator) Reset(ctx context.Context, tenantID, fingerprint string) 
 }
 
 func (d *Deduplicator) key(tenantID, fingerprint string) string {
-	return fmt.Sprintf("paladin:dedup:%s:%s", tenantID, fingerprint)
+	return fmt.Sprintf("%s:%s:%s", d.keyPrefix, tenantID, fingerprint)
 }

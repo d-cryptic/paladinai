@@ -15,4 +15,6 @@ type Store = shared.Store
 type Deduplicator = shared.Deduplicator
 
 // New creates a Deduplicator backed by a redis-compatible Store.
-func New(store Store, log *zap.Logger) *Deduplicator { return shared.New(store, log) }
+func New(store Store, log *zap.Logger) *Deduplicator {
+	return shared.NewWithKeyPrefix(store, "paladin:ingest:dedup", log)
+}
