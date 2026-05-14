@@ -87,14 +87,16 @@ Live model evals are opt-in and use `.env` / `OPENROUTER_API_KEY`:
 make eval-live
 LIVE_EVAL_MAX=40 LIVE_EVAL_MODEL=qwen/qwen3.6-flash make eval-live
 LIVE_EVAL_MAX=20 LIVE_EVAL_SEED=42 make eval-live
-LIVE_EVAL_RETRIES=4 make eval-live
-LIVE_EVAL_CASE_DELAY=2s make eval-live
+LIVE_EVAL_RETRIES=6 LIVE_EVAL_CASE_DELAY=3s make eval-live
 ```
 
 Current live smoke baseline with `qwen/qwen3.6-flash` on OpenRouter:
-20 random real LLM-backed cases reached 95% pass rate, p50 8.2s, p95
-16.0s, max 19.1s. Follow-up focused slices passed 5/5 for classification,
-adversarial, and RCA correctness. Supervisor routing now supports
+20 random real LLM-backed cases reached 95% pass rate, 100% model pass rate
+after excluding one provider-side 429, p50 8.2s, p95 16.0s, max 19.1s.
+`make eval-live` defaults to four transient-provider retries and a 2s
+inter-case delay to reduce OpenRouter rate-limit noise. Follow-up focused
+slices passed 5/5 for classification, adversarial, and RCA correctness.
+Supervisor routing now supports
 `triage`, `rca`, `runbook`, `integration`, and `memory`; specialist routes
 fall back to triage execution until those workers are wired.
 
