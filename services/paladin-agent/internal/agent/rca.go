@@ -114,7 +114,7 @@ func NewRCAAgent(ctx context.Context, m model.ToolCallingChatModel, log *zap.Log
 	a, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: m,
 		MessageModifier:  react.NewPersonaModifier(tenantguard.TrustedBoundarySystemPrompt + "\n\n" + rcaSystemPrompt), //nolint:staticcheck
-		MaxStep:          10,
+		MaxStep:          1,
 		GraphName:        "PaladinRCAAgent",
 	})
 	if err != nil {
