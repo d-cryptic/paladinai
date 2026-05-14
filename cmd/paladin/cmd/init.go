@@ -25,6 +25,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type deploymentMode string
+
+const (
+	deployModeAuto   deploymentMode = "auto"
+	deployModeHosted deploymentMode = "hosted"
+	deployModeK8s    deploymentMode = "k8s"
+	deployModeDocker deploymentMode = "docker"
+	deployModeBinary deploymentMode = "binary"
+)
+
+var (
+	initLookPath       = exec.LookPath
+	initKubectlContext = hasKubectlContext
+)
+
 // configDir returns the paladin config directory (~/.paladin).
 func configDir() string {
 	home, err := os.UserHomeDir()
@@ -138,8 +153,10 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	tier, _ := cmd.Flags().GetString("tier")
+	deployMode, _ := cmd.Flags().GetString("deploy-mode")
 	if dryRun {
-		return runInitDryRun(cmd, defaultAPI, defaultAuth, defaultTenant, existingToken)
+		return runInitDryRun(cmd, defaultAPI, defaultAuth, defaultTenant, existingToken, tier, deployMode)
 	}
 
 	if useTUI {
@@ -148,7 +165,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	return runInitPrompt(cmd, cfg, defaultAPI, defaultAuth, defaultTenant, existingToken, tokenFromEnv)
 }
 
-func runInitDryRun(cmd *cobra.Command, apiEndpoint, authEndpoint, tenant, token string) error {
+func runInitDryRun(cmd *cobra.Command, apiEndpoint, authEndpoint, tenant, token, tier, deployMode string) error {
 	apiEndpoint = strings.TrimRight(apiEndpoint, "/")
 	authEndpoint = strings.TrimRight(authEndpoint, "/")
 	if _, err := url.ParseRequestURI(apiEndpoint); err != nil {
@@ -162,12 +179,18 @@ func runInitDryRun(cmd *cobra.Command, apiEndpoint, authEndpoint, tenant, token 
 	if t := os.Getenv("PALADIN_TOKEN"); t != "" {
 		activeToken = t
 	}
+	resolvedMode, err := resolveDeploymentMode(deployMode, tier)
+	if err != nil {
+		return err
+	}
 
 	fmt.Println("PaladinAI init dry-run")
 	fmt.Println(strings.Repeat("-", 50))
-	fmt.Printf("  API:    %s\n", apiEndpoint)
-	fmt.Printf("  Auth:   %s\n", authEndpoint)
-	fmt.Printf("  Tenant: %s\n", tenant)
+	fmt.Printf("  API:        %s\n", apiEndpoint)
+	fmt.Printf("  Auth:       %s\n", authEndpoint)
+	fmt.Printf("  Tenant:     %s\n", tenant)
+	fmt.Printf("  Tier:       %s\n", normalizeTier(tier))
+	fmt.Printf("  Deployment: %s\n", resolvedMode)
 	fmt.Println("  Writes: disabled")
 
 	if _, err := client.Get(cmd.Context(), apiEndpoint+"/readyz", client.Options{
@@ -366,6 +389,62 @@ func printCompletionHint() {
 		fmt.Println("\nShell completion (run once):")
 		fmt.Println("  paladin completion fish > ~/.config/fish/completions/paladin.fish")
 	}
+}
+
+func resolveDeploymentMode(rawMode, tier string) (deploymentMode, error) {
+	mode := deploymentMode(strings.ToLower(strings.TrimSpace(rawMode)))
+	if mode == "" {
+		mode = deployModeAuto
+	}
+	switch mode {
+	case deployModeAuto:
+		return detectDeploymentMode(tier), nil
+	case deployModeHosted, deployModeK8s, deployModeDocker, deployModeBinary:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unsupported deployment mode %q — use auto, hosted, k8s, docker, or binary", rawMode)
+	}
+}
+
+func detectDeploymentMode(tier string) deploymentMode {
+	tier = normalizeTier(tier)
+	if tier == "pool" || tier == "bridge" {
+		return deployModeHosted
+	}
+	if initKubectlContext() == nil && hasExecutable("helm") {
+		return deployModeK8s
+	}
+	if hasExecutable("docker") && hasExecutable("docker-compose") {
+		return deployModeDocker
+	}
+	return deployModeBinary
+}
+
+func normalizeTier(tier string) string {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier == "" {
+		return "pool"
+	}
+	return tier
+}
+
+func hasExecutable(name string) bool {
+	_, err := initLookPath(name)
+	return err == nil
+}
+
+func hasKubectlContext() error {
+	out, err := exec.Command("kubectl", "config", "current-context").Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return fmt.Errorf("kubectl not installed")
+		}
+		return fmt.Errorf("kubectl current-context: %w", err)
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		return fmt.Errorf("kubectl current-context is empty")
+	}
+	return nil
 }
 
 // ── doctor command ────────────────────────────────────────────────────────────
@@ -828,6 +907,8 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	initCmd.Flags().Bool("tui", false, "Force Bubble Tea interactive wizard (auto-detected when stdout is a TTY)")
 	initCmd.Flags().Bool("dry-run", false, "Validate init defaults without writing config files")
+	initCmd.Flags().String("tier", "pool", "Deployment tier: pool, bridge, or silo")
+	initCmd.Flags().String("deploy-mode", "auto", "Deployment mode: auto, hosted, k8s, docker, or binary")
 	doctorCmd.Flags().Bool("json", false, "Emit machine-readable JSON output (for CI)")
 	doctorCmd.Flags().Bool("quiet", false, "Suppress output; communicate status via exit code only")
 }
