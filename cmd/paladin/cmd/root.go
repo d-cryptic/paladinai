@@ -42,6 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
 	// --ci disables TUI and forces JSON output; useful in GitHub Actions / ArgoCD.
 	rootCmd.PersistentFlags().Bool("ci", envStr("PALADIN_CI", "") != "", "CI mode: disable TUI, emit JSON, exit-code-only")
+	rootCmd.PersistentFlags().Bool("simple", false, "Use text-only mode instead of launching the TUI")
 	rootCmd.PersistentFlags().Bool("tour", false, "Show the PaladinAI quick tour")
 
 	rootCmd.AddCommand(alertCmd)
@@ -133,6 +134,9 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 	if tour, _ := cmd.Flags().GetBool("tour"); tour {
 		return writeTour(cmd)
+	}
+	if simple, _ := cmd.Flags().GetBool("simple"); simple {
+		return alertListCmd.RunE(cmd, nil)
 	}
 	if isCIMode(cmd) || !rootIsTerminal(os.Stdout.Fd()) {
 		return cmd.Help()
