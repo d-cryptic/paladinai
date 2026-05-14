@@ -67,6 +67,8 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	// cobra/pflag retain flag values between runs of the same command object.
 	resetBoolFlag(doctorCmd.Flags(), "json")
 	resetBoolFlag(doctorCmd.Flags(), "quiet")
+	resetBoolFlag(initCmd.Flags(), "dry-run")
+	resetBoolFlag(initCmd.Flags(), "tui")
 	resetBoolFlag(rootCmd.PersistentFlags(), "ci")
 	rootCmd.SilenceErrors = false
 	rootCmd.SilenceUsage = false
