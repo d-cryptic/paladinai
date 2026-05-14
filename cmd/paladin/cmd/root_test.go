@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -175,4 +176,30 @@ func TestRunRoot_TTYLaunchesDashboardPath(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tenant ID is required")
+}
+
+func TestRunRoot_TourShowsQuickTour(t *testing.T) {
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"--tour"})
+		require.NoError(t, rootCmd.Execute())
+	})
+
+	assert.Contains(t, out, "Welcome to PaladinAI")
+	assert.Contains(t, out, "live incident feed")
+	assert.Contains(t, out, "keyboard shortcuts")
+}
+
+func TestWriteTour_JSON(t *testing.T) {
+	cmd := newTestCmd("", "", "")
+	cmd.PersistentFlags().Bool("ci", true, "")
+	require.NoError(t, cmd.PersistentFlags().Set("ci", "true"))
+
+	out := captureStdout(t, func() {
+		require.NoError(t, writeTour(cmd))
+	})
+
+	var result tourResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	require.Len(t, result.Steps, 4)
+	assert.Contains(t, result.Steps[0], "incident feed")
 }

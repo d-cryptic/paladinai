@@ -73,6 +73,7 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	resetBoolFlag(updateCmd.Flags(), "dry-run")
 	resetBoolFlag(updateCmd.Flags(), "yes")
 	resetBoolFlag(rootCmd.PersistentFlags(), "ci")
+	resetBoolFlag(rootCmd.PersistentFlags(), "tour")
 	rootCmd.SilenceErrors = false
 	rootCmd.SilenceUsage = false
 	doctorCmd.SilenceUsage = false
