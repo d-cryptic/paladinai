@@ -267,14 +267,12 @@ func main() {
 		}
 	}()
 
-	// ── Worker ───────────────────────────────────────────────────────────────
-	_ = incStore // incident store available for future worker integration
-
 	pub := natsPublisherAdapter{client: natsClient}
 	w := worker.New(triageAgent, pub, cfg.TriageTimeout, cfg.AgentWorkers, log).
 		WithRCA(rcaAgent).
 		WithRCATimeout(cfg.RCATimeout).
-		WithSupervisor(supervisor)
+		WithSupervisor(supervisor).
+		WithIncidentStore(incStore)
 
 	log.Info("paladin-agent starting",
 		zap.String("consumer", cfg.NATSConsumerName),

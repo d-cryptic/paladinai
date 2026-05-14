@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
+	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
 	"go.uber.org/zap"
 )
 
@@ -45,6 +46,7 @@ type Worker struct {
 	triager       Triager
 	rcaAnalyzer   RCAAnalyzer               // optional; nil skips RCA step
 	supervisor    *agent.SupervisorPipeline // optional; when set, used in place of direct triager/rca calls
+	incidents     *incident.Store           // optional; records successfully processed alert groups
 	pub           ResultPublisher
 	log           *zap.Logger
 	triageTimeout time.Duration
@@ -83,6 +85,14 @@ func (w *Worker) WithRCA(rca RCAAnalyzer) *Worker {
 func (w *Worker) WithSupervisor(sp *agent.SupervisorPipeline) *Worker {
 	cp := *w
 	cp.supervisor = sp
+	return &cp
+}
+
+// WithIncidentStore returns a copy of the Worker that records successfully
+// processed envelopes to the agent incident API store.
+func (w *Worker) WithIncidentStore(store *incident.Store) *Worker {
+	cp := *w
+	cp.incidents = store
 	return &cp
 }
 
@@ -250,6 +260,7 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		}
 		return
 	}
+	w.recordIncident(&env, result, rcaResult)
 
 	if ackErr := msg.Ack(); ackErr != nil {
 		w.log.Warn("worker: Ack failed",
@@ -343,7 +354,29 @@ func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) 
 	if err != nil {
 		return err
 	}
-	return w.publishCombined(ctx, env, triage, rca)
+	if err := w.publishCombined(ctx, env, triage, rca); err != nil {
+		return err
+	}
+	w.recordIncident(env, triage, rca)
+	return nil
+}
+
+func (w *Worker) recordIncident(env *alert.AlertEnvelope, triage *agent.TriageResult, rca *agent.RCAResult) {
+	if w.incidents == nil || env == nil || triage == nil {
+		return
+	}
+	payload, err := json.Marshal(struct {
+		Triage *agent.TriageResult `json:"triage"`
+		RCA    *agent.RCAResult    `json:"rca,omitempty"`
+	}{Triage: triage, RCA: rca})
+	if err != nil {
+		w.log.Warn("worker: incident record marshal failed",
+			zap.String("fingerprint", env.Fingerprint),
+			zap.Error(err),
+		)
+		return
+	}
+	w.incidents.RecordFromEnvelope(env, triage.ConfirmedSeverity, payload)
 }
 
 func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.TriageResult, *agent.RCAResult, error) {

@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
+	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/worker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,6 +151,28 @@ func TestWorker_TriageCalledOnValidMessage(t *testing.T) {
 	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("t1", "fp1")))
 	assert.Equal(t, 1, triager.callCount())
 	assert.Equal(t, 1, pub.count(), "result should be published after triage")
+}
+
+func TestWorker_ProcessEnvelopeRecordsIncident(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{
+		ConfirmedSeverity: "P2",
+		Summary:           "High error rate on api",
+		NeedsHuman:        true,
+	}}
+	pub := &stubPublisher{}
+	store := incident.NewStore()
+	w := newWorker(triager, pub).WithIncidentStore(store)
+	env := firingEnv("tenant-1", "fp-incident")
+	env.Labels = map[string]string{"alertname": "HighErrorRate", "service": "api"}
+
+	require.NoError(t, w.ProcessEnvelope(context.Background(), env))
+
+	incidents := store.List("tenant-1", "", 10)
+	require.Len(t, incidents, 1)
+	assert.Equal(t, "HighErrorRate", incidents[0].Title)
+	assert.Equal(t, "P2", incidents[0].Severity)
+	assert.NotEmpty(t, incidents[0].RawEnvelope)
+	assert.Contains(t, string(incidents[0].TriageResult), "High error rate on api")
 }
 
 func TestWorker_TriageErrorIsHandled(t *testing.T) {
