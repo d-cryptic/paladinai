@@ -3,7 +3,10 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -19,6 +22,11 @@ type Alert struct {
 	Title         string
 	CorrelationID string
 	Tenant        string
+}
+
+type SessionState struct {
+	Mode   string   `json:"mode"`
+	Recent []string `json:"recent"`
 }
 
 // severityColor maps severity to a lipgloss color.
@@ -49,6 +57,8 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262"))
 )
+
+var dashboardSessionPath = defaultDashboardSessionPath
 
 // Model is the Bubble Tea model for the alert dashboard.
 type Model struct {
@@ -90,7 +100,13 @@ func New(tenant string) Model {
 	s.Selected = s.Selected.Foreground(lipgloss.Color("#FFFDF5")).Background(lipgloss.Color("#25A065")).Bold(false)
 	t.SetStyles(s)
 
-	return Model{table: t, tenant: tenant, mode: "monitor"}
+	m := Model{table: t, tenant: tenant, mode: "monitor"}
+	state, err := loadSessionState(dashboardSessionPath())
+	if err != nil {
+		return m
+	}
+	m.applySessionState(state)
+	return m
 }
 
 // SetAlerts updates the model with a fresh batch of alerts.
@@ -206,7 +222,74 @@ func (m Model) applySlashCommand(command string) (tea.Model, tea.Cmd) {
 	default:
 		m.err = fmt.Errorf("unknown command: /%s", name[0])
 	}
+	if err := saveSessionState(dashboardSessionPath(), m.sessionState()); err != nil {
+		m.err = fmt.Errorf("save session: %w", err)
+	}
 	return m, nil
+}
+
+func (m *Model) applySessionState(state SessionState) {
+	if isDashboardMode(state.Mode) {
+		m.mode = state.Mode
+	}
+	m.recent = append([]string(nil), state.Recent...)
+}
+
+func (m Model) sessionState() SessionState {
+	return SessionState{
+		Mode:   m.mode,
+		Recent: append([]string(nil), m.recent...),
+	}
+}
+
+func isDashboardMode(mode string) bool {
+	switch mode {
+	case "monitor", "tail", "configure":
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultDashboardSessionPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".paladin", "session.json")
+}
+
+func loadSessionState(path string) (SessionState, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return SessionState{}, err
+	}
+	var state SessionState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return SessionState{}, fmt.Errorf("parse session: %w", err)
+	}
+	if !isDashboardMode(state.Mode) {
+		state.Mode = "monitor"
+	}
+	return state, nil
+}
+
+func saveSessionState(path string, state SessionState) error {
+	if state.Mode == "" {
+		state.Mode = "monitor"
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create session dir: %w", err)
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal session: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write session: %w", err)
+	}
+	return nil
 }
 
 // View renders the dashboard.

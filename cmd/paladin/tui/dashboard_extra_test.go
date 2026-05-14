@@ -2,11 +2,26 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "paladin-tui-session-*")
+	if err != nil {
+		panic(err)
+	}
+	dashboardSessionPath = func() string {
+		return filepath.Join(dir, "session.json")
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestSeverityColor_AllCases(t *testing.T) {
 	cases := []string{"P1", "P2", "P3", "P4", "unknown", ""}
@@ -76,8 +91,8 @@ func TestDashboardModel_SlashCommandTailMode(t *testing.T) {
 	if wm.mode != "tail" {
 		t.Fatalf("mode = %q, want tail", wm.mode)
 	}
-	if len(wm.recent) != 1 || wm.recent[0] != "/tail" {
-		t.Fatalf("recent commands = %+v, want /tail", wm.recent)
+	if len(wm.recent) == 0 || wm.recent[0] != "/tail" {
+		t.Fatalf("recent commands = %+v, want latest /tail", wm.recent)
 	}
 }
 
@@ -113,6 +128,79 @@ func TestDashboardModel_UnknownSlashCommandSetsError(t *testing.T) {
 	wm := result.(Model)
 	if wm.err == nil || !strings.Contains(wm.err.Error(), "unknown command") {
 		t.Fatalf("expected unknown command error, got %v", wm.err)
+	}
+}
+
+func TestDashboardSession_SaveAndLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".paladin", "session.json")
+	want := SessionState{Mode: "tail", Recent: []string{"/tail", "/help"}}
+	if err := saveSessionState(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadSessionState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != "tail" || len(got.Recent) != 2 || got.Recent[0] != "/tail" {
+		t.Fatalf("state = %+v, want %+v", got, want)
+	}
+}
+
+func TestDashboardModel_NewRestoresSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".paladin", "session.json")
+	if err := saveSessionState(path, SessionState{Mode: "configure", Recent: []string{"/config"}}); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := dashboardSessionPath
+	dashboardSessionPath = func() string { return path }
+	t.Cleanup(func() { dashboardSessionPath = oldPath })
+
+	m := New("tenant-1")
+	if m.mode != "configure" {
+		t.Fatalf("mode = %q, want configure", m.mode)
+	}
+	if len(m.recent) != 1 || m.recent[0] != "/config" {
+		t.Fatalf("recent = %+v, want /config", m.recent)
+	}
+}
+
+func TestDashboardModel_SlashCommandPersistsSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".paladin", "session.json")
+	oldPath := dashboardSessionPath
+	dashboardSessionPath = func() string { return path }
+	t.Cleanup(func() { dashboardSessionPath = oldPath })
+
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("config")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.err != nil {
+		t.Fatalf("unexpected error: %v", wm.err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"mode": "configure"`) {
+		t.Fatalf("session missing configure mode:\n%s", data)
+	}
+}
+
+func TestDashboardSession_InvalidModeFallsBackToMonitor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".paladin", "session.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"mode":"bad","recent":["/bad"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadSessionState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Mode != "monitor" {
+		t.Fatalf("mode = %q, want monitor", state.Mode)
 	}
 }
 
