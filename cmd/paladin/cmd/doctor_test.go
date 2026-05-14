@@ -382,12 +382,25 @@ func TestDoctorCmd_JSONMode_ReportsFailureStatusAndDetail(t *testing.T) {
 		case check.Status == "fail" && !check.Passed:
 			assert.NotEmpty(t, check.Detail)
 			assert.NotEmpty(t, check.Name)
+			assert.NotEmpty(t, check.Remediation)
 			return
 		case check.Status == "pass":
 			assert.Equal(t, "pass", check.Status)
 		}
 	}
 	t.Fatalf("expected at least one failed check in JSON output: %+v", report.Checks)
+}
+
+func TestDoctorRemediation_KnownChecks(t *testing.T) {
+	assert.Contains(t, doctorRemediation("Token configured"), "PALADIN_TOKEN")
+	assert.Contains(t, doctorRemediation("NATS reachable"), "NATS_URL")
+	assert.Contains(t, doctorRemediation("paladin-memory ready"), "MEMORY_HTTP_ADDR")
+}
+
+func TestDoctorRemediation_TargetedIntegration(t *testing.T) {
+	got := doctorRemediation("Integration check: prometheus")
+	assert.Contains(t, got, "paladin integrations enable prometheus")
+	assert.Contains(t, got, "paladin doctor prometheus")
 }
 
 func TestDoctorCmd_JSONMode_IncludesMemoryReadinessCheck(t *testing.T) {
