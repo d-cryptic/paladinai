@@ -136,6 +136,19 @@ var integrationsEnableCmd = &cobra.Command{
 			}
 		}
 
+		inlineConfig, secrets, err := integrationInlineConfig(cmd, args[0])
+		if err != nil {
+			return err
+		}
+		if len(inlineConfig) > 0 {
+			if configMap == nil {
+				configMap = make(map[string]any, len(inlineConfig))
+			}
+			for key, value := range inlineConfig {
+				configMap[key] = value
+			}
+		}
+
 		payload := map[string]any{"name": args[0]}
 		if configMap != nil {
 			payload["config"] = configMap
@@ -162,6 +175,9 @@ var integrationsEnableCmd = &cobra.Command{
 		}
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("API error %d: %s", status, string(body))
+		}
+		if err := saveIntegrationSecrets(tenant, args[0], secrets); err != nil {
+			return err
 		}
 		if err := updateProjectIntegrationFromDefinition(cmd, projectFile, tenant, args[0], true, configMap); err != nil {
 			return err
@@ -398,6 +414,98 @@ func writeIntegrationActionResult(cmd *cobra.Command, result integrationActionRe
 	return nil
 }
 
+func integrationInlineConfig(cmd *cobra.Command, name string) (map[string]any, map[string]string, error) {
+	def, err := integrationpkg.LoadByName(integrationsDir(cmd), name)
+	if err != nil && !errors.Is(err, integrationpkg.ErrNotFound) {
+		return nil, nil, fmt.Errorf("load integration: %w", err)
+	}
+
+	raw := make(map[string]any)
+	for _, spec := range []struct {
+		flag string
+		key  string
+	}{
+		{flag: "api-key", key: "api_key"},
+		{flag: "app-key", key: "app_key"},
+		{flag: "bot-token", key: "bot_token"},
+		{flag: "signing-secret", key: "signing_secret"},
+		{flag: "routing-key", key: "routing_key"},
+		{flag: "url", key: "url"},
+		{flag: "site", key: "site"},
+		{flag: "default-channel", key: "default_channel"},
+		{flag: "workspace-name", key: "workspace_name"},
+		{flag: "service-region", key: "service_region"},
+	} {
+		if !cmd.Flags().Changed(spec.flag) {
+			continue
+		}
+		value, _ := cmd.Flags().GetString(spec.flag)
+		if strings.TrimSpace(value) != "" {
+			raw[spec.key] = value
+		}
+	}
+	if cmd.Flags().Changed("thread-on-update") {
+		value, _ := cmd.Flags().GetBool("thread-on-update")
+		raw["thread_on_update"] = value
+	}
+	sets, _ := cmd.Flags().GetStringArray("set")
+	for _, item := range sets {
+		key, value, ok := strings.Cut(item, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			return nil, nil, fmt.Errorf("--set must be key=value")
+		}
+		raw[key] = value
+	}
+	if len(raw) == 0 {
+		return nil, nil, nil
+	}
+
+	config := make(map[string]any, len(raw))
+	secrets := make(map[string]string)
+	for key, value := range raw {
+		if isIntegrationSecretField(def, key) {
+			text, ok := value.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				continue
+			}
+			secrets[key] = text
+			config[key] = text
+			continue
+		}
+		config[key] = value
+	}
+	return config, secrets, nil
+}
+
+func isIntegrationSecretField(def *integrationpkg.Integration, key string) bool {
+	if def == nil {
+		return false
+	}
+	for _, field := range def.Auth.Fields {
+		if field.Name == key && field.Secret {
+			return true
+		}
+	}
+	if field, ok := def.ConfigSchema[key]; ok && field.Secret {
+		return true
+	}
+	return false
+}
+
+func integrationSecretAccount(tenant, integration, key string) string {
+	return "integrations/" + tenant + "/" + integration + "/" + key
+}
+
+func saveIntegrationSecrets(tenant, name string, secrets map[string]string) error {
+	for key, value := range secrets {
+		if err := paladinSecretStore.Set(tokenStoreService, integrationSecretAccount(tenant, name, key), strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("save integration secret %s/%s to keychain: %w", name, key, err)
+		}
+	}
+	return nil
+}
+
 func updateProjectIntegrationFromDefinition(cmd *cobra.Command, path, tenant, name string, enabled bool, config map[string]any) error {
 	version := "latest"
 	projectConfig := config
@@ -417,7 +525,7 @@ func nonSecretIntegrationConfig(config map[string]any, def *integrationpkg.Integ
 	}
 	filtered := make(map[string]any, len(config))
 	for key, value := range config {
-		if field, ok := def.ConfigSchema[key]; ok && field.Secret {
+		if isIntegrationSecretField(def, key) {
 			continue
 		}
 		filtered[key] = value
@@ -473,6 +581,18 @@ func init() {
 	integrationsCmd.PersistentFlags().String("integrations-dir", "", "Path to integrations/ directory with integration.yaml files")
 	integrationsEnableCmd.Flags().String("config", "", "Path to JSON config file for the integration")
 	integrationsEnableCmd.Flags().String("file", "", "Path to paladin.yaml (default: ./paladin.yaml)")
+	integrationsEnableCmd.Flags().String("api-key", "", "Integration API key; stored in the OS keychain when marked secret")
+	integrationsEnableCmd.Flags().String("app-key", "", "Integration application key; stored in the OS keychain when marked secret")
+	integrationsEnableCmd.Flags().String("bot-token", "", "Slack bot token; stored in the OS keychain")
+	integrationsEnableCmd.Flags().String("signing-secret", "", "Webhook signing secret; stored in the OS keychain")
+	integrationsEnableCmd.Flags().String("routing-key", "", "Incident routing key; stored in the OS keychain when marked secret")
+	integrationsEnableCmd.Flags().String("url", "", "Integration base URL")
+	integrationsEnableCmd.Flags().String("site", "", "Integration site or region hostname")
+	integrationsEnableCmd.Flags().String("default-channel", "", "Default notification channel")
+	integrationsEnableCmd.Flags().String("workspace-name", "", "Workspace display name")
+	integrationsEnableCmd.Flags().String("service-region", "", "Service region")
+	integrationsEnableCmd.Flags().Bool("thread-on-update", true, "Reply in thread for incident updates")
+	integrationsEnableCmd.Flags().StringArray("set", nil, "Additional integration config as key=value; may be repeated")
 	integrationsDisableCmd.Flags().String("file", "", "Path to paladin.yaml (default: ./paladin.yaml)")
 
 	integrationsCmd.AddCommand(

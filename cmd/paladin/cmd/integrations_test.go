@@ -8,6 +8,7 @@ import (
 
 	"github.com/paladinai/paladinai/internal/integrationpkg"
 	"github.com/paladinai/paladinai/internal/projectconfig"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,6 +130,91 @@ func TestNonSecretIntegrationConfig_RemovesSecretSchemaFields(t *testing.T) {
 	assert.NotContains(t, filtered, "api_key")
 }
 
+func TestNonSecretIntegrationConfig_RemovesAuthSecrets(t *testing.T) {
+	def := &integrationpkg.Integration{
+		Auth: integrationpkg.AuthConfig{
+			Fields: []integrationpkg.AuthField{
+				{Name: "api_key", Secret: true},
+				{Name: "app_key", Secret: true},
+			},
+		},
+		ConfigSchema: map[string]integrationpkg.Field{
+			"site": {Type: "string"},
+		},
+	}
+
+	filtered := nonSecretIntegrationConfig(map[string]any{
+		"api_key": "dd-secret",
+		"app_key": "dd-app-secret",
+		"site":    "datadoghq.eu",
+	}, def)
+
+	require.NotNil(t, filtered)
+	assert.Equal(t, "datadoghq.eu", filtered["site"])
+	assert.NotContains(t, filtered, "api_key")
+	assert.NotContains(t, filtered, "app_key")
+}
+
+func TestIntegrationInlineConfig_SplitsSecretFlagsFromConfig(t *testing.T) {
+	dir := writeIntegrationCatalog(t, "datadog", `
+name: datadog
+version: "1.0.0"
+description: Datadog
+receiver:
+  type: webhook
+auth:
+  type: api_key
+  fields:
+    - name: api_key
+      secret: true
+    - name: app_key
+      secret: true
+config_schema:
+  site:
+    type: string
+tools: []
+`)
+	cmd := newIntegrationEnableFlagTestCmd(t, dir)
+	require.NoError(t, cmd.Flags().Set("api-key", "dd-api"))
+	require.NoError(t, cmd.Flags().Set("app-key", "dd-app"))
+	require.NoError(t, cmd.Flags().Set("site", "datadoghq.eu"))
+
+	config, secrets, err := integrationInlineConfig(cmd, "datadog")
+	require.NoError(t, err)
+
+	assert.Equal(t, "dd-api", config["api_key"])
+	assert.Equal(t, "dd-app", config["app_key"])
+	assert.Equal(t, "datadoghq.eu", config["site"])
+	assert.Equal(t, map[string]string{"api_key": "dd-api", "app_key": "dd-app"}, secrets)
+}
+
+func TestIntegrationInlineConfig_SetRequiresKeyValue(t *testing.T) {
+	cmd := newIntegrationEnableFlagTestCmd(t, t.TempDir())
+	require.NoError(t, cmd.Flags().Set("set", "missing-equals"))
+
+	_, _, err := integrationInlineConfig(cmd, "unknown")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "key=value")
+}
+
+func TestSaveIntegrationSecrets_StoresByTenantIntegrationAndKey(t *testing.T) {
+	store := &fakeSecretStore{}
+	withSecretStore(t, store)
+
+	err := saveIntegrationSecrets("tenant-a", "datadog", map[string]string{
+		"api_key": "dd-api",
+		"app_key": "dd-app",
+	})
+	require.NoError(t, err)
+
+	apiKey, err := paladinSecretStore.Get(tokenStoreService, integrationSecretAccount("tenant-a", "datadog", "api_key"))
+	require.NoError(t, err)
+	appKey, err := paladinSecretStore.Get(tokenStoreService, integrationSecretAccount("tenant-a", "datadog", "app_key"))
+	require.NoError(t, err)
+	assert.Equal(t, "dd-api", apiKey)
+	assert.Equal(t, "dd-app", appKey)
+}
+
 func TestWriteIntegrationActionResult_CIModeJSON(t *testing.T) {
 	cmd := tenantDeleteTestCmd(t, false, true)
 
@@ -228,4 +314,23 @@ func writeIntegrationCatalog(t *testing.T, name, content string) string {
 	require.NoError(t, os.MkdirAll(integrationDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(integrationDir, "integration.yaml"), []byte(content), 0o644))
 	return dir
+}
+
+func newIntegrationEnableFlagTestCmd(t *testing.T, dir string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "enable"}
+	cmd.Flags().String("integrations-dir", dir, "")
+	cmd.Flags().String("api-key", "", "")
+	cmd.Flags().String("app-key", "", "")
+	cmd.Flags().String("bot-token", "", "")
+	cmd.Flags().String("signing-secret", "", "")
+	cmd.Flags().String("routing-key", "", "")
+	cmd.Flags().String("url", "", "")
+	cmd.Flags().String("site", "", "")
+	cmd.Flags().String("default-channel", "", "")
+	cmd.Flags().String("workspace-name", "", "")
+	cmd.Flags().String("service-region", "", "")
+	cmd.Flags().Bool("thread-on-update", true, "")
+	cmd.Flags().StringArray("set", nil, "")
+	return cmd
 }
