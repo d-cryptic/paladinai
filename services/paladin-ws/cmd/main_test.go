@@ -95,6 +95,10 @@ func testConfig(adminPort int) cfg.Config {
 			IdleTimeout:  60 * time.Second,
 		},
 		AdminPort: adminPort,
+		NATSSubjects: []string{
+			"paladin.alerts.triaged.>",
+			"paladin.alerts.analyzed.>",
+		},
 		JWTSecret: []byte("ws-secret-at-least-32-bytes!!!!!"),
 	}
 }

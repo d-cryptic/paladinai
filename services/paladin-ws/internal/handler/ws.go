@@ -42,6 +42,14 @@ type AlertPayload struct {
 	StartsAt      time.Time `json:"starts_at"`
 }
 
+type agentResultPayload struct {
+	Envelope AlertPayload `json:"envelope"`
+	Triage   struct {
+		ConfirmedSeverity string   `json:"confirmed_severity"`
+		AffectedServices  []string `json:"affected_services"`
+	} `json:"triage"`
+}
+
 // WSHandler handles WebSocket upgrade requests and pumps hub messages to clients.
 type WSHandler struct {
 	h   *hub.Hub
@@ -170,8 +178,8 @@ func (wh *WSHandler) pump(ctx context.Context, conn *websocket.Conn, c *hub.Clie
 // Returns true if the message should be Ack'd, false if it should be Term'd.
 func NATSHandler(h *hub.Hub, log *zap.Logger) func([]byte) bool {
 	return func(data []byte) bool {
-		var payload AlertPayload
-		if err := json.Unmarshal(data, &payload); err != nil {
+		payload, err := parseAlertPayload(data)
+		if err != nil {
 			log.Warn("nats msg: unmarshal failed — terminating", zap.Error(err))
 			return false // permanently bad; Term at call site
 		}
@@ -182,4 +190,27 @@ func NATSHandler(h *hub.Hub, log *zap.Logger) func([]byte) bool {
 		h.Broadcast(payload.TenantID, payload.Severity, payload.Service, data)
 		return true
 	}
+}
+
+func parseAlertPayload(data []byte) (AlertPayload, error) {
+	var payload AlertPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return AlertPayload{}, err
+	}
+	if payload.TenantID != "" {
+		return payload, nil
+	}
+
+	var result agentResultPayload
+	if err := json.Unmarshal(data, &result); err != nil {
+		return AlertPayload{}, err
+	}
+	payload = result.Envelope
+	if result.Triage.ConfirmedSeverity != "" {
+		payload.Severity = result.Triage.ConfirmedSeverity
+	}
+	if payload.Service == "" && len(result.Triage.AffectedServices) > 0 {
+		payload.Service = result.Triage.AffectedServices[0]
+	}
+	return payload, nil
 }

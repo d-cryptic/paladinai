@@ -63,12 +63,15 @@ func main() {
 	defer natsClient.Close()
 
 	cons, err := natsClient.JS().CreateOrUpdateConsumer(ctx, internalnats.StreamAlerts, jetstream.ConsumerConfig{
-		Name:          cfg.NATSConsumerName,
-		Durable:       cfg.NATSConsumerName,
-		FilterSubject: internalnats.SubjectAlertsTriaged,
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		MaxDeliver:    3,
-		AckWait:       30 * time.Second,
+		Name:    cfg.NATSConsumerName,
+		Durable: cfg.NATSConsumerName,
+		FilterSubjects: []string{
+			internalnats.SubjectAlertsTriaged,
+			internalnats.SubjectAlertsAnalyzed,
+		},
+		AckPolicy:  jetstream.AckExplicitPolicy,
+		MaxDeliver: 3,
+		AckWait:    30 * time.Second,
 	})
 	if err != nil {
 		log.Fatal("comms: create consumer failed", zap.Error(err))

@@ -43,7 +43,8 @@ const (
 	SubjectAlertsRaw        = "paladin.alerts.raw.>"        // raw inbound from integrations
 	SubjectAlertsDeduped    = "paladin.alerts.deduped.>"    // after fingerprint dedup
 	SubjectAlertsCorrelated = "paladin.alerts.correlated.>" // after correlation window
-	SubjectAlertsTriaged    = "paladin.alerts.triaged.>"    // after agent triage/RCA, consumed by paladin-comms
+	SubjectAlertsTriaged    = "paladin.alerts.triaged.>"    // after agent triage fallback
+	SubjectAlertsAnalyzed   = "paladin.alerts.analyzed.>"   // after agent RCA analysis
 	SubjectAgentWork        = "paladin.agent.work.>"
 	SubjectRunbookSteps     = "paladin.runbook.steps.>"
 	SubjectIncidents        = "paladin.incidents.>"
@@ -127,14 +128,20 @@ func (c *Client) ensureStreams(ctx context.Context) error {
 	streams := []jetstream.StreamConfig{
 		{
 			Name:        StreamAlerts,
-			Description: "All alert events: raw, deduped, correlated",
-			Subjects:    []string{SubjectAlertsRaw, SubjectAlertsDeduped, SubjectAlertsCorrelated, SubjectAlertsTriaged},
-			Retention:   jetstream.LimitsPolicy,
-			MaxAge:      72 * time.Hour, // 3 days
-			MaxMsgs:     5_000_000,
-			Storage:     jetstream.FileStorage,
-			Replicas:    1,               // increase to 3 in production
-			Duplicates:  5 * time.Minute, // NATS-level dedup window
+			Description: "All alert events: raw, deduped, correlated, triaged, analyzed",
+			Subjects: []string{
+				SubjectAlertsRaw,
+				SubjectAlertsDeduped,
+				SubjectAlertsCorrelated,
+				SubjectAlertsTriaged,
+				SubjectAlertsAnalyzed,
+			},
+			Retention:  jetstream.LimitsPolicy,
+			MaxAge:     72 * time.Hour, // 3 days
+			MaxMsgs:    5_000_000,
+			Storage:    jetstream.FileStorage,
+			Replicas:   1,               // increase to 3 in production
+			Duplicates: 5 * time.Minute, // NATS-level dedup window
 		},
 		{
 			Name:        StreamAgentWork,

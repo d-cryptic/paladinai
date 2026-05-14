@@ -29,6 +29,27 @@ func alertMsg(t *testing.T, tenantID, severity, service string) []byte {
 	return b
 }
 
+func agentResultMsg(t *testing.T, tenantID, severity, service string) []byte {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"envelope": map[string]any{
+			"tenant_id":      tenantID,
+			"fingerprint":    "fp-1",
+			"severity":       "P3",
+			"status":         "firing",
+			"title":          "High CPU",
+			"correlation_id": "corr-1",
+			"starts_at":      time.Now().UTC(),
+		},
+		"triage": map[string]any{
+			"confirmed_severity": severity,
+			"affected_services":  []string{service},
+		},
+	})
+	require.NoError(t, err)
+	return b
+}
+
 func TestNATSHandler_ValidMessage_BroadcastsAndAcks(t *testing.T) {
 	h := hub.New()
 	c := h.Subscribe("tenant-1", "", "")
@@ -45,6 +66,25 @@ func TestNATSHandler_ValidMessage_BroadcastsAndAcks(t *testing.T) {
 		assert.Equal(t, msg, got, "broadcast payload should match input bytes verbatim")
 	default:
 		t.Fatal("expected message on Send channel but none received")
+	}
+}
+
+func TestNATSHandler_AgentResultEnvelope_BroadcastsAndAcks(t *testing.T) {
+	h := hub.New()
+	c := h.Subscribe("tenant-1", "P1", "api")
+
+	handle := handler.NATSHandler(h, zap.NewNop())
+	msg := agentResultMsg(t, "tenant-1", "P1", "api")
+
+	ack := handle(msg)
+
+	assert.True(t, ack, "wrapped agent result should be Ack'd")
+
+	select {
+	case got := <-c.Send:
+		assert.Equal(t, msg, got, "broadcast payload should match input bytes verbatim")
+	default:
+		t.Fatal("expected wrapped agent result on Send channel but none received")
 	}
 }
 

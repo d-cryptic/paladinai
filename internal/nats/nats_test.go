@@ -25,6 +25,8 @@ var allSubjectPatterns = []string{
 	inats.SubjectAlertsRaw,
 	inats.SubjectAlertsDeduped,
 	inats.SubjectAlertsCorrelated,
+	inats.SubjectAlertsTriaged,
+	inats.SubjectAlertsAnalyzed,
 	inats.SubjectAgentWork,
 	inats.SubjectRunbookSteps,
 	inats.SubjectIncidents,
@@ -42,6 +44,8 @@ var paladinPrefixedSubjects = []string{
 	inats.SubjectAlertsRaw,
 	inats.SubjectAlertsDeduped,
 	inats.SubjectAlertsCorrelated,
+	inats.SubjectAlertsTriaged,
+	inats.SubjectAlertsAnalyzed,
 	inats.SubjectAgentWork,
 	inats.SubjectRunbookSteps,
 	inats.SubjectIncidents,
@@ -79,6 +83,8 @@ func TestSubjectPatterns(t *testing.T) {
 	assert.Equal(t, "paladin.alerts.raw.>", inats.SubjectAlertsRaw)
 	assert.Equal(t, "paladin.alerts.deduped.>", inats.SubjectAlertsDeduped)
 	assert.Equal(t, "paladin.alerts.correlated.>", inats.SubjectAlertsCorrelated)
+	assert.Equal(t, "paladin.alerts.triaged.>", inats.SubjectAlertsTriaged)
+	assert.Equal(t, "paladin.alerts.analyzed.>", inats.SubjectAlertsAnalyzed)
 	assert.Equal(t, "paladin.agent.work.>", inats.SubjectAgentWork)
 	assert.Equal(t, "paladin.runbook.steps.>", inats.SubjectRunbookSteps)
 	assert.Equal(t, "paladin.incidents.>", inats.SubjectIncidents)

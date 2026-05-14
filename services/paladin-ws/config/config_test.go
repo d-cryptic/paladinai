@@ -11,7 +11,7 @@ import (
 
 func clearWSEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"JWT_SECRET", "NATS_ALERTS_SUBJECT", "NATS_CONSUMER_NAME", "PALADIN_WS_PORT", "PALADIN_WS_ADMIN_PORT"} {
+	for _, k := range []string{"JWT_SECRET", "NATS_ALERTS_SUBJECT", "NATS_ALERTS_SUBJECTS", "NATS_CONSUMER_NAME", "PALADIN_WS_PORT", "PALADIN_WS_ADMIN_PORT"} {
 		t.Setenv(k, "")
 	}
 }
@@ -48,11 +48,11 @@ func TestLoad_DefaultNATSSubjectAndConsumer(t *testing.T) {
 
 	c, err := config.Load()
 	require.NoError(t, err)
-	assert.Equal(t, "paladin.alerts.processed", c.NATSSubject)
+	assert.Equal(t, []string{"paladin.alerts.triaged.>", "paladin.alerts.analyzed.>"}, c.NATSSubjects)
 	assert.Equal(t, "paladin-ws", c.NATSConsumer)
 }
 
-func TestLoad_NATSEnvOverrides(t *testing.T) {
+func TestLoad_NATSSingleEnvOverride(t *testing.T) {
 	clearWSEnv(t)
 	t.Setenv("JWT_SECRET", "ws-secret-at-least-32-bytes!!!!!")
 	t.Setenv("NATS_ALERTS_SUBJECT", "custom.alerts")
@@ -60,7 +60,19 @@ func TestLoad_NATSEnvOverrides(t *testing.T) {
 
 	c, err := config.Load()
 	require.NoError(t, err)
-	assert.Equal(t, "custom.alerts", c.NATSSubject)
+	assert.Equal(t, []string{"custom.alerts"}, c.NATSSubjects)
+	assert.Equal(t, "my-consumer", c.NATSConsumer)
+}
+
+func TestLoad_NATSMultipleEnvOverride(t *testing.T) {
+	clearWSEnv(t)
+	t.Setenv("JWT_SECRET", "ws-secret-at-least-32-bytes!!!!!")
+	t.Setenv("NATS_ALERTS_SUBJECTS", "custom.triaged.>, custom.analyzed.>")
+	t.Setenv("NATS_CONSUMER_NAME", "my-consumer")
+
+	c, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"custom.triaged.>", "custom.analyzed.>"}, c.NATSSubjects)
 	assert.Equal(t, "my-consumer", c.NATSConsumer)
 }
 

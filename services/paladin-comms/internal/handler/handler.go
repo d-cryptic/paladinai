@@ -33,6 +33,22 @@ type triageResult struct {
 	CorrelationID string `json:"correlation_id"`
 }
 
+type agentResult struct {
+	Envelope struct {
+		TenantID      string `json:"tenant_id"`
+		Fingerprint   string `json:"fingerprint"`
+		Severity      string `json:"severity"`
+		Title         string `json:"title"`
+		Runbook       string `json:"runbook"`
+		CorrelationID string `json:"correlation_id"`
+	} `json:"envelope"`
+	Triage struct {
+		ConfirmedSeverity string `json:"confirmed_severity"`
+		Summary           string `json:"summary"`
+		RecommendedAction string `json:"recommended_action"`
+	} `json:"triage"`
+}
+
 // Handler consumes triage result messages from NATS and dispatches notifications.
 type Handler struct {
 	notifier    notifier.Notifier
@@ -54,8 +70,8 @@ func New(n notifier.Notifier, minSeverity string, log *zap.Logger) *Handler {
 
 // ProcessMessage handles one NATS message. It acks on success and naks on error.
 func (h *Handler) ProcessMessage(ctx context.Context, msg jetstream.Msg) error {
-	var result triageResult
-	if err := json.Unmarshal(msg.Data(), &result); err != nil {
+	result, err := parseTriageResult(msg.Data())
+	if err != nil {
 		_ = msg.Nak()
 		return fmt.Errorf("comms: unmarshal triage result: %w", err)
 	}
@@ -96,6 +112,41 @@ func (h *Handler) ProcessMessage(ctx context.Context, msg jetstream.Msg) error {
 	)
 	_ = msg.Ack()
 	return nil
+}
+
+func parseTriageResult(data []byte) (triageResult, error) {
+	var result triageResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return triageResult{}, err
+	}
+	if result.TenantID != "" {
+		return result, nil
+	}
+
+	var wrapped agentResult
+	if err := json.Unmarshal(data, &wrapped); err != nil {
+		return triageResult{}, err
+	}
+	result = triageResult{
+		TenantID:      wrapped.Envelope.TenantID,
+		IncidentID:    firstNonEmpty(wrapped.Envelope.CorrelationID, wrapped.Envelope.Fingerprint),
+		Fingerprint:   wrapped.Envelope.Fingerprint,
+		Severity:      firstNonEmpty(wrapped.Triage.ConfirmedSeverity, wrapped.Envelope.Severity),
+		Title:         wrapped.Envelope.Title,
+		Summary:       firstNonEmpty(wrapped.Triage.Summary, wrapped.Triage.RecommendedAction),
+		RunbookURL:    wrapped.Envelope.Runbook,
+		CorrelationID: wrapped.Envelope.CorrelationID,
+	}
+	return result, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // shouldNotify returns true when the alert severity is at or above the configured threshold.

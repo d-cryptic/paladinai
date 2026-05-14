@@ -138,6 +138,21 @@ func TestPublish_RoundTrips(t *testing.T) {
 	assert.Equal(t, uint64(1), ack.Sequence)
 }
 
+func TestPublish_AnalyzedAlertRoundTrips(t *testing.T) {
+	url, stop := startInProcessJetStream(t)
+	defer stop()
+
+	client, err := inats.Connect(url, zap.NewNop())
+	require.NoError(t, err)
+	defer client.Close()
+
+	ctx := context.Background()
+	ack, err := client.Publish(ctx, "paladin.alerts.analyzed.tenant1.alertmanager", []byte(`{"hello":"rca"}`))
+	require.NoError(t, err)
+	require.NotNil(t, ack)
+	assert.Equal(t, inats.StreamAlerts, ack.Stream)
+}
+
 // TestPublish_NoStreamReturnsError publishes to a subject without a backing
 // stream and asserts that the wrapped error is returned.
 func TestPublish_NoStreamReturnsError(t *testing.T) {

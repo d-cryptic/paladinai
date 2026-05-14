@@ -62,6 +62,24 @@ func validJSON(severity string) []byte {
 	}`)
 }
 
+func wrappedAgentJSON(severity string) []byte {
+	return []byte(`{
+		"envelope": {
+			"tenant_id": "acme",
+			"fingerprint": "abc123",
+			"severity": "P3",
+			"title": "DB Down",
+			"runbook": "https://runbooks.acme.com/db",
+			"correlation_id": "corr-xyz"
+		},
+		"triage": {
+			"confirmed_severity": "` + severity + `",
+			"summary": "Connection pool exhausted",
+			"recommended_action": "Restart the pooler"
+		}
+	}`)
+}
+
 // ── New ───────────────────────────────────────────────────────────────────────
 
 func TestNew_DefaultMinSeverity(t *testing.T) {
@@ -165,6 +183,35 @@ func TestProcessMessage_ValidP1_Notifies(t *testing.T) {
 	}
 	if n.lastNotif.Title != "DB Down" {
 		t.Errorf("Title = %q, want DB Down", n.lastNotif.Title)
+	}
+	if !msg.acked {
+		t.Error("message should be acked on success")
+	}
+}
+
+func TestProcessMessage_WrappedAgentResult_Notifies(t *testing.T) {
+	n := &fakeNotifier{}
+	h := New(n, "P2", zap.NewNop())
+	msg := &fakeMsg{data: wrappedAgentJSON("P1")}
+
+	err := h.ProcessMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !n.called {
+		t.Error("expected notifier to be called for wrapped P1 agent result")
+	}
+	if n.lastNotif.TenantID != "acme" {
+		t.Errorf("TenantID = %q, want acme", n.lastNotif.TenantID)
+	}
+	if n.lastNotif.Severity != "P1" {
+		t.Errorf("Severity = %q, want P1", n.lastNotif.Severity)
+	}
+	if n.lastNotif.IncidentID != "corr-xyz" {
+		t.Errorf("IncidentID = %q, want corr-xyz", n.lastNotif.IncidentID)
+	}
+	if n.lastNotif.Summary != "Connection pool exhausted" {
+		t.Errorf("Summary = %q", n.lastNotif.Summary)
 	}
 	if !msg.acked {
 		t.Error("message should be acked on success")

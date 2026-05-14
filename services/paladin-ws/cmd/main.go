@@ -173,13 +173,13 @@ func mountAdminRoutes(r chi.Router) {
 func startNATSConsumer(ctx context.Context, nc *inats.Client, conf cfg.Config, h *hub.Hub, log *zap.Logger) error {
 	js := nc.JS()
 	consumer, err := js.CreateOrUpdateConsumer(ctx, inats.StreamAlerts, jetstream.ConsumerConfig{
-		Name:          conf.NATSConsumer,
-		Durable:       conf.NATSConsumer,
-		FilterSubject: conf.NATSSubject,
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		MaxDeliver:    3,
-		AckWait:       30 * time.Second,
-		DeliverPolicy: jetstream.DeliverNewPolicy,
+		Name:           conf.NATSConsumer,
+		Durable:        conf.NATSConsumer,
+		FilterSubjects: conf.NATSSubjects,
+		AckPolicy:      jetstream.AckExplicitPolicy,
+		MaxDeliver:     3,
+		AckWait:        30 * time.Second,
+		DeliverPolicy:  jetstream.DeliverNewPolicy,
 	})
 	if err != nil {
 		return fmt.Errorf("create consumer: %w", err)
@@ -206,7 +206,7 @@ func startNATSConsumer(ctx context.Context, nc *inats.Client, conf cfg.Config, h
 	}()
 
 	log.Info("nats consumer started",
-		zap.String("subject", conf.NATSSubject),
+		zap.Strings("subjects", conf.NATSSubjects),
 		zap.String("consumer", conf.NATSConsumer),
 	)
 	return nil
