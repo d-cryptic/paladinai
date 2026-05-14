@@ -124,9 +124,7 @@ func TestGet_ContextCancellationReturnsError(t *testing.T) {
 	}
 }
 
-// TestGet_BodyIsCappedAtMaxResponseBytes verifies that LimitReader silently
-// truncates oversized responses to exactly MaxResponseBytes and returns no error.
-func TestGet_BodyIsCappedAtMaxResponseBytes(t *testing.T) {
+func TestGet_BodyOverMaxResponseBytesReturnsError(t *testing.T) {
 	oversized := strings.Repeat("x", int(client.MaxResponseBytes)+1)
 	ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -134,9 +132,9 @@ func TestGet_BodyIsCappedAtMaxResponseBytes(t *testing.T) {
 	}))
 
 	body, err := client.Get(context.Background(), ts.URL, client.Options{})
-	require.NoError(t, err, "truncation should not return an error")
-	assert.Equal(t, int(client.MaxResponseBytes), len(body),
-		"body should be truncated to exactly MaxResponseBytes")
+	require.Error(t, err)
+	assert.Nil(t, body)
+	assert.Contains(t, err.Error(), "response body exceeds")
 }
 
 // ── DoJSON ────────────────────────────────────────────────────────────────────
@@ -226,6 +224,20 @@ func TestDoJSON_ReturnsBodyOnNon2xx(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, status)
 	assert.Contains(t, string(body), "not found")
+}
+
+func TestDoJSON_BodyOverMaxResponseBytesReturnsStatusAndError(t *testing.T) {
+	oversized := strings.Repeat("x", int(client.MaxResponseBytes)+1)
+	ts := setupStub(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, oversized)
+	}))
+
+	body, status, err := client.DoJSON(context.Background(), http.MethodPost, ts.URL, client.Options{}, nil)
+	require.Error(t, err)
+	assert.Nil(t, body)
+	assert.Equal(t, http.StatusCreated, status)
+	assert.Contains(t, err.Error(), "response body exceeds")
 }
 
 // TestGet_TransportErrorReturnsError covers the path where the server is unreachable.

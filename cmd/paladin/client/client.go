@@ -52,7 +52,7 @@ func Get(ctx context.Context, url string, opts Options) ([]byte, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes))
+	body, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -80,9 +80,20 @@ func DoJSON(ctx context.Context, method, url string, opts Options, reqBody io.Re
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes))
+	body, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("read response: %w", err)
 	}
 	return body, resp.StatusCode, nil
+}
+
+func readResponseBody(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, MaxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > MaxResponseBytes {
+		return nil, fmt.Errorf("response body exceeds %d bytes", MaxResponseBytes)
+	}
+	return body, nil
 }
