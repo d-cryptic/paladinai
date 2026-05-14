@@ -20,6 +20,7 @@ type SupervisorPipeline struct {
 	rca           RCAAnalyzer // optional; if nil, alerts routed to "rca" fall back to triage
 	runbook       RunbookSpecialist
 	integration   IntegrationSpecialist
+	memory        MemorySpecialist
 	log           *zap.Logger
 	triageTimeout time.Duration
 	rcaTimeout    time.Duration
@@ -55,6 +56,12 @@ func (s *SupervisorPipeline) WithRunbookSpecialist(runbook RunbookSpecialist) *S
 // WithIntegrationSpecialist configures the integration diagnosis path.
 func (s *SupervisorPipeline) WithIntegrationSpecialist(integration IntegrationSpecialist) *SupervisorPipeline {
 	s.integration = integration
+	return s
+}
+
+// WithMemorySpecialist configures the memory recall path.
+func (s *SupervisorPipeline) WithMemorySpecialist(memory MemorySpecialist) *SupervisorPipeline {
+	s.memory = memory
 	return s
 }
 
@@ -158,7 +165,18 @@ func (s *SupervisorPipeline) Process(ctx context.Context, state *IncidentState) 
 		state.NeedsHuman = tr.NeedsHuman
 
 	case "memory":
-		s.log.Info("supervisor: specialist route falling back to triage", zap.String("agent_type", state.AgentType))
+		if s.memory != nil {
+			memoryCtx, memoryCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
+			result, err := s.memory.RecallMemory(memoryCtx, &state.Alert)
+			memoryCancel()
+			if err != nil {
+				return state, fmt.Errorf("supervisor: memory: %w", err)
+			}
+			state.MemoryResult = result
+			state.NeedsHuman = result.NeedsHuman
+			return state, nil
+		}
+		s.log.Info("supervisor: memory not configured, falling back to triage")
 		triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
 		tr, err := s.triager.Triage(triageCtx, &state.Alert)
 		triageCancel()

@@ -231,6 +231,7 @@ func main() {
 	supervisor := agent.NewSupervisorPipeline(classifierAgent, triageAgent, rcaAgent, log).
 		WithRunbookSpecialist(agent.NewPlanningRunbookSpecialist(agent.StaticRunbookSelector{}, nil, log)).
 		WithIntegrationSpecialist(agent.StaticIntegrationSpecialist{}).
+		WithMemorySpecialist(agent.StaticMemorySpecialist{}).
 		WithTimeouts(cfg.TriageTimeout, cfg.RCATimeout)
 
 	// ── NATS ─────────────────────────────────────────────────────────────────
