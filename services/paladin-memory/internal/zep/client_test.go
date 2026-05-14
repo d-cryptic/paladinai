@@ -229,6 +229,30 @@ func TestSearchEpisodes_DecayAppliedToResults(t *testing.T) {
 	assert.Greater(t, results[0].DecayScore, float32(0))
 }
 
+func TestSearchEpisodes_RejectsOversizedResponse(t *testing.T) {
+	ts := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[],"padding":"` + strings.Repeat("x", 4<<20) + `"}`))
+	}))
+
+	c := zep.NewClient(ts.URL, "", nil)
+	_, err := c.SearchEpisodes(context.Background(), "tenant-1", "connection pool", 5)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "response body exceeds")
+}
+
+func TestSearchEpisodes_RejectsMultipleJSONDocuments(t *testing.T) {
+	ts := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]} {}`))
+	}))
+
+	c := zep.NewClient(ts.URL, "", nil)
+	_, err := c.SearchEpisodes(context.Background(), "tenant-1", "connection pool", 5)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "single JSON document")
+}
+
 // ─── DeleteSession ─────────────────────────────────────────────────────────────
 
 func TestDeleteSession_EmptyTenantID_Error(t *testing.T) {

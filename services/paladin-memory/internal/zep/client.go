@@ -261,8 +261,27 @@ func (c *Client) postDecode(ctx context.Context, url string, reqBody, out any) e
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return fmt.Errorf("zep: POST %s returned %d: %s", url, resp.StatusCode, body)
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxJSONBodyBytes+1)).Decode(out); err != nil {
+	if err := decodeLimitedJSON(resp.Body, maxJSONBodyBytes, out); err != nil {
 		return fmt.Errorf("zep: decode response from %s: %w", url, err)
+	}
+	return nil
+}
+
+func decodeLimitedJSON(r io.Reader, maxBytes int64, out any) error {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxBytes {
+		return fmt.Errorf("response body exceeds %d bytes", maxBytes)
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var extra struct{}
+	if err := dec.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("response body must contain a single JSON document")
 	}
 	return nil
 }
