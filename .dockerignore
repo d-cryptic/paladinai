@@ -1,0 +1,35 @@
+.git
+.gitignore
+.DS_Store
+
+# Local secrets and machine state.
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.db
+*.sqlite
+*.sqlite3
+
+# Build and coverage artifacts.
+bin/
+coverage.out
+coverage.html
+*.test
+tmp/
+
+# Frontend/test dependency caches and reports.
+node_modules/
+ui/**/node_modules/
+test/**/node_modules/
+test/**/test-results/
+playwright-report/
+dist/
+.cache/
+.turbo/
+
+# Local editor/devbox state.
+.idea/
+.vscode/
+.devbox/
