@@ -33,6 +33,9 @@ type IncidentState struct {
 	// Integration output
 	IntegrationResult *IntegrationResult
 
+	// Memory output
+	MemoryResult *MemoryResult
+
 	// Control
 	NeedsHuman   bool
 	ErrorMessage string

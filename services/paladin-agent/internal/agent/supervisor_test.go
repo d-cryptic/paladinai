@@ -85,6 +85,20 @@ func (f *fakeIntegration) DiagnoseIntegration(_ context.Context, _ *alert.AlertE
 	return f.result, nil
 }
 
+type fakeMemory struct {
+	result *agent.MemoryResult
+	err    error
+	calls  int
+}
+
+func (f *fakeMemory) RecallMemory(_ context.Context, _ *alert.AlertEnvelope) (*agent.MemoryResult, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
+}
+
 func makeSupEnv(sev alert.Severity) alert.AlertEnvelope {
 	return alert.AlertEnvelope{
 		TenantID:    "tenant-sup",
@@ -272,6 +286,60 @@ func TestSupervisorPipeline_IntegrationRouteFallsBackToTriageWhenUnconfigured(t 
 	assert.Equal(t, 0, rca.calls)
 	require.NotNil(t, state.TriageResult)
 	assert.Nil(t, state.IntegrationResult)
+}
+
+func TestSupervisorPipeline_MemoryRouteUsesMemorySpecialist(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"memory","severity":"P2","confidence":0.88}`}
+	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
+	triager := &fakeTriager{result: makeTriageRes("P2", true)}
+	rca := &fakeRCA{result: makeRCARes()}
+	memory := &fakeMemory{result: &agent.MemoryResult{
+		Query:          "kafka consumer lag",
+		MemoryTypes:    []string{"episodic", "procedural"},
+		Signals:        []string{"kafka_rebalance_or_lag"},
+		SimilarPattern: "kafka_rebalance_or_lag",
+		NeedsHuman:     true,
+	}}
+
+	sp := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop()).
+		WithMemorySpecialist(memory)
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "Kafka consumer lag"
+	env.Description = "Consumer group rebalance loop recurring"
+	env.Labels["job"] = "kafka"
+	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
+	require.NoError(t, err)
+
+	assert.Equal(t, "memory", state.AgentType)
+	assert.Equal(t, 0, triager.calls)
+	assert.Equal(t, 0, rca.calls)
+	assert.Equal(t, 1, memory.calls)
+	require.NotNil(t, state.MemoryResult)
+	assert.Contains(t, state.MemoryResult.MemoryTypes, "procedural")
+	assert.True(t, state.NeedsHuman)
+}
+
+func TestSupervisorPipeline_MemoryRouteFallsBackToTriageWhenUnconfigured(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"memory","severity":"P2","confidence":0.88}`}
+	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
+	triager := &fakeTriager{result: makeTriageRes("P2", true)}
+	rca := &fakeRCA{result: makeRCARes()}
+
+	sp := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "Kafka consumer lag"
+	env.Description = "Consumer group rebalance loop recurring"
+	env.Labels["job"] = "kafka"
+	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
+	require.NoError(t, err)
+
+	assert.Equal(t, "memory", state.AgentType)
+	assert.Equal(t, 1, triager.calls)
+	assert.Equal(t, 0, rca.calls)
+	require.NotNil(t, state.TriageResult)
+	assert.Nil(t, state.MemoryResult)
 }
 
 func TestSupervisorPipeline_RCANil_FallsBackToTriage(t *testing.T) {
