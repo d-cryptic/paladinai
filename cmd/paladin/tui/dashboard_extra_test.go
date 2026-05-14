@@ -110,6 +110,50 @@ func TestDashboardModel_SlashCommandHelpOverlay(t *testing.T) {
 	}
 }
 
+func TestDashboardModel_SlashCommandRunbooks(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("runbooks")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.mode != "runbooks" {
+		t.Fatalf("mode = %q, want runbooks", wm.mode)
+	}
+}
+
+func TestDashboardModel_SlashCommandRunbooksSearch(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("runbooks search latency")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.mode != "runbook-search" {
+		t.Fatalf("mode = %q, want runbook-search", wm.mode)
+	}
+}
+
+func TestDashboardModel_SlashCommandDoctor(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("doctor prometheus")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.mode != "doctor" {
+		t.Fatalf("mode = %q, want doctor", wm.mode)
+	}
+}
+
+func TestDashboardModel_SlashCommandConfigValidate(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("config validate")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.mode != "config-validate" {
+		t.Fatalf("mode = %q, want config-validate", wm.mode)
+	}
+}
+
 func TestDashboardModel_SlashCommandQuit(t *testing.T) {
 	m := New("tenant-1")
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})

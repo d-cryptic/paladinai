@@ -216,9 +216,21 @@ func (m Model) applySlashCommand(command string) (tea.Model, tea.Cmd) {
 	case "tail":
 		m.mode = "tail"
 	case "config":
-		m.mode = "configure"
+		if len(name) > 1 && name[1] == "validate" {
+			m.mode = "config-validate"
+		} else {
+			m.mode = "configure"
+		}
 	case "incidents":
 		m.mode = "monitor"
+	case "runbooks":
+		if len(name) > 1 && name[1] == "search" {
+			m.mode = "runbook-search"
+		} else {
+			m.mode = "runbooks"
+		}
+	case "doctor":
+		m.mode = "doctor"
 	default:
 		m.err = fmt.Errorf("unknown command: /%s", name[0])
 	}
@@ -244,7 +256,7 @@ func (m Model) sessionState() SessionState {
 
 func isDashboardMode(mode string) bool {
 	switch mode {
-	case "monitor", "tail", "configure":
+	case "monitor", "tail", "configure", "config-validate", "runbooks", "runbook-search", "doctor":
 		return true
 	default:
 		return false
@@ -322,7 +334,7 @@ func commandBar(m Model) string {
 	if input == "" {
 		input = "_"
 	}
-	return helpStyle.Render("/incidents  /tail  /config  /help  /quit") + "\n> " + input
+	return helpStyle.Render("/incidents  /tail  /runbooks  /doctor  /config  /help  /quit") + "\n> " + input
 }
 
 func helpOverlay() string {
@@ -334,6 +346,8 @@ func helpOverlay() string {
 		"Commands",
 		"  /incidents  monitor mode",
 		"  /tail       live tail mode",
+		"  /runbooks   runbook explorer",
+		"  /doctor     health checks",
 		"  /config     configure mode",
 		"  /quit       exit",
 	}, "\n"))
