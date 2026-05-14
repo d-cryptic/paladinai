@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -274,6 +275,24 @@ func TestDoctorClientOptions_IncludesTenantWithoutToken(t *testing.T) {
 	opts := doctorClientOptions("tenant-slug", "")
 	assert.Equal(t, "tenant-slug", opts.TenantID)
 	assert.Empty(t, opts.Token)
+}
+
+func TestDoctorTenant_UsesFlagDefaultBeforeConfig(t *testing.T) {
+	cmd := &cobra.Command{Use: "doctor"}
+	cmd.Flags().String("tenant", "env-tenant", "")
+
+	got := doctorTenant(cmd, &PaladinConfig{DefaultTenant: "config-tenant"})
+
+	assert.Equal(t, "env-tenant", got)
+}
+
+func TestDoctorTenant_FallsBackToConfig(t *testing.T) {
+	cmd := &cobra.Command{Use: "doctor"}
+	cmd.Flags().String("tenant", "", "")
+
+	got := doctorTenant(cmd, &PaladinConfig{DefaultTenant: "config-tenant"})
+
+	assert.Equal(t, "config-tenant", got)
 }
 
 // ─── --json mode ─────────────────────────────────────────────────────────────

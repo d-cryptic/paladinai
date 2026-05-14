@@ -157,8 +157,8 @@ func tokenise(text string) []string {
 // k1=1.5, b=0.75, avgDocLen=50 (fixed approximation).
 func bm25Score(queryTerms []string, sentence string) float64 {
 	const (
-		k1       = 1.5
-		b        = 0.75
+		k1        = 1.5
+		b         = 0.75
 		avgDocLen = 50
 	)
 	sentTerms := tokenise(sentence)
@@ -200,9 +200,9 @@ const (
 // decayLambda maps document type to the exponential decay constant λ.
 // freshness = exp(-λ × days_since_modified).
 var decayLambda = map[DocType]float64{
-	DocTypeRunbook:      0.05,  // half-life ≈ 14 days
-	DocTypeArchitecture: 0.01,  // half-life ≈ 70 days
-	DocTypePostmortem:   0.0,   // no decay
+	DocTypeRunbook:      0.05, // half-life ≈ 14 days
+	DocTypeArchitecture: 0.01, // half-life ≈ 70 days
+	DocTypePostmortem:   0.0,  // no decay
 }
 
 // FreshnessScore computes the freshness multiplier for a document.

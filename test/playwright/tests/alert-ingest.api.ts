@@ -72,6 +72,17 @@ test.describe("Alert ingest via paladin-ingest direct", () => {
     await ctx.dispose();
   });
 
+  test("Invalid X-Tenant-ID returns 400", async () => {
+    const ctx = await request.newContext({ baseURL: INGEST_URL });
+    const payload = alertmanagerPayload("bad.tenant", "InvalidTenant", "firing");
+    const resp = await ctx.post("/api/v1/ingest/alertmanager", {
+      data: payload,
+      headers: { "X-Tenant-ID": "bad.tenant" },
+    });
+    expect(resp.status()).toBe(400);
+    await ctx.dispose();
+  });
+
   test("Malformed JSON returns 400", async () => {
     const ctx = await request.newContext({ baseURL: INGEST_URL });
     const resp = await ctx.post("/api/v1/ingest/alertmanager", {

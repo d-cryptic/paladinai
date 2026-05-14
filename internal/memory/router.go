@@ -12,31 +12,31 @@ import (
 type MemoryType string
 
 const (
-	MemoryTypeWorking      MemoryType = "working"      // in-session Valkey
-	MemoryTypeEpisodic     MemoryType = "episodic"     // Zep bi-temporal
-	MemoryTypeSemantic     MemoryType = "semantic"     // Qdrant dense facts
-	MemoryTypeProcedural   MemoryType = "procedural"   // Qdrant runbooks/steps
+	MemoryTypeWorking       MemoryType = "working"        // in-session Valkey
+	MemoryTypeEpisodic      MemoryType = "episodic"       // Zep bi-temporal
+	MemoryTypeSemantic      MemoryType = "semantic"       // Qdrant dense facts
+	MemoryTypeProcedural    MemoryType = "procedural"     // Qdrant runbooks/steps
 	MemoryTypeSemanticGraph MemoryType = "semantic_graph" // FalkorDB topology
 )
 
 // MemoryPath describes one backend query path for a given memory operation.
 type MemoryPath struct {
-	Backend    string            // "falkordb" | "zep" | "qdrant-semantic" | "qdrant-proc" | "valkey"
+	Backend    string // "falkordb" | "zep" | "qdrant-semantic" | "qdrant-proc" | "valkey"
 	MemoryType MemoryType
 	Params     map[string]any
 }
 
 // Query is the input to the RAG router.
 type Query struct {
-	Text            string
-	AgentType       string    // "classifier" | "triage" | "rca" | "supervisor"
-	Domain          string    // e.g. "payments", "infrastructure"
-	TemporalAnchor  string    // ISO-8601 timestamp for bi-temporal queries
-	RequiresTopology bool
+	Text              string
+	AgentType         string // "classifier" | "triage" | "rca" | "supervisor"
+	Domain            string // e.g. "payments", "infrastructure"
+	TemporalAnchor    string // ISO-8601 timestamp for bi-temporal queries
+	RequiresTopology  bool
 	RequiresProcedure bool
 	RequiresTemporal  bool
 	RequiresFacts     bool
-	Trivial          bool      // true for simple in-session lookups
+	Trivial           bool // true for simple in-session lookups
 }
 
 // MemoryResult is a single result returned from a memory backend.

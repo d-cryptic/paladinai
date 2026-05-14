@@ -36,12 +36,12 @@ import (
 
 // RunbookDefinition is the full YAML schema for a runbook file.
 type RunbookDefinition struct {
-	ID          string              `yaml:"id"`
-	Name        string              `yaml:"name"`
-	Version     string              `yaml:"version"`
-	Description string              `yaml:"description"`
-	Tags        []string            `yaml:"tags"`
-	Steps       []RunbookStepDef    `yaml:"steps"`
+	ID          string           `yaml:"id"`
+	Name        string           `yaml:"name"`
+	Version     string           `yaml:"version"`
+	Description string           `yaml:"description"`
+	Tags        []string         `yaml:"tags"`
+	Steps       []RunbookStepDef `yaml:"steps"`
 }
 
 // RunbookStepDef is the YAML schema for one runbook step.

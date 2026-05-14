@@ -54,9 +54,9 @@ func TestRouteQuery_EmptyQuery_FallsBackToValkey(t *testing.T) {
 
 func TestRouteQuery_RCAAgent_AlwaysGetsEpisodic(t *testing.T) {
 	q := Query{
-		AgentType:    "rca",
+		AgentType:     "rca",
 		RequiresFacts: true,
-		Text:         "what caused the OOM kill in payments",
+		Text:          "what caused the OOM kill in payments",
 	}
 	paths := RouteQuery(q)
 	if !hasBackend(paths, "zep") {
@@ -85,7 +85,7 @@ func TestRouteQuery_RCAAgent_NoEpisodicDuplicate(t *testing.T) {
 
 func TestRouteQuery_MultipleIntents_MultiBackend(t *testing.T) {
 	q := Query{
-		Text:             "show me the runbook and what changed before the incident",
+		Text:              "show me the runbook and what changed before the incident",
 		RequiresProcedure: true,
 		RequiresTemporal:  true,
 	}

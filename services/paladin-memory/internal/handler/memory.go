@@ -34,7 +34,7 @@ type MemoryHandler struct {
 	working    store.WorkingStore
 	episodic   store.EpisodicStore
 	procedural ChunkSearcher
-	semantic   ChunkSearcher // optional; nil = tier not configured
+	semantic   ChunkSearcher   // optional; nil = tier not configured
 	topology   TopologyQuerier // optional; nil = tier not configured
 	workingTTL time.Duration
 	log        *zap.Logger

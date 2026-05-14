@@ -665,12 +665,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 	authBase = strings.TrimRight(authBase, "/")
 
-	tenant := ""
-	if cmd.Flags().Changed("tenant") {
-		tenant, _ = cmd.Flags().GetString("tenant")
-	} else if cfg != nil {
-		tenant = cfg.DefaultTenant
-	}
+	tenant := doctorTenant(cmd, cfg)
 
 	token := optToken(cmd)
 	if !cmd.Flags().Changed("token") {
@@ -969,6 +964,20 @@ func doctorClientOptions(tenant, token string) client.Options {
 		return client.Options{Token: token}
 	}
 	return client.Options{TenantID: tenant}
+}
+
+func doctorTenant(cmd *cobra.Command, cfg *PaladinConfig) string {
+	if cmd.Flags().Changed("tenant") {
+		tenant, _ := cmd.Flags().GetString("tenant")
+		return strings.TrimSpace(tenant)
+	}
+	if f := cmd.Flag("tenant"); f != nil && strings.TrimSpace(f.Value.String()) != "" {
+		return strings.TrimSpace(f.Value.String())
+	}
+	if cfg != nil {
+		return strings.TrimSpace(cfg.DefaultTenant)
+	}
+	return ""
 }
 
 func init() {

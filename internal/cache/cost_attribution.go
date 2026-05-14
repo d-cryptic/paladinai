@@ -14,11 +14,11 @@ import (
 // ModelCostProfile holds the per-model pricing used to estimate savings.
 // Prices are in USD per million tokens (matching OpenRouter / Anthropic pricing).
 type ModelCostProfile struct {
-	Name             string
-	InputPricePerM   float64 // USD per 1M input tokens
-	OutputPricePerM  float64 // USD per 1M output tokens
-	AvgInputTokens   int     // typical input size for this query type
-	AvgOutputTokens  int     // typical output size for this query type
+	Name            string
+	InputPricePerM  float64 // USD per 1M input tokens
+	OutputPricePerM float64 // USD per 1M output tokens
+	AvgInputTokens  int     // typical input size for this query type
+	AvgOutputTokens int     // typical output size for this query type
 }
 
 // Predefined profiles matching Stage 9 §18 estimates.
@@ -57,9 +57,9 @@ type CacheHitEvent struct {
 // CostAttributor accumulates cache hit events per tenant. Thread-safe.
 // Callers flush accumulated totals to persistent storage on their own schedule.
 type CostAttributor struct {
-	mu      sync.Mutex
-	totals  map[string]float64 // tenantID → total USD saved
-	hitCnt  map[string]int     // tenantID → total hit count
+	mu     sync.Mutex
+	totals map[string]float64 // tenantID → total USD saved
+	hitCnt map[string]int     // tenantID → total hit count
 }
 
 // NewCostAttributor returns a ready-to-use CostAttributor.

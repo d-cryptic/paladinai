@@ -235,4 +235,3 @@ func TestPrintIntegrationDefinition_WithToolsAndSchema(t *testing.T) {
 		}
 	}
 }
-
