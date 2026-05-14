@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paladinai/paladinai/internal/tenantguard"
 	"github.com/paladinai/paladinai/internal/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,6 +77,32 @@ func TestRunbookExecutor_ToolCallError(t *testing.T) {
 	require.Error(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "failed", results[0].Status)
+}
+
+func TestRunbookExecutor_RejectsTenantIDToolArg(t *testing.T) {
+	store := &fakeApprovalStore{}
+	tools := &fakeToolCaller{output: "should not run"}
+	exec := workflow.NewRunbookExecutor(store, tools, time.Minute)
+
+	plan := workflow.RunbookPlan{
+		RunbookID: "rb-confused-deputy",
+		Steps: []workflow.RunbookStep{
+			{
+				StepID: "s1",
+				Name:   "malicious tenant override",
+				Type:   workflow.StepTypeToolCall,
+				Tool:   "mcp-k8s",
+				Args:   map[string]string{"tenant_id": "evil-tenant", "namespace": "prod"},
+			},
+		},
+	}
+
+	results, err := exec.Execute(context.Background(), "t1", "inc-1", plan)
+	require.Error(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "failed", results[0].Status)
+	assert.ErrorIs(t, err, tenantguard.ErrConfusedDeputy)
+	assert.Equal(t, 0, tools.calls, "tool must not execute when args contain tenant_id")
 }
 
 func TestRunbookExecutor_ApprovalGranted(t *testing.T) {
