@@ -109,12 +109,14 @@ func TestConnect_UnreachableHost_FailsPing(t *testing.T) {
 type fakeExecer struct {
 	gotSQL  string
 	gotArgs []any
+	gotCtx  context.Context
 	calls   int
 	err     error
 }
 
-func (f *fakeExecer) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+func (f *fakeExecer) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	f.calls++
+	f.gotCtx = ctx
 	f.gotSQL = sql
 	f.gotArgs = args
 	return pgconn.CommandTag{}, f.err
@@ -168,6 +170,9 @@ func TestAfterRelease_ClearsTenantID(t *testing.T) {
 	assert.Contains(t, exec.gotSQL, "app.tenant_id")
 	// Reset uses a literal empty string, not a parameter.
 	assert.Empty(t, exec.gotArgs, "afterRelease must not parameterize the reset value")
+	deadline, ok := exec.gotCtx.Deadline()
+	require.True(t, ok, "afterRelease reset must be bounded by a context deadline")
+	assert.True(t, time.Until(deadline) <= afterReleaseTimeout)
 }
 
 func TestAfterRelease_ExecError_RejectsConnection(t *testing.T) {

@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const afterReleaseTimeout = 2 * time.Second
+
 // Connect opens a pgxpool connection to the database at dsn and pings it.
 // The pool automatically injects the tenant ID into each connection so that
 // PostgreSQL RLS policies (keyed on app.tenant_id) activate correctly.
@@ -89,7 +91,9 @@ func beforeAcquire(ctx context.Context, conn connExecer, log *zap.Logger) bool {
 // afterRelease clears the tenant ID after the caller returns the connection
 // to the pool so the next borrower starts from a clean session.
 func afterRelease(conn connExecer, log *zap.Logger) bool {
-	if _, err := conn.Exec(context.Background(),
+	ctx, cancel := context.WithTimeout(context.Background(), afterReleaseTimeout)
+	defer cancel()
+	if _, err := conn.Exec(ctx,
 		"SELECT set_config('app.tenant_id', '', false)"); err != nil {
 		log.Warn("db: AfterRelease reset failed", zap.Error(err))
 		return false
