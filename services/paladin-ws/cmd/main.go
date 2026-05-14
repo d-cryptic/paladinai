@@ -40,7 +40,9 @@ func run() error {
 	log := logger.Must("paladin-ws")
 	defer log.Sync() //nolint:errcheck
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	otel, err := telemetry.Init(ctx, "paladin-ws", conf.Base.ServiceVersion, conf.Base.OtelEndpoint, log)
 	if err != nil {
 		return fmt.Errorf("telemetry: %w", err)
@@ -79,25 +81,28 @@ func run() error {
 	}
 	adminServer := newAdminServer(conf)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
+	serverErr := make(chan error, 2)
 	go func() {
 		log.Info("paladin-ws listening", zap.Int("port", conf.Server.Port))
 		if err := publicServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server error", zap.Error(err))
+			serverErr <- fmt.Errorf("public server: %w", err)
 		}
 	}()
 	if adminServer != nil {
 		go func() {
 			log.Info("paladin-ws admin listening", zap.Int("port", conf.AdminPort))
 			if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Fatal("admin server error", zap.Error(err))
+				serverErr <- fmt.Errorf("admin server: %w", err)
 			}
 		}()
 	}
 
-	<-quit
+	var runErr error
+	select {
+	case runErr = <-serverErr:
+	case <-ctx.Done():
+	}
+
 	log.Info("shutting down")
 
 	// Stop the NATS consumer first so no new messages arrive.
@@ -117,7 +122,7 @@ func run() error {
 	if err := publicServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown public server: %w", err)
 	}
-	return nil
+	return runErr
 }
 
 func newPublicRouter(conf cfg.Config, log *zap.Logger, wsH http.Handler) http.Handler {
