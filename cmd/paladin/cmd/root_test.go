@@ -151,3 +151,28 @@ func TestTelemetryEnabled_OptOut(t *testing.T) {
 		t.Error("expected telemetry=false when PALADIN_NO_TELEMETRY=1")
 	}
 }
+
+func TestRunRoot_NonTTYShowsHelp(t *testing.T) {
+	oldIsTerminal := rootIsTerminal
+	t.Cleanup(func() { rootIsTerminal = oldIsTerminal })
+	rootIsTerminal = func(uintptr) bool { return false }
+
+	out := captureStdout(t, func() {
+		require.NoError(t, runRoot(rootCmd, nil))
+	})
+
+	assert.Contains(t, out, "Available Commands:")
+	assert.Contains(t, out, "dashboard")
+}
+
+func TestRunRoot_TTYLaunchesDashboardPath(t *testing.T) {
+	oldIsTerminal := rootIsTerminal
+	t.Cleanup(func() { rootIsTerminal = oldIsTerminal })
+	rootIsTerminal = func(uintptr) bool { return true }
+
+	cmd := newTestCmd("", "", "http://api")
+	err := runRoot(cmd, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tenant ID is required")
+}
