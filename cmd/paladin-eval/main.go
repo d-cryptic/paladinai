@@ -7,8 +7,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -26,6 +28,7 @@ func main() {
 		threshold   = flag.Float64("threshold", 0.8, "minimum pass rate; exit 1 below this")
 		maxCases    = flag.Int("max", 0, "max cases to run (0 = all)")
 		timeout     = flag.Duration("timeout", 5*time.Second, "per-case timeout")
+		jsonOutput  = flag.Bool("json", false, "emit machine-readable JSON summary")
 	)
 	flag.Parse()
 
@@ -58,7 +61,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	printSummary(os.Stdout, res)
+	if *jsonOutput {
+		if err := printJSONSummary(os.Stdout, res); err != nil {
+			fmt.Fprintf(os.Stderr, "write json summary: %v\n", err)
+			os.Exit(2)
+		}
+	} else {
+		printSummary(os.Stdout, res)
+	}
 
 	if res.Total == 0 {
 		fmt.Fprintln(os.Stderr, "no test cases were executed")
@@ -198,7 +208,49 @@ func ciScore(tc eval.TestCase, response string) eval.Score {
 	return eval.Score{Pass: false, Score: 0, Details: "unhandled category"}
 }
 
-func printSummary(w *os.File, res *eval.RunResult) {
+type evalJSONSummary struct {
+	Total      int                            `json:"total"`
+	Passed     int                            `json:"passed"`
+	Failed     int                            `json:"failed"`
+	Skipped    int                            `json:"skipped"`
+	PassRate   float64                        `json:"pass_rate"`
+	MeanScore  float64                        `json:"mean_score"`
+	DurationMS int64                          `json:"duration_ms"`
+	Categories map[string]evalJSONCategoryRow `json:"categories"`
+}
+
+type evalJSONCategoryRow struct {
+	Total     int     `json:"total"`
+	Passed    int     `json:"passed"`
+	PassRate  float64 `json:"pass_rate"`
+	MeanScore float64 `json:"mean_score"`
+}
+
+func printJSONSummary(w io.Writer, res *eval.RunResult) error {
+	summary := evalJSONSummary{
+		Total:      res.Total,
+		Passed:     res.Passed,
+		Failed:     res.Failed,
+		Skipped:    res.Skipped,
+		PassRate:   res.PassRate,
+		MeanScore:  res.MeanScore,
+		DurationMS: res.Duration.Milliseconds(),
+		Categories: make(map[string]evalJSONCategoryRow, len(res.ByCategory)),
+	}
+	for category, row := range res.ByCategory {
+		summary.Categories[string(category)] = evalJSONCategoryRow{
+			Total:     row.Total,
+			Passed:    row.Passed,
+			PassRate:  row.PassRate,
+			MeanScore: row.MeanScore,
+		}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(summary)
+}
+
+func printSummary(w io.Writer, res *eval.RunResult) {
 	fmt.Fprintf(w, "\nPaladin Eval Summary\n") //nolint:errcheck
 	fmt.Fprintf(w, "====================\n")   //nolint:errcheck
 	fmt.Fprintf(w, "Total:      %d\n", res.Total)
