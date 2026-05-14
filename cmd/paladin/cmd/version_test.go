@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -36,4 +38,68 @@ func TestWriteVersionResult_CIModeJSON(t *testing.T) {
 	assert.Equal(t, "v2.0.0-test", result.Version)
 	assert.Equal(t, "abc123", result.Commit)
 	assert.NotContains(t, out, "paladin ")
+}
+
+func TestVersionCmd_CheckReportsUpdate(t *testing.T) {
+	oldVersion := Version
+	oldCommit := Commit
+	t.Cleanup(func() {
+		Version = oldVersion
+		Commit = oldCommit
+	})
+	Version = "v2.0.0"
+	Commit = "abc123"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"v2.1.0","upgrade":"brew upgrade paladinai/tap/paladin"}`))
+	}))
+	defer srv.Close()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"version", "--check", "--latest-url", srv.URL})
+		require.NoError(t, rootCmd.Execute())
+	})
+
+	assert.Contains(t, out, "paladin v2.0.0 (abc123)")
+	assert.Contains(t, out, "latest  v2.1.0")
+	assert.Contains(t, out, "update available: v2.0.0 -> v2.1.0")
+	assert.Contains(t, out, "brew upgrade paladinai/tap/paladin")
+}
+
+func TestVersionCmd_CheckJSON(t *testing.T) {
+	oldVersion := Version
+	oldCommit := Commit
+	t.Cleanup(func() {
+		Version = oldVersion
+		Commit = oldCommit
+	})
+	Version = "v2.0.0"
+	Commit = "abc123"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"v2.1.0"}`))
+	}))
+	defer srv.Close()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"--ci", "version", "--check", "--latest-url", srv.URL})
+		require.NoError(t, rootCmd.Execute())
+	})
+
+	var result versionResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	assert.Equal(t, "v2.0.0", result.Version)
+	assert.Equal(t, "v2.1.0", result.Latest)
+	assert.True(t, result.UpdateAvailable)
+	assert.NotEmpty(t, result.Upgrade)
+}
+
+func TestIsNewerVersion(t *testing.T) {
+	assert.True(t, isNewerVersion("v2.1.0", "v2.0.9"))
+	assert.True(t, isNewerVersion("2.0.1", "2.0.0"))
+	assert.False(t, isNewerVersion("v2.0.0", "v2.0.0"))
+	assert.False(t, isNewerVersion("v1.9.9", "v2.0.0"))
+	assert.False(t, isNewerVersion("v2.1.0", "dev"))
 }
