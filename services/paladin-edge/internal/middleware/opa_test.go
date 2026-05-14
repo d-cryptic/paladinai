@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -192,6 +193,20 @@ func TestHTTPOPAClient_Allow_MalformedJSON(t *testing.T) {
 	_, err := client.Allow(context.Background(), middleware.OPAInput{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode")
+}
+
+func TestHTTPOPAClient_Allow_RejectsOversizedResponse(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, strings.Repeat("x", 64*1024+1))
+	}))
+	defer srv.Close()
+
+	client := middleware.NewHTTPOPAClient(srv.URL)
+	_, err := client.Allow(context.Background(), middleware.OPAInput{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "response body exceeds")
 }
 
 func TestHTTPOPAClient_Allow_UnreachableServer(t *testing.T) {

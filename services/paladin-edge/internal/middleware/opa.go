@@ -14,6 +14,8 @@ import (
 	"github.com/paladinai/paladinai/internal/auth"
 )
 
+const maxOPAResponseBytes = 64 * 1024
+
 // OPAClient is the narrow interface for querying the OPA REST API.
 // Production: *http.Client pointing at the OPA sidecar.
 // Tests: a fake that returns allow/deny directly.
@@ -80,12 +82,19 @@ func (c *httpOPAClient) Allow(ctx context.Context, input OPAInput) (bool, error)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxOPAResponseBytes))
 		return false, fmt.Errorf("opa: unexpected status %d", resp.StatusCode)
 	}
 
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxOPAResponseBytes+1))
+	if err != nil {
+		return false, fmt.Errorf("opa: read response: %w", err)
+	}
+	if len(data) > maxOPAResponseBytes {
+		return false, fmt.Errorf("opa: response body exceeds %d bytes", maxOPAResponseBytes)
+	}
 	var out opaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(data, &out); err != nil {
 		return false, fmt.Errorf("opa: decode response: %w", err)
 	}
 	return out.Result, nil

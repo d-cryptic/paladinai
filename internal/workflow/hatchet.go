@@ -11,11 +11,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+const maxHatchetResponseBytes = 64 * 1024
 
 // TriagePayload is the input passed to the paladin-triage durable workflow.
 //
@@ -92,10 +95,22 @@ func (c *Client) triggerWorkflow(ctx context.Context, workflowName string, paylo
 		return "", fmt.Errorf("workflow: hatchet returned %d for %s", resp.StatusCode, workflowName)
 	}
 
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxHatchetResponseBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("workflow: read hatchet response: %w", err)
+	}
+	if len(data) > maxHatchetResponseBytes {
+		c.log.Warn("workflow: response too large to parse run ID",
+			zap.Int("bytes", len(data)),
+			zap.Int("max_bytes", maxHatchetResponseBytes),
+		)
+		return "", nil
+	}
+
 	var result struct {
 		WorkflowRunID string `json:"workflow_run_id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		c.log.Warn("workflow: could not parse run ID from response", zap.Error(err))
 		return "", nil
 	}

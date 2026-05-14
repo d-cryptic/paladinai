@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,6 +115,22 @@ func TestClient_TriggerTriage_UnparseableBody(t *testing.T) {
 	runID, err := c.TriggerTriage(context.Background(), samplePayload())
 
 	// Non-fatal: trigger succeeded, we just cannot report the run ID.
+	require.NoError(t, err)
+	assert.Equal(t, "", runID)
+}
+
+func TestClient_TriggerTriage_OversizedResponseIsNonFatal(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Repeat("x", 64*1024+1)))
+	}))
+	t.Cleanup(ts.Close)
+
+	c := workflow.NewClient(ts.URL, "k", nil)
+	runID, err := c.TriggerTriage(context.Background(), samplePayload())
+
 	require.NoError(t, err)
 	assert.Equal(t, "", runID)
 }
