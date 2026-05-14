@@ -11,6 +11,7 @@ export type Incident = {
   confidence: number
   action: string
   signals: string[]
+  createdAt?: string
 }
 
 export const incidents: Incident[] = [

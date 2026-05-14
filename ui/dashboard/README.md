@@ -20,6 +20,13 @@ VITE_PALADIN_AUTH_TOKEN=
 
 `VITE_PALADIN_WS_URL` should point at `paladin-ws`. Browser-native websocket clients cannot set `Authorization`, so the dashboard sends the token in the non-echoed `paladinai.jwt.<token>` websocket subprotocol alongside the public `paladinai.v2` protocol. The server only echoes `paladinai.v2`.
 
+In live mode, dashboard charts and cards are derived from backend data instead of demo constants:
+
+- Incidents, severity split, trend, SLO budget, activity, eval confidence, model tier mix, and compute load are derived from `GET /incidents`.
+- Runbook index cards and semantic index counts are derived from `GET /runbooks`.
+- Integration health and green-check counts are derived from `GET /mcp/servers`.
+- Websocket alert frames are merged into the same dashboard model so live stream events update charts and counts.
+
 Validation:
 
 ```bash

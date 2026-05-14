@@ -46,23 +46,12 @@ import {
   dashboardWSURL,
   dashboardWebSocketProtocols,
   loadDashboardData,
+  mergeLiveAlert,
   mockDashboardData,
   requestIncidentReplay,
   type DashboardData,
 } from "@/api"
-import {
-  activity,
-  agentTimeline,
-  incidentTrend,
-  incidents,
-  integrations,
-  modelMix,
-  qualityTrend,
-  runbooks,
-  severitySplit,
-  sloBudget,
-  type Incident,
-} from "@/data"
+import { type Incident } from "@/data"
 import { cn } from "@/lib/utils"
 import { WorkspacePage, type DashboardView } from "@/pages"
 
@@ -157,7 +146,15 @@ export function Dashboard() {
     setStreamState("connecting")
     const socket = new WebSocket(dashboardWSURL(), dashboardWebSocketProtocols(token))
     socket.onopen = () => setStreamState("connected")
-    socket.onmessage = () => setLiveAlertCount((count) => count + 1)
+    socket.onmessage = (event) => {
+      setLiveAlertCount((count) => count + 1)
+      try {
+        const payload = JSON.parse(event.data as string)
+        setDashboardData((current) => mergeLiveAlert(current, payload))
+      } catch {
+        // Non-alert frames still prove the stream is alive.
+      }
+    }
     socket.onerror = () => setStreamState("error")
     socket.onclose = () => setStreamState((state) => (state === "error" ? "error" : "disconnected"))
 
@@ -198,7 +195,7 @@ export function Dashboard() {
             <>
               <OverviewTabs />
               <BackendStatus data={dashboardData} />
-              <SystemHealthPanel />
+              <SystemHealthPanel data={dashboardData} />
 
               <motion.section
                 aria-label="Incident metrics"
@@ -304,18 +301,18 @@ export function Dashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-2">
-                  <IncidentTrendChart />
+                  <IncidentTrendChart data={dashboardData.incidentTrend} />
                 </CardContent>
                   </Card>
                 </div>
                 <div className="grid gap-2.5">
-                  <IncidentDetail incident={selected} replayStatus={replayStatus} onReplayIncident={replayIncident} />
-                  <SeverityDonut />
-                  <QualityTrendCard />
-                  <ModelMixCard />
-                  <SLOBudgetCard />
-                  <ActivityStream />
-                  <SideStacks />
+                  <IncidentDetail incident={selected} data={dashboardData} replayStatus={replayStatus} onReplayIncident={replayIncident} />
+                  <SeverityDonut data={dashboardData.severitySplit} />
+                  <QualityTrendCard data={dashboardData.qualityTrend} accuracy={dashboardData.metrics.avgConfidence} />
+                  <ModelMixCard data={dashboardData.modelMix} />
+                  <SLOBudgetCard data={dashboardData.sloBudget} />
+                  <ActivityStream data={dashboardData.activity} />
+                  <SideStacks data={dashboardData} />
                 </div>
               </section>
             </>
@@ -471,7 +468,7 @@ function OverviewTabs() {
   )
 }
 
-function SystemHealthPanel() {
+function SystemHealthPanel({ data }: { data: DashboardData }) {
   return (
     <section className="grid gap-2.5 xl:grid-cols-[minmax(0,1.3fr)_360px]">
       <Card className="overflow-hidden border-0 bg-white/88 shadow-[0_20px_70px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70 dark:bg-card/90 dark:ring-white/10">
@@ -485,7 +482,7 @@ function SystemHealthPanel() {
                 </h2>
               </div>
               <Badge variant="secondary" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-                4 checks green
+                {data.metrics.checksGreen} checks green
               </Badge>
             </div>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_190px]">
@@ -495,11 +492,11 @@ function SystemHealthPanel() {
                     <div className="text-sm font-semibold">Retrieval accuracy</div>
                     <div className="text-xs text-muted-foreground">Goal 95% · last 60 minutes</div>
                   </div>
-                  <div className="rounded-full bg-lime-300 px-2 py-1 text-xs font-semibold text-slate-950">92%</div>
+                  <div className="rounded-full bg-lime-300 px-2 py-1 text-xs font-semibold text-slate-950">{data.metrics.avgConfidence}%</div>
                 </div>
                 <div className="h-44">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={qualityTrend} margin={{ left: -28, right: 8, top: 10, bottom: 0 }}>
+                    <AreaChart data={data.qualityTrend} margin={{ left: -28, right: 8, top: 10, bottom: 0 }}>
                       <defs>
                         <linearGradient id="hero-accuracy-fill" x1="0" x2="0" y1="0" y2="1">
                           <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.22} />
@@ -531,28 +528,28 @@ function SystemHealthPanel() {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <TokenUsageRing />
+              <TokenUsageRing metrics={data.metrics} />
             </div>
           </div>
           <div className="grid gap-2.5">
-            <SemanticMapCard />
-            <ApiHealthCard />
+            <SemanticMapCard metrics={data.metrics} />
+            <ApiHealthCard metrics={data.metrics} />
           </div>
         </CardContent>
       </Card>
-      <ComputeLoadCard />
+      <ComputeLoadCard data={data} />
     </section>
   )
 }
 
-function TokenUsageRing() {
+function TokenUsageRing({ metrics }: { metrics: DashboardData["metrics"] }) {
   return (
     <div className="grid place-items-center rounded-lg border bg-background/55 p-4 text-center">
       <div
         className="grid size-32 place-items-center rounded-full"
         style={{
           background:
-            "conic-gradient(#c7f72c 0 72%, #8b5cf6 72% 100%), radial-gradient(circle, hsl(var(--card)) 0 58%, transparent 59%)",
+            `conic-gradient(#c7f72c 0 ${metrics.tokenUsagePct}%, #8b5cf6 ${metrics.tokenUsagePct}% 100%), radial-gradient(circle, hsl(var(--card)) 0 58%, transparent 59%)`,
         }}
       >
         <div className="grid size-[94px] place-items-center rounded-full bg-card text-center shadow-inner">
@@ -562,28 +559,28 @@ function TokenUsageRing() {
           </div>
         </div>
       </div>
-      <div className="mt-3 text-[34px] font-semibold leading-none tracking-[-0.02em]">72.4%</div>
+      <div className="mt-3 text-[34px] font-semibold leading-none tracking-[-0.02em]">{metrics.tokenUsagePct}%</div>
       <div className="mt-2 grid w-full gap-1 text-xs text-muted-foreground">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-violet-500" />Generation</span>
-          <span>70%</span>
+          <span>{metrics.generationShare}%</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-lime-300" />Embedding</span>
-          <span>30%</span>
+          <span>{metrics.embeddingShare}%</span>
         </div>
       </div>
     </div>
   )
 }
 
-function SemanticMapCard() {
+function SemanticMapCard({ metrics }: { metrics: DashboardData["metrics"] }) {
   return (
     <div className="rounded-lg border bg-background/55 p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold">Semantic map</div>
-          <div className="text-xs text-muted-foreground">Cluster A · 5k pts</div>
+          <div className="text-xs text-muted-foreground">Runbook index · {metrics.semanticPoints} docs</div>
         </div>
         <Badge variant="secondary">prod</Badge>
       </div>
@@ -600,7 +597,7 @@ function SemanticMapCard() {
   )
 }
 
-function ApiHealthCard() {
+function ApiHealthCard({ metrics }: { metrics: DashboardData["metrics"] }) {
   return (
     <div className="rounded-lg border bg-background/55 p-3">
       <div className="text-sm font-semibold">API health</div>
@@ -608,36 +605,36 @@ function ApiHealthCard() {
         <div
           className="grid size-20 place-items-center rounded-full"
           style={{
-            background: "conic-gradient(#f97316 0 8%, #e5e7eb 8% 100%)",
+            background: `conic-gradient(#f97316 0 ${100 - metrics.apiHealthPct}%, #e5e7eb ${100 - metrics.apiHealthPct}% 100%)`,
           }}
         >
           <div className="grid size-14 place-items-center rounded-full bg-card text-center">
-            <span className="text-lg font-semibold">99.9%</span>
+            <span className="text-lg font-semibold">{metrics.apiHealthPct}%</span>
           </div>
         </div>
         <div className="text-sm">
           <div className="font-medium">Uptime</div>
-          <div className="text-muted-foreground">p99 212ms · no brownouts</div>
+          <div className="text-muted-foreground">p95 {metrics.avgLatencyMS}ms · {metrics.checksGreen} checks green</div>
         </div>
       </div>
     </div>
   )
 }
 
-function ComputeLoadCard() {
+function ComputeLoadCard({ data }: { data: DashboardData }) {
   return (
     <Card className="overflow-hidden border-0 bg-gradient-to-br from-cyan-500 via-sky-600 to-slate-950 text-white shadow-[0_24px_80px_rgba(2,132,199,0.32)]">
       <CardContent className="p-5">
         <div className="mb-8 flex items-start justify-between">
           <div>
             <CardDescription className="text-white/70">Compute load</CardDescription>
-            <CardTitle className="mt-1 text-[28px]">42% GPU</CardTitle>
+            <CardTitle className="mt-1 text-[28px]">{data.metrics.computeLoadPct}% load</CardTitle>
           </div>
           <Sparkles className="size-5 text-lime-200" />
         </div>
         <div className="h-52">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={qualityTrend} margin={{ left: -28, right: 8, top: 10, bottom: 0 }}>
+            <AreaChart data={data.qualityTrend} margin={{ left: -28, right: 8, top: 10, bottom: 0 }}>
               <defs>
                 <linearGradient id="compute-fill" x1="0" x2="0" y1="0" y2="1">
                   <stop offset="5%" stopColor="#ffffff" stopOpacity={0.24} />
@@ -796,10 +793,12 @@ function Metric({
 
 function IncidentDetail({
   incident,
+  data,
   replayStatus,
   onReplayIncident,
 }: {
   incident: Incident
+  data: DashboardData
   replayStatus: string
   onReplayIncident: (incidentID: string) => Promise<void>
 }) {
@@ -840,7 +839,7 @@ function IncidentDetail({
         <Detail label="Owner" value={incident.owner} />
         <Detail label="Next action" value={incident.action} testID="detail-action" />
         <Separator />
-        <AgentTimeline />
+        <AgentTimeline data={data.agentTimeline} />
         <div>
           <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Signals</div>
           <div className="grid gap-2">
@@ -867,11 +866,11 @@ function IncidentDetail({
   )
 }
 
-function IncidentTrendChart() {
+function IncidentTrendChart({ data }: { data: DashboardData["incidentTrend"] }) {
   return (
     <div className="h-56" aria-label="Incident volume bar chart">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={incidentTrend} margin={{ left: -28, right: 4, top: 8, bottom: 0 }}>
+        <AreaChart data={data} margin={{ left: -28, right: 4, top: 8, bottom: 0 }}>
           <defs>
             <linearGradient id="incident-fill" x1="0" x2="0" y1="0" y2="1">
               <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.28} />
@@ -914,7 +913,7 @@ function IncidentTrendChart() {
   )
 }
 
-function SeverityDonut() {
+function SeverityDonut({ data }: { data: DashboardData["severitySplit"] }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-1">
@@ -926,7 +925,7 @@ function SeverityDonut() {
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={severitySplit}
+                data={data}
                 dataKey="value"
                 nameKey="severity"
                 innerRadius={42}
@@ -935,7 +934,7 @@ function SeverityDonut() {
                 stroke="none"
                 isAnimationActive={false}
               >
-                {severitySplit.map((item) => (
+                {data.map((item) => (
                   <Cell key={item.severity} fill={item.color} />
                 ))}
               </Pie>
@@ -943,11 +942,11 @@ function SeverityDonut() {
           </ResponsiveContainer>
         </div>
         <div className="grid gap-2">
-          {severitySplit.map((item) => (
+          {data.map((item) => (
             <div key={item.severity} className="grid grid-cols-[32px_minmax(0,1fr)_20px] items-center gap-2 text-sm">
               <span className="font-medium">{item.severity}</span>
               <span className="h-2 overflow-hidden rounded-full bg-muted">
-                <span className="block h-full rounded-full" style={{ width: `${item.value * 35}%`, backgroundColor: item.color }} />
+                <span className="block h-full rounded-full" style={{ width: `${Math.min(100, item.value * 35)}%`, backgroundColor: item.color }} />
               </span>
               <span className="text-right text-muted-foreground">{item.value}</span>
             </div>
@@ -958,7 +957,7 @@ function SeverityDonut() {
   )
 }
 
-function QualityTrendCard() {
+function QualityTrendCard({ data, accuracy }: { data: DashboardData["qualityTrend"]; accuracy: number }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-2">
@@ -967,13 +966,13 @@ function QualityTrendCard() {
             <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">LLM evals</CardDescription>
             <CardTitle className="text-[15px]">Eval quality</CardTitle>
           </div>
-          <div className="rounded-full border bg-background/70 px-2 py-1 text-xs text-muted-foreground">93% acc</div>
+          <div className="rounded-full border bg-background/70 px-2 py-1 text-xs text-muted-foreground">{accuracy}% acc</div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="h-36" aria-label="Eval quality chart">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={qualityTrend} margin={{ left: -28, right: 4, top: 8, bottom: 0 }}>
+            <AreaChart data={data} margin={{ left: -28, right: 4, top: 8, bottom: 0 }}>
               <defs>
                 <linearGradient id="accuracy-fill" x1="0" x2="0" y1="0" y2="1">
                   <stop offset="5%" stopColor="#10b981" stopOpacity={0.28} />
@@ -1030,7 +1029,7 @@ function QualityTrendCard() {
   )
 }
 
-function ModelMixCard() {
+function ModelMixCard({ data }: { data: DashboardData["modelMix"] }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-2">
@@ -1038,7 +1037,7 @@ function ModelMixCard() {
         <CardTitle className="text-[15px]">Model mix</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3">
-        {modelMix.map((item) => (
+        {data.map((item) => (
           <div key={item.tier} className="grid gap-1.5">
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="font-medium">{item.tier}</span>
@@ -1060,7 +1059,7 @@ function ModelMixCard() {
   )
 }
 
-function SLOBudgetCard() {
+function SLOBudgetCard({ data }: { data: DashboardData["sloBudget"] }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-2">
@@ -1073,7 +1072,7 @@ function SLOBudgetCard() {
         </div>
       </CardHeader>
       <CardContent className="grid gap-3">
-        {sloBudget.map((item) => (
+        {data.map((item) => (
           <div key={item.service} className="grid gap-1.5">
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="font-medium">{item.service}</span>
@@ -1094,7 +1093,7 @@ function SLOBudgetCard() {
   )
 }
 
-function ActivityStream() {
+function ActivityStream({ data }: { data: DashboardData["activity"] }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-2">
@@ -1102,7 +1101,7 @@ function ActivityStream() {
         <CardTitle className="text-[15px]">Activity</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-1">
-        {activity.map((item) => (
+        {data.map((item) => (
           <motion.div
             key={`${item.time}-${item.label}`}
             className="grid grid-cols-[42px_12px_minmax(0,1fr)] items-start gap-2 rounded-md px-1.5 py-1.5 text-sm transition-colors hover:bg-accent/60"
@@ -1120,13 +1119,13 @@ function ActivityStream() {
   )
 }
 
-function AgentTimeline() {
+function AgentTimeline({ data }: { data: DashboardData["agentTimeline"] }) {
   return (
     <div>
       <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Agent path</div>
       <div className="h-24">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={agentTimeline} layout="vertical" margin={{ left: -36, right: 4, top: 0, bottom: 0 }}>
+          <BarChart data={data} layout="vertical" margin={{ left: -36, right: 4, top: 0, bottom: 0 }}>
             <XAxis type="number" hide />
             <YAxis dataKey="label" type="category" width={120} tickLine={false} axisLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
             <Tooltip
@@ -1157,7 +1156,7 @@ function Detail({ label, value, testID }: { label: string; value: string; testID
   )
 }
 
-function SideStacks() {
+function SideStacks({ data }: { data: DashboardData }) {
   return (
     <div className="grid gap-3">
       <Card>
@@ -1166,13 +1165,14 @@ function SideStacks() {
           <CardTitle className="text-[15px]">Runbooks</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {runbooks.map(([title, slug, status]) => (
-            <div key={slug} className="grid grid-cols-[1fr_auto] gap-2 rounded-md border bg-background/55 p-2 text-sm">
+          {data.runbooks.length === 0 ? <div className="text-sm text-muted-foreground">No runbooks indexed for this tenant.</div> : null}
+          {data.runbooks.map((runbook) => (
+            <div key={runbook.id} className="grid grid-cols-[1fr_auto] gap-2 rounded-md border bg-background/55 p-2 text-sm">
               <div>
-                <div className="font-medium">{title}</div>
-                <div className="text-muted-foreground">{slug}</div>
+                <div className="font-medium">{runbook.title}</div>
+                <div className="text-muted-foreground">{runbook.slug}</div>
               </div>
-              <div className="text-xs text-muted-foreground">{status}</div>
+              <div className="text-xs text-muted-foreground">{runbook.status}</div>
             </div>
           ))}
         </CardContent>
@@ -1183,11 +1183,12 @@ function SideStacks() {
           <CardTitle className="text-[15px]">Integrations</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {integrations.map(([name, detail, status]) => (
-            <div key={name} className="grid grid-cols-[112px_1fr_auto] items-center gap-2 text-sm">
-              <div className="font-medium">{name}</div>
-              <div className="text-muted-foreground">{detail}</div>
-              <Badge variant={status === "degraded" ? "warning" : "secondary"}>{status}</Badge>
+          {data.integrations.length === 0 ? <div className="text-sm text-muted-foreground">No MCP servers registered for this tenant.</div> : null}
+          {data.integrations.map((integration) => (
+            <div key={integration.name} className="grid grid-cols-[112px_1fr_auto] items-center gap-2 text-sm">
+              <div className="font-medium">{integration.name}</div>
+              <div className="text-muted-foreground">{integration.detail}</div>
+              <Badge variant={integration.status === "degraded" ? "warning" : "secondary"}>{integration.status}</Badge>
             </div>
           ))}
         </CardContent>

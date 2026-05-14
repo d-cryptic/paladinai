@@ -138,6 +138,18 @@ test.describe("local dashboard", () => {
         }),
       });
     });
+    await page.route("http://127.0.0.1:9002/api/v1/mcp/servers", async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          data: [{ id: "prom", name: "MCP Prometheus", capabilities: ["query_metrics", "list_rules"], healthy: true }],
+        }),
+      });
+    });
     await page.route("http://127.0.0.1:9002/api/v1/incidents/live-1/replay", async (route) => {
       expect(route.request().method()).toBe("POST");
       expect(route.request().headers().authorization).toBe("Bearer test-token");
@@ -155,7 +167,10 @@ test.describe("local dashboard", () => {
     await page.goto(dashboardURL);
 
     await expect(page.getByText("Live backend")).toBeVisible();
-    await expect(page.getByText("Live API outage")).toBeVisible();
+    await expect(page.getByRole("cell", { name: "live-1 · Live API outage" })).toBeVisible();
+    await expect(page.getByText("2 checks green", { exact: true })).toBeVisible();
+    await expect(page.getByText("88% acc", { exact: true })).toBeVisible();
+    await expect(page.getByText("MCP Prometheus")).toBeVisible();
     await page.getByRole("button", { name: "Approve replay" }).click();
     await expect(page.getByText("Replay replay-live-1 queued for live-1")).toBeVisible();
     await page.getByRole("button", { name: "Runbooks" }).click();
