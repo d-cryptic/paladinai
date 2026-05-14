@@ -370,7 +370,7 @@ func printCompletionHint() {
 // ── doctor command ────────────────────────────────────────────────────────────
 
 var doctorCmd = &cobra.Command{
-	Use:   "doctor",
+	Use:   "doctor [integration]",
 	Short: "Check PaladinAI connectivity and integration health",
 	Long: `paladin doctor runs a series of health checks and reports status:
 
@@ -384,6 +384,12 @@ var doctorCmd = &cobra.Command{
 Flags:
   --json   Emit machine-readable JSON (for CI pipelines)
   --quiet  Print nothing; exit code only (0=all pass, 1=some fail)`,
+	Args: cobra.MaximumNArgs(1),
+	Example: `  # run full verification
+  paladin doctor
+
+  # validate only one integration (name or server ID)
+  paladin doctor prometheus`,
 	RunE: runDoctor,
 }
 
@@ -454,6 +460,41 @@ func infraTCPCheck(rawURL string, defaultPort int) func() error {
 	}
 }
 
+type mcpServerRegistration struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Healthy  bool   `json:"healthy"`
+	Endpoint string `json:"endpoint"`
+}
+
+type mcpServerList struct {
+	Data []mcpServerRegistration `json:"data"`
+}
+
+func parseMCPServers(body []byte) (mcpServerList, error) {
+	var response mcpServerList
+	if err := json.Unmarshal(body, &response); err != nil {
+		return mcpServerList{}, fmt.Errorf("invalid MCP response: %w", err)
+	}
+	return response, nil
+}
+
+func containsIntegration(servers mcpServerList, integration string) error {
+	target := strings.ToLower(strings.TrimSpace(integration))
+	if target == "" {
+		return fmt.Errorf("integration argument is required")
+	}
+	for _, srv := range servers.Data {
+		if strings.EqualFold(strings.TrimSpace(srv.ID), target) || strings.EqualFold(strings.TrimSpace(srv.Name), target) {
+			if srv.Healthy {
+				return nil
+			}
+			return fmt.Errorf("integration %q is not healthy", integration)
+		}
+	}
+	return fmt.Errorf("integration %q is not registered", integration)
+}
+
 func localHTTPBase(raw string, defaultPort int) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -489,11 +530,15 @@ func isPort(raw string) bool {
 	return true
 }
 
-func runDoctor(cmd *cobra.Command, _ []string) error {
+func runDoctor(cmd *cobra.Command, args []string) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	quietMode, _ := cmd.Flags().GetBool("quiet")
 	if isCIMode(cmd) && !jsonMode && !quietMode {
 		quietMode = true
+	}
+	targetIntegration := ""
+	if len(args) > 0 {
+		targetIntegration = strings.TrimSpace(args[0])
 	}
 
 	cfg, cfgErr := loadConfig()
@@ -536,6 +581,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 
 	opts := doctorClientOptions(tenant, token)
 
+	// Baseline checks that remain consistent across full and targeted runs.
 	checks := []check{
 		{
 			name: "API service ready",
@@ -569,8 +615,115 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 				return nil
 			},
 		},
-		{
-			name: "MCP servers registered",
+	}
+
+	if targetIntegration == "" {
+		checks = append(checks,
+			check{
+				name: "MCP servers registered",
+				fn: func() error {
+					endpoint, err := url.JoinPath(apiBase, "/api/v1/mcp/servers")
+					if err != nil {
+						return fmt.Errorf("build url: %w", err)
+					}
+					body, err := client.Get(cmd.Context(), endpoint, opts)
+					if err != nil {
+						return err
+					}
+					if _, err := parseMCPServers(body); err != nil {
+						return err
+					}
+					return nil
+				},
+			},
+			check{
+				name: "Kubernetes cluster context",
+				fn: func() error {
+					out, err := exec.Command("kubectl", "config", "current-context").Output()
+					if err != nil {
+						if errors.Is(err, exec.ErrNotFound) {
+							return fmt.Errorf("kubectl not installed")
+						}
+						return fmt.Errorf("kubectl current-context: %w", err)
+					}
+					if !quietMode && !jsonMode {
+						fmt.Printf("      context: %s\n", strings.TrimSpace(string(out)))
+					}
+					return nil
+				},
+			},
+			check{
+				name: "NATS reachable",
+				fn:   infraTCPCheck(envStr("NATS_URL", "nats://localhost:4222"), 4222),
+			},
+			check{
+				name: "Valkey reachable",
+				fn:   infraTCPCheck(envStr("VALKEY_URL", "redis://localhost:6379"), 6379),
+			},
+			check{
+				name: "Qdrant reachable",
+				fn:   infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333),
+			},
+			check{
+				name: "paladin-ingest ready",
+				fn: func() error {
+					ingestBase := localHTTPBase(envStr("PALADIN_INGEST_PORT", "9001"), 9001)
+					_, err := client.Get(cmd.Context(), ingestBase+"/readyz", client.Options{})
+					return err
+				},
+			},
+			check{
+				name: "paladin-hub ready",
+				fn: func() error {
+					hubBase := localHTTPBase(envStr("PALADIN_HUB_URL", envStr("PALADIN_HUB_PORT", "8082")), 8082)
+					_, err := client.Get(cmd.Context(), hubBase+"/readyz", client.Options{})
+					return err
+				},
+			},
+			check{
+				name: "paladin-memory ready",
+				fn: func() error {
+					memoryBase := localHTTPBase(envStr("MEMORY_HTTP_ADDR", ":9011"), 9011)
+					_, err := client.Get(cmd.Context(), memoryBase+"/readyz", client.Options{})
+					return err
+				},
+			},
+			check{
+				name: "paladin-agent ready",
+				fn: func() error {
+					agentBase := localHTTPBase(envStr("PALADIN_AGENT_PORT", "9006"), 9006)
+					_, err := client.Get(cmd.Context(), agentBase+"/readyz", client.Options{})
+					return err
+				},
+			},
+			check{
+				name: "paladin-ws ready",
+				fn: func() error {
+					wsBase := localHTTPBase(envStr("PALADIN_WS_PORT", "9007"), 9007)
+					_, err := client.Get(cmd.Context(), wsBase+"/readyz", client.Options{})
+					return err
+				},
+			},
+			check{
+				name: "paladin-comms ready",
+				fn: func() error {
+					commsBase := localHTTPBase(envStr("PALADIN_COMMS_PORT", "9009"), 9009)
+					_, err := client.Get(cmd.Context(), commsBase+"/readyz", client.Options{})
+					return err
+				},
+			},
+			check{
+				name: "paladin-orchestrator ready",
+				fn: func() error {
+					orchBase := localHTTPBase(envStr("PALADIN_ORCHESTRATOR_PORT", "9008"), 9008)
+					_, err := client.Get(cmd.Context(), orchBase+"/readyz", client.Options{})
+					return err
+				},
+			},
+		)
+	} else {
+		checks = append(checks, check{
+			name: fmt.Sprintf("Integration check: %s", targetIntegration),
 			fn: func() error {
 				endpoint, err := url.JoinPath(apiBase, "/api/v1/mcp/servers")
 				if err != nil {
@@ -580,96 +733,13 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 				if err != nil {
 					return err
 				}
-				if !strings.Contains(string(body), `"data"`) {
-					return fmt.Errorf("unexpected response: %s", body)
-				}
-				return nil
-			},
-		},
-		{
-			name: "Kubernetes cluster context",
-			fn: func() error {
-				out, err := exec.Command("kubectl", "config", "current-context").Output()
+				servers, err := parseMCPServers(body)
 				if err != nil {
-					if errors.Is(err, exec.ErrNotFound) {
-						return fmt.Errorf("kubectl not installed")
-					}
-					return fmt.Errorf("kubectl current-context: %w", err)
+					return err
 				}
-				if !quietMode && !jsonMode {
-					fmt.Printf("      context: %s\n", strings.TrimSpace(string(out)))
-				}
-				return nil
+				return containsIntegration(servers, targetIntegration)
 			},
-		},
-		{
-			name: "NATS reachable",
-			fn:   infraTCPCheck(envStr("NATS_URL", "nats://localhost:4222"), 4222),
-		},
-		{
-			name: "Valkey reachable",
-			fn:   infraTCPCheck(envStr("VALKEY_URL", "redis://localhost:6379"), 6379),
-		},
-		{
-			name: "Qdrant reachable",
-			fn:   infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333),
-		},
-		{
-			name: "paladin-ingest ready",
-			fn: func() error {
-				ingestBase := localHTTPBase(envStr("PALADIN_INGEST_PORT", "9001"), 9001)
-				_, err := client.Get(cmd.Context(), ingestBase+"/readyz", client.Options{})
-				return err
-			},
-		},
-		{
-			name: "paladin-hub ready",
-			fn: func() error {
-				hubBase := localHTTPBase(envStr("PALADIN_HUB_URL", envStr("PALADIN_HUB_PORT", "8082")), 8082)
-				_, err := client.Get(cmd.Context(), hubBase+"/readyz", client.Options{})
-				return err
-			},
-		},
-		{
-			name: "paladin-memory ready",
-			fn: func() error {
-				memoryBase := localHTTPBase(envStr("MEMORY_HTTP_ADDR", ":9011"), 9011)
-				_, err := client.Get(cmd.Context(), memoryBase+"/readyz", client.Options{})
-				return err
-			},
-		},
-		{
-			name: "paladin-agent ready",
-			fn: func() error {
-				agentBase := localHTTPBase(envStr("PALADIN_AGENT_PORT", "9006"), 9006)
-				_, err := client.Get(cmd.Context(), agentBase+"/readyz", client.Options{})
-				return err
-			},
-		},
-		{
-			name: "paladin-ws ready",
-			fn: func() error {
-				wsBase := localHTTPBase(envStr("PALADIN_WS_PORT", "9007"), 9007)
-				_, err := client.Get(cmd.Context(), wsBase+"/readyz", client.Options{})
-				return err
-			},
-		},
-		{
-			name: "paladin-comms ready",
-			fn: func() error {
-				commsBase := localHTTPBase(envStr("PALADIN_COMMS_PORT", "9009"), 9009)
-				_, err := client.Get(cmd.Context(), commsBase+"/readyz", client.Options{})
-				return err
-			},
-		},
-		{
-			name: "paladin-orchestrator ready",
-			fn: func() error {
-				orchBase := localHTTPBase(envStr("PALADIN_ORCHESTRATOR_PORT", "9008"), 9008)
-				_, err := client.Get(cmd.Context(), orchBase+"/readyz", client.Options{})
-				return err
-			},
-		},
+		})
 	}
 
 	// Run all checks and collect results.

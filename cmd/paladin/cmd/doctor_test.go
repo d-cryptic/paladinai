@@ -102,6 +102,109 @@ func TestDoctorCmd_TokenAndTenantMissing_FailsChecks(t *testing.T) {
 	assert.Error(t, runErr, "doctor should fail when token/tenant are not configured")
 }
 
+func TestDoctorCmd_TargetedIntegrationCheck_PassesWhenIntegrationHealthy(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/readyz", "/api/v1/mcp/servers":
+			w.WriteHeader(http.StatusOK)
+			switch r.URL.Path {
+			case "/api/v1/mcp/servers":
+				_, _ = w.Write([]byte(`{
+					"data": [
+						{"id":"prometheus","name":"Prometheus","healthy":true}
+					]
+				}`))
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer stub.Close()
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PALADIN_TOKEN", "test-token")
+	t.Setenv("PALADIN_AUTH_URL", stub.URL)
+
+	var runErr error
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"prometheus",
+		})
+		runErr = rootCmd.Execute()
+	})
+
+	require.NoError(t, runErr, "targeted doctor should pass for healthy integration")
+	assert.Contains(t, strings.TrimSpace(output), "Integration check: prometheus")
+}
+
+func TestDoctorCmd_TargetedIntegrationCheck_FailsWhenIntegrationMissing(t *testing.T) {
+	skipIfNoNetwork(t)
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/readyz", "/api/v1/mcp/servers":
+			w.WriteHeader(http.StatusOK)
+			if r.URL.Path == "/api/v1/mcp/servers" {
+				_, _ = w.Write([]byte(`{
+					"data": [
+						{"id":"datadog","name":"Datadog","healthy":true}
+					]
+				}`))
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer stub.Close()
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PALADIN_TOKEN", "test-token")
+	t.Setenv("PALADIN_AUTH_URL", stub.URL)
+
+	var runErr error
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"--api-url", stub.URL,
+			"--tenant", "test-tenant",
+			"prometheus",
+			"--token", "test-token",
+		})
+		runErr = rootCmd.Execute()
+	})
+
+	require.Error(t, runErr, "targeted doctor should fail for missing integration")
+	assert.Contains(t, strings.TrimSpace(output), "x Integration check: prometheus")
+	assert.Contains(t, strings.TrimSpace(output), "not registered")
+}
+
+func TestDoctorCmd_ParseMCPServers_ParsesHealthyList(t *testing.T) {
+	body := []byte(`{"data":[{"id":"prometheus","name":"Prometheus","healthy":true}]}`)
+	servers, err := parseMCPServers(body)
+	require.NoError(t, err)
+	require.Len(t, servers.Data, 1)
+	assert.Equal(t, "prometheus", servers.Data[0].ID)
+}
+
+func TestDoctorCmd_ContainsIntegration_DetectsByIDOrName(t *testing.T) {
+	list := mcpServerList{
+		Data: []mcpServerRegistration{
+			{ID: "prometheus", Name: "Prometheus", Healthy: true},
+			{ID: "datadog", Name: "Datadog", Healthy: true},
+		},
+	}
+	require.NoError(t, containsIntegration(list, "prometheus"))
+	require.NoError(t, containsIntegration(list, "Datadog"))
+	assert.Error(t, containsIntegration(list, "opsgenie"))
+	assert.NoError(t, containsIntegration(list, "datadog"))
+}
+
 func TestDoctorCmd_InfraCheckFails_WhenPortNotListening(t *testing.T) {
 	// infraTCPCheck against a closed port must return an error.
 	err := infraTCPCheck("127.0.0.1:1", 1)()
@@ -199,14 +302,18 @@ func TestDoctorCmd_JSONMode_EmitsValidJSON(t *testing.T) {
 		runErr = rootCmd.Execute()
 	})
 
-	// The command fails because infra (NATS/Valkey/Qdrant/k8s) isn't running — that's expected.
-	// We only care that stdout is valid JSON.
-	_ = runErr
+	// Depending on CI environment and available services, checks may pass or fail.
+	// We only require the JSON output schema to stay valid and internally consistent.
 
 	var report DoctorReport
 	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &report)
 	require.NoError(t, err, "--json output must be valid JSON; got: %s", output)
-	assert.Equal(t, "pass", report.Overall)
+	assert.Equal(t, runErr == nil, report.Passed)
+	if runErr == nil {
+		assert.Equal(t, "pass", report.Overall)
+	} else {
+		assert.Equal(t, "fail", report.Overall)
+	}
 	assert.NotEmpty(t, report.Checks, "checks array must not be empty")
 	assert.NotEmpty(t, report.Timestamp)
 	for _, c := range report.Checks {
