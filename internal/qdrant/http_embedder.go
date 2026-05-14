@@ -78,6 +78,9 @@ func (e *HTTPEmbedder) Embed(ctx context.Context, text string) ([]float32, error
 	if len(out.Data) == 0 || len(out.Data[0].Embedding) == 0 {
 		return nil, fmt.Errorf("embedder: empty embedding in response")
 	}
+	if e.dim > 0 && len(out.Data[0].Embedding) != e.dim {
+		return nil, fmt.Errorf("embedder: dimension mismatch: expected %d, got %d", e.dim, len(out.Data[0].Embedding))
+	}
 	return out.Data[0].Embedding, nil
 }
 

@@ -1,5 +1,43 @@
 [
   {
+    "priority": 20,
+    "httpRequest": {
+      "method": "POST",
+      "path": "/api/v1/chat/completions",
+      "body": {
+        "type": "REGEX",
+        "regex": ".*triage agent.*"
+      }
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": {
+        "id": "mock-completion-triage-001",
+        "object": "chat.completion",
+        "created": 1715000000,
+        "model": "qwen/qwen3-8b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\"confirmed_severity\":\"P2\",\"summary\":\"Service degradation detected for api-server\",\"likely_cause\":\"Recent deployment or upstream dependency instability is causing elevated errors\",\"affected_services\":[\"api-server\"],\"recommended_action\":\"Check service health, recent deploys, and matching runbook steps\",\"needs_human\":true}"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 220,
+          "completion_tokens": 70,
+          "total_tokens": 290
+        }
+      }
+    }
+  },
+  {
     "priority": 10,
     "httpRequest": {
       "method": "POST",

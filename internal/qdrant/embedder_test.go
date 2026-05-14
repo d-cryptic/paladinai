@@ -74,3 +74,21 @@ func TestStubEmbedder_L2NormNonZero(t *testing.T) {
 	}
 	assert.True(t, math.Sqrt(norm) > 0, "embedding vector must not be all-zero")
 }
+
+func TestIsMockGatewayURL(t *testing.T) {
+	cases := map[string]bool{
+		"http://mock-llm:1080/api/v1":         true,
+		"http://paladin-mock-llm:1080/api/v1": true,
+		"http://localhost:1080/api/v1":        true,
+		"http://127.0.0.1:1080/api/v1":        true,
+		"http://localhost:8080/api/v1":        false,
+		"https://openrouter.ai/api/v1":        false,
+		"https://mock-llm.example.com/api/v1": false,
+		"://bad-url":                          false,
+		"":                                    false,
+	}
+
+	for rawURL, want := range cases {
+		assert.Equal(t, want, qdrant.IsMockGatewayURL(rawURL), rawURL)
+	}
+}

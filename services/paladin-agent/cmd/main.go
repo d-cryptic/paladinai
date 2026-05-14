@@ -185,12 +185,14 @@ func main() {
 	if qdrantURL := os.Getenv("QDRANT_URL"); qdrantURL != "" {
 		qc := qdrant.New(qdrantURL, os.Getenv("QDRANT_API_KEY"), log)
 		var embedder qdrant.Embedder = &qdrant.StubEmbedder{}
-		if orKey := cfg.LLM.OpenRouterKey; orKey != "" {
-			gatewayURL := cfg.LLM.GatewayURL
-			if gatewayURL == "" {
-				gatewayURL = "https://openrouter.ai/api/v1"
-			}
+		gatewayURL := cfg.LLM.GatewayURL
+		if gatewayURL == "" {
+			gatewayURL = "https://openrouter.ai/api/v1"
+		}
+		if orKey := cfg.LLM.OpenRouterKey; orKey != "" && !qdrant.IsMockGatewayURL(gatewayURL) {
 			embedder = qdrant.NewHTTPEmbedder(gatewayURL, string(orKey), "BAAI/bge-m3", qdrant.EmbeddingDim)
+		} else if qdrant.IsMockGatewayURL(gatewayURL) {
+			log.Warn("rag: using StubEmbedder with local mock LLM gateway", zap.String("gateway", gatewayURL))
 		}
 		if err := qc.EnsureCollection(ctx, qdrant.RunbookCollection, qdrant.EmbeddingDim); err != nil {
 			log.Warn("rag: qdrant collection unavailable, skipping", zap.Error(err))

@@ -60,3 +60,22 @@ func TestHTTPEmbedder_Embed_EmptyResponse(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty embedding")
 }
+
+func TestHTTPEmbedder_Embed_DimensionMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]any{
+			"data": []map[string]any{
+				{"embedding": []float32{0.1, 0.2}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	emb := NewHTTPEmbedder(srv.URL, "", "m", 4)
+	_, err := emb.Embed(context.Background(), "test")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dimension mismatch")
+	assert.Contains(t, err.Error(), "expected 4, got 2")
+}

@@ -3,6 +3,8 @@ package qdrant
 import (
 	"context"
 	"math/rand"
+	"net/url"
+	"strings"
 )
 
 // EmbeddingDim is the dense vector size used by BGE-M3.
@@ -29,4 +31,21 @@ func (s *StubEmbedder) Embed(_ context.Context, text string) ([]float32, error) 
 		v[i] = r.Float32()*2 - 1
 	}
 	return v, nil
+}
+
+// IsMockGatewayURL reports whether an OpenAI-compatible gateway URL points at
+// the local MockServer used by docker-compose and tests.
+func IsMockGatewayURL(rawURL string) bool {
+	if rawURL == "" {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	return host == "mock-llm" ||
+		host == "paladin-mock-llm" ||
+		((host == "localhost" || host == "127.0.0.1" || host == "::1") && port == "1080")
 }

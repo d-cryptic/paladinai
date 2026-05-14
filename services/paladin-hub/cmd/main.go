@@ -98,12 +98,12 @@ func main() {
 			llmGateway = "https://openrouter.ai/api/v1"
 		}
 
-		if openrouterKey != "" {
+		if openrouterKey != "" && !qdrant.IsMockGatewayURL(llmGateway) {
 			embedder = qdrant.NewHTTPEmbedder(llmGateway, openrouterKey, embedModel, qdrant.EmbeddingDim)
 			log.Info("paladin-hub using HTTPEmbedder", zap.String("model", embedModel))
 		} else {
 			embedder = &qdrant.StubEmbedder{}
-			log.Warn("paladin-hub using StubEmbedder (set OPENROUTER_API_KEY for real embeddings)")
+			log.Warn("paladin-hub using StubEmbedder (set OPENROUTER_API_KEY and non-mock LLM_GATEWAY_URL for real embeddings)")
 		}
 
 		var pointStore qdrant.PointStore

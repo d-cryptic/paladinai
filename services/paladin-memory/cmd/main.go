@@ -197,11 +197,11 @@ func main() {
 }
 
 func memoryEmbedder(cfg *memcfg.Config, log *zap.Logger) (qdrant.Embedder, error) {
-	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-		gatewayURL := os.Getenv("LLM_GATEWAY_URL")
-		if gatewayURL == "" {
-			gatewayURL = "https://openrouter.ai/api/v1"
-		}
+	gatewayURL := os.Getenv("LLM_GATEWAY_URL")
+	if gatewayURL == "" {
+		gatewayURL = "https://openrouter.ai/api/v1"
+	}
+	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" && !qdrant.IsMockGatewayURL(gatewayURL) {
 		embedModel := os.Getenv("EMBED_MODEL")
 		if embedModel == "" {
 			embedModel = "BAAI/bge-m3"
