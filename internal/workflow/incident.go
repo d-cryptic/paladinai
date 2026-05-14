@@ -11,6 +11,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/paladinai/paladinai/internal/tenantguard"
 )
 
 // ─── Approval gate ────────────────────────────────────────────────────────────
@@ -243,6 +245,10 @@ func (e *RunbookExecutor) executeStep(ctx context.Context, tenantID, incidentID 
 
 	switch step.Type {
 	case StepTypeToolCall, StepTypeAPICall:
+		if err := tenantguard.CheckToolParams(step.Args); err != nil {
+			execErr = err
+			break
+		}
 		output, execErr = e.tools.Call(stepCtx, tenantID, step.Tool, step.Args)
 	case StepTypeHumanAction:
 		// Human actions are gated above; mark as success after approval.
