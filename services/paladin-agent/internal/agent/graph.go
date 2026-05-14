@@ -21,6 +21,9 @@ const (
 	NodeRouteBranch = "route"
 	NodeTriage      = "triage"
 	NodeRCA         = "rca"
+	NodeRunbook     = "runbook"
+	NodeIntegration = "integration"
+	NodeMemory      = "memory"
 	NodeCollect     = "collect"
 	NodeEnd         = compose.END
 )
@@ -58,6 +61,7 @@ type GraphConfig struct {
 //
 //	START → [classify] → [route branch] ─── "triage" → [triage] ─┐
 //	                                     └── "rca"    → [rca]     ┘
+//	                                     └── specialists fallback to [triage]
 //	                                                               ↓
 //	                                                           [collect] → END
 //
@@ -184,6 +188,8 @@ func BuildGraph(ctx context.Context, cfg GraphConfig) (*CompiledGraph, error) {
 			switch state.AgentType {
 			case "rca":
 				return NodeRCA, nil
+			case "runbook", "integration", "memory":
+				return NodeTriage, nil
 			default: // "triage" and anything unrecognised
 				return NodeTriage, nil
 			}

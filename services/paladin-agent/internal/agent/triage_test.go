@@ -135,6 +135,7 @@ func TestTriageAgent_SanitizesModelEchoedMarkup(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, result.Summary, "<script>")
 	assert.NotContains(t, result.RecommendedAction, "<script>")
+	assert.NotContains(t, result.RecommendedAction, "alert(1)")
 	assert.NotContains(t, result.AffectedServices[0], "<script>")
 	assert.Contains(t, result.LikelyCause, "[SANITIZED]")
 }

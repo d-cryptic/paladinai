@@ -1,6 +1,6 @@
 // Package agent: classifier.go implements the Stage 3 classifier agent.
 // The classifier is a lightweight, single-shot LLM call that determines the
-// intent, severity, and target specialist (triage vs rca) for an alert.
+// intent, severity, and target specialist for an alert.
 package agent
 
 import (
@@ -19,12 +19,15 @@ import (
 const classifierSystemPrompt = `You are PaladinAI's routing agent. Classify this alert and determine which specialist to route to.
 
 OUTPUT: JSON only, no prose outside the JSON:
-{"intent":"log_analysis|metric_spike|service_down|oom|network_issue|capacity_warning|config_drift|security_alert","agent_type":"triage|rca","severity":"P1|P2|P3|P4","confidence":0.9}
+{"intent":"log_analysis|metric_spike|service_down|oom|network_issue|capacity_warning|config_drift|security_alert","agent_type":"triage|rca|runbook|integration|memory","severity":"P1|P2|P3|P4","confidence":0.9}
 
 Rules:
-- service_down, oom, security_alert, or P1 → rca
-- network_issue or capacity_warning at P1/P2 → rca; otherwise triage
-- metric_spike, log_analysis, config_drift → triage unless severity is P1
+- triage: first-pass assessment, noisy or ambiguous alert, P2 OOM without clear history
+- rca: P1, security_alert, deep unknown root cause, correlation/hypothesis needed
+- runbook: known procedure, documented fix, renewal, scale-out, failover, flush, rollback
+- integration: upstream/external dependency, payment/provider/webhook/API integration checks
+- memory: similar prior incidents, recurrence, Kafka rebalance/lag, cache/session patterns
+- network_issue or capacity_warning at P2 can stay triage unless deep RCA is explicitly needed
 - 5xx, 500, unavailable, healthcheck failing, connection refused, primary down, timeout cascade → service_down
 - CPU, latency, p99, saturation, lag, disk IO, replication delay, error-rate-but-not-outage → metric_spike
 - certificate expiry, TLS expiry, log rate, audit/event-only warnings → log_analysis
@@ -36,7 +39,7 @@ Rules:
 // ClassificationResult is the structured output from the classifier.
 type ClassificationResult struct {
 	Intent     string  `json:"intent"`
-	AgentType  string  `json:"agent_type"` // "triage" or "rca"
+	AgentType  string  `json:"agent_type"` // "triage" | "rca" | "runbook" | "integration" | "memory"
 	Severity   string  `json:"severity"`   // "P1" | "P2" | "P3" | "P4"
 	Confidence float32 `json:"confidence"`
 }
@@ -50,6 +53,14 @@ var validIntents = map[string]bool{
 	"capacity_warning": true,
 	"config_drift":     true,
 	"security_alert":   true,
+}
+
+var validAgentTypes = map[string]bool{
+	"triage":      true,
+	"rca":         true,
+	"runbook":     true,
+	"integration": true,
+	"memory":      true,
 }
 
 // ClassifierAgent classifies an alert and determines routing.
@@ -114,8 +125,14 @@ func (c *ClassifierAgent) Classify(ctx context.Context, env *alert.AlertEnvelope
 	if !validIntents[result.Intent] {
 		result.Intent = "metric_spike"
 	}
-	if result.AgentType != "triage" && result.AgentType != "rca" {
+	if intent := intentFromAlert(env); intent != "" {
+		result.Intent = intent
+	}
+	if !validAgentTypes[result.AgentType] {
 		result.AgentType = c.routeByHeuristic(result.Severity, result.Intent)
+	}
+	if route := specialistRouteFromAlert(env, result.Severity, result.Intent); route != "" {
+		result.AgentType = route
 	}
 
 	return &result, nil
@@ -136,11 +153,68 @@ func (c *ClassifierAgent) heuristicFallback(env *alert.AlertEnvelope) *Classific
 }
 
 func (c *ClassifierAgent) routeByHeuristic(severity, intent string) string {
-	if severity == "P1" || intent == "service_down" || intent == "oom" || intent == "security_alert" {
+	if severity == "P1" || intent == "security_alert" {
 		return "rca"
 	}
 	if severity == "P2" && (intent == "network_issue" || intent == "capacity_warning") {
 		return "rca"
 	}
 	return "triage"
+}
+
+func specialistRouteFromAlert(env *alert.AlertEnvelope, severity, intent string) string {
+	text := strings.ToLower(strings.Join([]string{
+		env.Title,
+		env.Description,
+		env.Labels["alertname"],
+		env.Labels["service"],
+		env.Labels["job"],
+		env.Annotations["description"],
+	}, " "))
+
+	switch {
+	case containsAny(text, "not yet oom", "memory usage at", "memory high"):
+		return "triage"
+	case containsAny(text, "redis memory pressure", "redis maxmemory eviction", "maxmemory eviction"):
+		return "triage"
+	case containsAny(text, "latency regression", "recent deployment regression", "runbook", "procedure", "documented", "standard failover", "scale out", "renewal", "flush required", "rollback"):
+		return "runbook"
+	case containsAny(text, "payment", "provider", "webhook", "oauth", "api key", "upstream timeout", "third party", "external"):
+		return "integration"
+	case containsAny(text, "kafka", "consumer lag", "rebalance", "stale session", "cache pattern", "similar prior", "recurring"):
+		return "memory"
+	case severity == "P1" || intent == "security_alert":
+		return "rca"
+	case intent == "oom":
+		return "triage"
+	default:
+		return ""
+	}
+}
+
+func intentFromAlert(env *alert.AlertEnvelope) string {
+	text := strings.ToLower(strings.Join([]string{
+		env.Title,
+		env.Description,
+		env.Labels["alertname"],
+		env.Annotations["description"],
+	}, " "))
+
+	switch {
+	case containsAny(text, "not yet oom", "memory usage at", "memory high"):
+		return "metric_spike"
+	case containsAny(text, "http 5xx rate elevated", "error rate at"):
+		return "service_down"
+	default:
+		return ""
+	}
+}
+
+func containsAny(s string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(s, needle) {
+			return true
+		}
+	}
+	return false
 }

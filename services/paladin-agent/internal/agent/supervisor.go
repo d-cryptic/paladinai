@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// SupervisorPipeline implements the explicit classify→route→triage/rca pipeline.
+// SupervisorPipeline implements the explicit classify→route→specialist pipeline.
 // This is the Stage 3 replacement for ad-hoc routing in the worker.
 // Each step is deterministic: the classifier decides once, then the appropriate
 // specialist runs. No ReAct loop, no LLM deciding "next step".
@@ -103,6 +103,22 @@ func (s *SupervisorPipeline) Process(ctx context.Context, state *IncidentState) 
 			state.TriageResult = tr
 			state.NeedsHuman = tr.NeedsHuman
 		}
+
+	case "runbook", "memory", "integration":
+		// Specialist workers are not yet separate runtime dependencies in this
+		// process. Preserve the classified route for observability/evals, then
+		// execute triage as the safe baseline path until the specialist is wired.
+		s.log.Info("supervisor: specialist route falling back to triage",
+			zap.String("agent_type", state.AgentType),
+		)
+		triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
+		tr, err := s.triager.Triage(triageCtx, &state.Alert)
+		triageCancel()
+		if err != nil {
+			return state, fmt.Errorf("supervisor: %s fallback triage: %w", state.AgentType, err)
+		}
+		state.TriageResult = tr
+		state.NeedsHuman = tr.NeedsHuman
 
 	default: // "triage"
 		triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)

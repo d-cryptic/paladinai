@@ -45,6 +45,8 @@ var injectionPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)act\s+as\s+(if|though)\s+you`),
 	regexp.MustCompile(`(?i)new\s+instruction`),
 	regexp.MustCompile(`(?i)<\s*/?system\s*>`),
+	regexp.MustCompile(`(?i)<\s*/?\s*script[^>]*>`),
+	regexp.MustCompile(`(?i)\balert\s*\([^)]*\)`),
 }
 
 // InjectionSentinel replaces matched injection patterns in sanitized output.

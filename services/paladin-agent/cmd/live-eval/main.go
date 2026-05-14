@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"sort"
 	"strings"
@@ -82,6 +83,10 @@ func main() {
 		maxCases    = flag.Int("max", 20, "maximum live LLM cases to run")
 		timeout     = flag.Duration("timeout", 45*time.Second, "per-case timeout")
 		modelID     = flag.String("model", "", "OpenRouter model id; default LIVE_EVAL_MODEL, LLM_TIER_A, then qwen/qwen3.6-flash")
+		shuffle     = flag.Bool("shuffle", false, "randomize selected cases after category balancing")
+		seed        = flag.Int64("seed", 0, "shuffle seed; 0 uses current time")
+		retries     = flag.Int("retries", 2, "transient provider retries per case")
+		caseDelay   = flag.Duration("case-delay", 0, "delay between live cases to avoid provider rate limits")
 		jsonOutput  = flag.Bool("json", true, "emit JSON summary")
 	)
 	flag.Parse()
@@ -145,12 +150,15 @@ func main() {
 	selectedCategories := parseCategories(*categories)
 	ev := &liveEvaluator{classifier: classifier, triager: triager, rca: rca}
 	selectedCases := selectCases(cases, selectedCategories, *maxCases)
+	if *shuffle {
+		selectedCases = shuffleCases(selectedCases, *seed)
+	}
 	results := make([]caseResult, 0, len(selectedCases))
 	start := time.Now()
 
 	for _, tc := range selectedCases {
 		caseCtx, cancel := context.WithTimeout(ctx, *timeout)
-		res := ev.run(caseCtx, tc)
+		res := ev.runWithRetry(caseCtx, tc, *retries)
 		cancel()
 		results = append(results, res)
 		log.Info("live eval case complete",
@@ -160,6 +168,9 @@ func main() {
 			zap.Float64("score", res.Score),
 			zap.Int64("latency_ms", res.LatencyMS),
 		)
+		if *caseDelay > 0 {
+			time.Sleep(*caseDelay)
+		}
 	}
 
 	summary := summarize(selectedModel, int(timeout.Seconds()), time.Since(start), results)
@@ -254,6 +265,38 @@ func (e *liveEvaluator) run(ctx context.Context, tc eval.TestCase) caseResult {
 	default:
 		return errorResult(res, start, fmt.Errorf("category %q is not live-eval capable", tc.Category))
 	}
+}
+
+func (e *liveEvaluator) runWithRetry(ctx context.Context, tc eval.TestCase, maxRetries int) caseResult {
+	var last caseResult
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		last = e.run(ctx, tc)
+		if last.Error == "" || !isTransientProviderError(last.Error) {
+			return last
+		}
+		if attempt == maxRetries {
+			return last
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 2 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			last.Error = ctx.Err().Error()
+			last.Details = last.Error
+			return last
+		case <-timer.C:
+		}
+	}
+	return last
+}
+
+func isTransientProviderError(err string) bool {
+	lower := strings.ToLower(err)
+	return strings.Contains(lower, "429") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "temporarily unavailable")
 }
 
 func alertEnvelope(tc eval.TestCase) alert.AlertEnvelope {
@@ -485,6 +528,18 @@ func selectCases(cases []eval.TestCase, categories []eval.Category, maxCases int
 			return selected
 		}
 	}
+}
+
+func shuffleCases(cases []eval.TestCase, seed int64) []eval.TestCase {
+	out := append([]eval.TestCase(nil), cases...)
+	if seed == 0 {
+		seed = time.Now().UnixNano()
+	}
+	r := rand.New(rand.NewSource(seed)) // #nosec G404 -- eval sampling, not security-sensitive.
+	r.Shuffle(len(out), func(i, j int) {
+		out[i], out[j] = out[j], out[i]
+	})
+	return out
 }
 
 func loadDotEnv(path string) {

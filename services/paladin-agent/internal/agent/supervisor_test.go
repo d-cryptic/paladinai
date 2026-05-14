@@ -135,6 +135,26 @@ func TestSupervisorPipeline_P3_RoutesToTriage(t *testing.T) {
 	assert.False(t, state.NeedsHuman)
 }
 
+func TestSupervisorPipeline_SpecialistRouteFallsBackToTriage(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"service_down","agent_type":"runbook","severity":"P2","confidence":0.88}`}
+	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
+	triager := &fakeTriager{result: makeTriageRes("P2", true)}
+	rca := &fakeRCA{result: makeRCARes()}
+
+	sp := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "Known Postgres Failover Procedure"
+	env.Description = "Standard failover: promote replica, update DNS, verify replication"
+	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
+	require.NoError(t, err)
+
+	assert.Equal(t, "runbook", state.AgentType)
+	assert.Equal(t, 1, triager.calls)
+	assert.Equal(t, 0, rca.calls)
+	require.NotNil(t, state.TriageResult)
+}
+
 func TestSupervisorPipeline_RCANil_FallsBackToTriage(t *testing.T) {
 	ctx := context.Background()
 	stub := &stubModel{response: `{"intent":"oom","agent_type":"rca","severity":"P1","confidence":0.9}`}
@@ -280,6 +300,86 @@ func TestClassifierAgent_StripsMarkdownFence(t *testing.T) {
 
 	res, err := c.Classify(ctx, &env)
 	require.NoError(t, err)
-	assert.Equal(t, "rca", res.AgentType)
+	assert.Equal(t, "triage", res.AgentType)
 	assert.Equal(t, "oom", res.Intent)
+}
+
+func TestClassifierAgent_AcceptsSpecialistRoutes(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"service_down","agent_type":"runbook","severity":"P2","confidence":0.8}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "Known Postgres Failover Procedure"
+	env.Description = "Standard failover runbook documented"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "runbook", res.AgentType)
+}
+
+func TestClassifierAgent_DerivesSpecialistRouteFromAlert(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"triage","severity":"P2","confidence":0.8}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "Kafka consumer lag"
+	env.Description = "Consumer group rebalance loop recurring"
+	env.Labels["job"] = "kafka"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "memory", res.AgentType)
+}
+
+func TestClassifierAgent_NormalizesKnownHTTP5xxIntent(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"triage","severity":"P2","confidence":0.8}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "HTTP 5xx Rate Elevated"
+	env.Description = "Error rate at 12%, threshold 5%"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "service_down", res.Intent)
+}
+
+func TestClassifierAgent_NormalizesNonOOMMemoryPressure(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"oom","agent_type":"rca","severity":"P3","confidence":0.8}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP3)
+	env.Title = "Container Memory High"
+	env.Description = "Memory usage at 85%, not yet OOM"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "metric_spike", res.Intent)
+	assert.Equal(t, "triage", res.AgentType)
+}
+
+func TestClassifierAgent_DerivesRunbookForLatencyRegression(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"metric_spike","agent_type":"triage","severity":"P2","confidence":0.8}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "checkout latency regression"
+	env.Description = "suspected recent deployment regression"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "runbook", res.AgentType)
+}
+
+func TestClassifierAgent_RedisMemoryPressureStaysTriage(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"capacity_warning","agent_type":"memory","severity":"P2","confidence":0.8}`}
+	c := agent.NewClassifierAgent(stub, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "redis memory pressure"
+	env.Description = "redis maxmemory eviction"
+
+	res, err := c.Classify(ctx, &env)
+	require.NoError(t, err)
+	assert.Equal(t, "triage", res.AgentType)
 }
