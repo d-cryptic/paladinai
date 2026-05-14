@@ -52,10 +52,15 @@ var (
 
 // Model is the Bubble Tea model for the alert dashboard.
 type Model struct {
-	table  table.Model
-	alerts []Alert
-	tenant string
-	err    error
+	table        table.Model
+	alerts       []Alert
+	tenant       string
+	err          error
+	mode         string
+	commandInput string
+	slashMode    bool
+	helpVisible  bool
+	recent       []string
 }
 
 // AlertsLoadedMsg is sent when alerts are fetched from the API.
@@ -85,7 +90,7 @@ func New(tenant string) Model {
 	s.Selected = s.Selected.Foreground(lipgloss.Color("#FFFDF5")).Background(lipgloss.Color("#25A065")).Bold(false)
 	t.SetStyles(s)
 
-	return Model{table: t, tenant: tenant}
+	return Model{table: t, tenant: tenant, mode: "monitor"}
 }
 
 // SetAlerts updates the model with a fresh batch of alerts.
@@ -125,11 +130,22 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.slashMode {
+			next, cmd := m.updateCommandInput(msg)
+			return next, cmd
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "r":
 			return m, nil // caller can wire a refresh command
+		case "/":
+			m.slashMode = true
+			m.commandInput = "/"
+			return m, nil
+		case "?":
+			m.helpVisible = !m.helpVisible
+			return m, nil
 		}
 	case AlertsLoadedMsg:
 		m = m.SetAlerts([]Alert(msg))
@@ -142,10 +158,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) updateCommandInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.slashMode = false
+		m.commandInput = ""
+		return m, nil
+	case tea.KeyBackspace:
+		if len(m.commandInput) > 0 {
+			m.commandInput = m.commandInput[:len(m.commandInput)-1]
+		}
+		if m.commandInput == "" {
+			m.slashMode = false
+		}
+		return m, nil
+	case tea.KeyEnter:
+		command := strings.TrimSpace(m.commandInput)
+		m.slashMode = false
+		m.commandInput = ""
+		if command != "" {
+			m.recent = append([]string{command}, m.recent...)
+		}
+		return m.applySlashCommand(command)
+	case tea.KeyRunes:
+		m.commandInput += string(msg.Runes)
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) applySlashCommand(command string) (tea.Model, tea.Cmd) {
+	name := strings.Fields(strings.TrimPrefix(command, "/"))
+	if len(name) == 0 {
+		return m, nil
+	}
+	switch name[0] {
+	case "q", "quit":
+		return m, tea.Quit
+	case "help":
+		m.helpVisible = true
+	case "tail":
+		m.mode = "tail"
+	case "config":
+		m.mode = "configure"
+	case "incidents":
+		m.mode = "monitor"
+	default:
+		m.err = fmt.Errorf("unknown command: /%s", name[0])
+	}
+	return m, nil
+}
+
 // View renders the dashboard.
 func (m Model) View() string {
-	header := titleStyle.Render(fmt.Sprintf(" PaladinAI Dashboard — tenant: %s ", m.tenant))
-	help := helpStyle.Render("↑/↓ navigate  •  r refresh  •  q quit")
+	header := titleStyle.Render(fmt.Sprintf(" PaladinAI Dashboard — tenant: %s • mode: %s ", m.tenant, m.mode))
+	help := helpStyle.Render("↑/↓ navigate  •  / commands  •  ? help  •  r refresh  •  q quit")
 
 	body := baseStyle.Render(m.table.View())
 
@@ -159,6 +226,32 @@ func (m Model) View() string {
 	if errLine != "" {
 		parts = append(parts, errLine)
 	}
+	if m.helpVisible {
+		parts = append(parts, helpOverlay())
+	}
+	parts = append(parts, commandBar(m))
 	parts = append(parts, help)
 	return strings.Join(parts, "\n")
+}
+
+func commandBar(m Model) string {
+	input := m.commandInput
+	if input == "" {
+		input = "_"
+	}
+	return helpStyle.Render("/incidents  /tail  /config  /help  /quit") + "\n> " + input
+}
+
+func helpOverlay() string {
+	return baseStyle.Render(strings.Join([]string{
+		"Keyboard",
+		"  /      command mode",
+		"  ?      toggle help",
+		"  q      quit",
+		"Commands",
+		"  /incidents  monitor mode",
+		"  /tail       live tail mode",
+		"  /config     configure mode",
+		"  /quit       exit",
+	}, "\n"))
 }

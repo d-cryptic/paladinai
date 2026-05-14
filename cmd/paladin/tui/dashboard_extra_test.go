@@ -59,6 +59,63 @@ func TestDashboardModel_Update_Refresh(t *testing.T) {
 	// should not panic
 }
 
+func TestDashboardModel_SlashCommandTailMode(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	wm := result.(Model)
+	if !wm.slashMode || wm.commandInput != "/" {
+		t.Fatalf("slash mode not started: %+v", wm)
+	}
+	result, _ = wm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("tail")})
+	wm = result.(Model)
+	result, cmd := wm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("tail command should not quit")
+	}
+	wm = result.(Model)
+	if wm.mode != "tail" {
+		t.Fatalf("mode = %q, want tail", wm.mode)
+	}
+	if len(wm.recent) != 1 || wm.recent[0] != "/tail" {
+		t.Fatalf("recent commands = %+v, want /tail", wm.recent)
+	}
+}
+
+func TestDashboardModel_SlashCommandHelpOverlay(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("help")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if !wm.helpVisible {
+		t.Fatal("help should be visible")
+	}
+	if !strings.Contains(wm.View(), "/incidents") {
+		t.Fatal("help view should contain slash commands")
+	}
+}
+
+func TestDashboardModel_SlashCommandQuit(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("quit")})
+	_, cmd := result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("quit command should return tea.Quit")
+	}
+}
+
+func TestDashboardModel_UnknownSlashCommandSetsError(t *testing.T) {
+	m := New("tenant-1")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("nope")})
+	result, _ = result.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wm := result.(Model)
+	if wm.err == nil || !strings.Contains(wm.err.Error(), "unknown command") {
+		t.Fatalf("expected unknown command error, got %v", wm.err)
+	}
+}
+
 func TestDashboardModel_Update_AlertsLoaded(t *testing.T) {
 	m := New("tenant-1")
 	alerts := AlertsLoadedMsg{
