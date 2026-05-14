@@ -199,14 +199,18 @@ func TestDoctorCmd_JSONMode_EmitsValidJSON(t *testing.T) {
 		runErr = rootCmd.Execute()
 	})
 
-	// The command fails because infra (NATS/Valkey/Qdrant/k8s) isn't running — that's expected.
-	// We only care that stdout is valid JSON.
-	_ = runErr
+	// Depending on CI environment and available services, checks may pass or fail.
+	// We only require the JSON output schema to stay valid and internally consistent.
 
 	var report DoctorReport
 	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &report)
 	require.NoError(t, err, "--json output must be valid JSON; got: %s", output)
-	assert.Equal(t, "pass", report.Overall)
+	assert.Equal(t, runErr == nil, report.Passed)
+	if runErr == nil {
+		assert.Equal(t, "pass", report.Overall)
+	} else {
+		assert.Equal(t, "fail", report.Overall)
+	}
 	assert.NotEmpty(t, report.Checks, "checks array must not be empty")
 	assert.NotEmpty(t, report.Timestamp)
 	for _, c := range report.Checks {
