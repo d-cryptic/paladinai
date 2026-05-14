@@ -8,12 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"strings"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/internal/guardrail"
 	"github.com/paladinai/paladinai/internal/tenantguard"
 	"go.uber.org/zap"
 )
@@ -169,6 +171,7 @@ func (t *TriageAgent) Triage(ctx context.Context, env *alert.AlertEnvelope) (*Tr
 		if !validSeverities[result.ConfirmedSeverity] {
 			result.ConfirmedSeverity = "P3"
 		}
+		result.sanitizeModelOutput()
 		return &result, nil
 	}
 
@@ -183,6 +186,7 @@ func (t *TriageAgent) Triage(ctx context.Context, env *alert.AlertEnvelope) (*Tr
 		}
 		result.Degraded = true
 	}
+	result.sanitizeModelOutput()
 
 	t.log.Info("triage complete",
 		zap.String("fingerprint", env.Fingerprint),
@@ -191,4 +195,17 @@ func (t *TriageAgent) Triage(ctx context.Context, env *alert.AlertEnvelope) (*Tr
 		zap.Bool("degraded", result.Degraded),
 	)
 	return &result, nil
+}
+
+func (r *TriageResult) sanitizeModelOutput() {
+	r.Summary = sanitizeModelOutputField(r.Summary)
+	r.LikelyCause = sanitizeModelOutputField(r.LikelyCause)
+	r.RecommendedAction = sanitizeModelOutputField(r.RecommendedAction)
+	for i, svc := range r.AffectedServices {
+		r.AffectedServices[i] = sanitizeModelOutputField(svc)
+	}
+}
+
+func sanitizeModelOutputField(value string) string {
+	return html.EscapeString(guardrail.SanitizeAlertField(value))
 }

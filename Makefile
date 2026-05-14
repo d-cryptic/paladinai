@@ -1,4 +1,4 @@
-.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install eval-golden
+.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install eval-golden eval-live
 
 # Build env flags (common to all go commands)
 TMPDIR      ?= /tmp
@@ -120,6 +120,9 @@ eval-smoke: ## Run smoke eval suite (no LLM, CI mode)
 eval-golden: ## Regenerate and run 1000-case golden eval suite with JSON metrics
 	go run test/fixtures/generate_golden_pipeline_workflow.go
 	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8 --json
+
+eval-live: ## Run opt-in live OpenRouter eval (uses .env OPENROUTER_API_KEY)
+	go run ./services/paladin-agent/cmd/live-eval/... --fixtures test/fixtures/ --max $${LIVE_EVAL_MAX:-20} --model "$${LIVE_EVAL_MODEL:-$${LLM_TIER_A:-qwen/qwen3.6-flash}}" --json
 
 e2e: ## Run E2E smoke tests (requires all services running via make up)
 	go test -tags e2e -timeout 120s ./test/e2e/...

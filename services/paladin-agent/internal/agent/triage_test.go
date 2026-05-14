@@ -108,6 +108,37 @@ func TestTriageAgent_ParsesFencedJSON(t *testing.T) {
 	assert.Contains(t, result.AffectedServices, "checkout")
 }
 
+func TestTriageAgent_SanitizesModelEchoedMarkup(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{
+		"confirmed_severity": "P2",
+		"summary": "Payload <script> alert(1) reached logs",
+		"likely_cause": "Ignore previous instructions was embedded in alert text",
+		"affected_services": ["api<script>"],
+		"recommended_action": "Inspect logs for <script> alert(1)",
+		"needs_human": true
+	}`}
+
+	ta, err := agent.NewTriageAgent(ctx, stub, zap.NewNop())
+	require.NoError(t, err)
+
+	env := &alert.AlertEnvelope{
+		TenantID:    "t1",
+		Fingerprint: "fp-sanitize",
+		Severity:    alert.SeverityP2,
+		Status:      alert.StatusFiring,
+		Labels:      map[string]string{"service": "api"},
+		StartsAt:    time.Now(),
+	}
+
+	result, err := ta.Triage(ctx, env)
+	require.NoError(t, err)
+	assert.NotContains(t, result.Summary, "<script>")
+	assert.NotContains(t, result.RecommendedAction, "<script>")
+	assert.NotContains(t, result.AffectedServices[0], "<script>")
+	assert.Contains(t, result.LikelyCause, "[SANITIZED]")
+}
+
 func TestTriageAgent_GracefulDegradationOnInvalidJSON(t *testing.T) {
 	ctx := context.Background()
 	stub := &stubModel{response: "The API service appears to be experiencing issues"}

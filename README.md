@@ -73,6 +73,28 @@ make down-clean        # stop and wipe data
 
 See `make help` for the full target list.
 
+## Local Evals
+
+Deterministic evals do not call external models:
+
+```bash
+make eval-golden
+```
+
+Live model evals are opt-in and use `.env` / `OPENROUTER_API_KEY`:
+
+```bash
+make eval-live
+LIVE_EVAL_MAX=40 LIVE_EVAL_MODEL=qwen/qwen3.6-flash make eval-live
+```
+
+Current live smoke baseline with `qwen/qwen3.6-flash` on OpenRouter:
+20 real LLM-backed cases, 80% pass rate, p50 7.8s, p95 15.6s, max
+16.9s. Classification, adversarial, and RCA correctness passed 100% on
+the sampled cases. Supervisor-routing is the remaining gap: fixtures expect
+specialist routes such as `runbook`, `integration`, and `memory`, while the
+current runtime routes only `triage` and `rca`.
+
 ## Architecture
 
 ```

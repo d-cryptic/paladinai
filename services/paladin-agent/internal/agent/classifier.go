@@ -19,13 +19,18 @@ import (
 const classifierSystemPrompt = `You are PaladinAI's routing agent. Classify this alert and determine which specialist to route to.
 
 OUTPUT: JSON only, no prose outside the JSON:
-{"intent":"log_analysis|metric_spike|service_down|oom","agent_type":"triage|rca","severity":"P1|P2|P3|P4","confidence":0.9}
+{"intent":"log_analysis|metric_spike|service_down|oom|network_issue|capacity_warning|config_drift|security_alert","agent_type":"triage|rca","severity":"P1|P2|P3|P4","confidence":0.9}
 
 Rules:
-- P1 or service_down → rca (always needs deep root cause analysis)
-- oom → rca (memory issues need deep investigation)
-- P2/P3/P4 + metric_spike → triage
-- P4 or log_analysis → triage
+- service_down, oom, security_alert, or P1 → rca
+- network_issue or capacity_warning at P1/P2 → rca; otherwise triage
+- metric_spike, log_analysis, config_drift → triage unless severity is P1
+- 5xx, 500, unavailable, healthcheck failing, connection refused, primary down, timeout cascade → service_down
+- CPU, latency, p99, saturation, lag, disk IO, replication delay, error-rate-but-not-outage → metric_spike
+- certificate expiry, TLS expiry, log rate, audit/event-only warnings → log_analysis
+- configmap, ingress drift, source-of-truth mismatch → config_drift
+- disk full soon, pool exhausted, node pressure, bandwidth saturated, queue/log backlog → capacity_warning
+- packet loss, DNS, upstream connection errors, egress network symptoms → network_issue
 - confidence: how certain you are (0.0-1.0)`
 
 // ClassificationResult is the structured output from the classifier.
@@ -37,10 +42,14 @@ type ClassificationResult struct {
 }
 
 var validIntents = map[string]bool{
-	"log_analysis": true,
-	"metric_spike": true,
-	"service_down": true,
-	"oom":          true,
+	"log_analysis":     true,
+	"metric_spike":     true,
+	"service_down":     true,
+	"oom":              true,
+	"network_issue":    true,
+	"capacity_warning": true,
+	"config_drift":     true,
+	"security_alert":   true,
 }
 
 // ClassifierAgent classifies an alert and determines routing.
@@ -127,7 +136,10 @@ func (c *ClassifierAgent) heuristicFallback(env *alert.AlertEnvelope) *Classific
 }
 
 func (c *ClassifierAgent) routeByHeuristic(severity, intent string) string {
-	if severity == "P1" || intent == "service_down" || intent == "oom" {
+	if severity == "P1" || intent == "service_down" || intent == "oom" || intent == "security_alert" {
+		return "rca"
+	}
+	if severity == "P2" && (intent == "network_issue" || intent == "capacity_warning") {
 		return "rca"
 	}
 	return "triage"
