@@ -46,7 +46,9 @@ func run() error {
 		return fmt.Errorf("ADMIN_SECRET is required")
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	otel, err := telemetry.Init(ctx, "paladin-auth", conf.Base.ServiceVersion, conf.Base.OtelEndpoint, log)
 	if err != nil {
 		return fmt.Errorf("telemetry: %w", err)
@@ -105,17 +107,20 @@ func run() error {
 		IdleTimeout:  conf.Server.IdleTimeout,
 	}
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
+	serverErr := make(chan error, 1)
 	go func() {
 		log.Info("paladin-auth listening", zap.Int("port", conf.Server.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server error", zap.Error(err))
+			serverErr <- fmt.Errorf("server: %w", err)
 		}
 	}()
 
-	<-quit
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+	}
+
 	log.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
 	defer cancel()

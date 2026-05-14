@@ -145,15 +145,21 @@ func main() {
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
+	serverErr := make(chan error, 1)
 	go func() {
 		log.Info("paladin-hub listening", zap.String("addr", addr))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("server error", zap.Error(err))
-			os.Exit(1)
+			serverErr <- fmt.Errorf("server: %w", err)
 		}
 	}()
 
-	<-ctx.Done()
+	select {
+	case err := <-serverErr:
+		log.Error("server error", zap.Error(err))
+		return
+	case <-ctx.Done():
+	}
+
 	log.Info("shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)

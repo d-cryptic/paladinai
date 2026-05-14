@@ -45,8 +45,10 @@ func run() error {
 	log := logger.Must("paladin-ingest")
 	defer log.Sync() //nolint:errcheck
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Telemetry
-	ctx := context.Background()
 	otel, err := telemetry.Init(ctx, "paladin-ingest", conf.Base.ServiceVersion, conf.Base.OtelEndpoint, log)
 	if err != nil {
 		return fmt.Errorf("telemetry: %w", err)
@@ -114,18 +116,20 @@ func run() error {
 		IdleTimeout:  conf.Server.IdleTimeout,
 	}
 
-	// Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
+	serverErr := make(chan error, 1)
 	go func() {
 		log.Info("paladin-ingest listening", zap.Int("port", conf.Server.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server error", zap.Error(err))
+			serverErr <- fmt.Errorf("server: %w", err)
 		}
 	}()
 
-	<-quit
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+	}
+
 	log.Info("shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), conf.Server.ShutdownTimeout)
