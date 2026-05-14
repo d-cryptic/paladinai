@@ -149,7 +149,11 @@ func (w *Worker) Run(ctx context.Context, js jetstream.JetStream, consumerName s
 				wg.Wait()
 				return fmt.Errorf("worker: consumer stopped unexpectedly")
 			}
-			sem <- struct{}{}
+			if !acquireSlot(ctx, sem) {
+				_ = msg.Nak()
+				wg.Wait()
+				return ctx.Err()
+			}
 			wg.Add(1)
 			go func(m jetstream.Msg) {
 				defer wg.Done()
@@ -157,6 +161,15 @@ func (w *Worker) Run(ctx context.Context, js jetstream.JetStream, consumerName s
 				w.handleMsg(ctx, m)
 			}(msg)
 		}
+	}
+}
+
+func acquireSlot(ctx context.Context, sem chan<- struct{}) bool {
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
