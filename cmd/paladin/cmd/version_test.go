@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -13,6 +15,12 @@ import (
 )
 
 func TestVersionCmd_OutputContainsVersion(t *testing.T) {
+	oldVersion := Version
+	oldCommit := Commit
+	t.Cleanup(func() {
+		Version = oldVersion
+		Commit = oldCommit
+	})
 	Version = "v2.0.0-test"
 	Commit = "abc123"
 
@@ -94,6 +102,52 @@ func TestVersionCmd_CheckJSON(t *testing.T) {
 	assert.Equal(t, "v2.1.0", result.Latest)
 	assert.True(t, result.UpdateAvailable)
 	assert.NotEmpty(t, result.Upgrade)
+}
+
+func TestRunBackgroundUpdateCheckSkipsWhenRecent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 5, 14, 6, 0, 0, 0, time.UTC)
+	oldClock := updateCheckClock
+	t.Cleanup(func() { updateCheckClock = oldClock })
+	updateCheckClock = func() time.Time { return now }
+
+	require.NoError(t, saveConfig(&PaladinConfig{
+		OutputFormat:    "table",
+		LastUpdateCheck: now.Add(-time.Hour),
+	}))
+
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls++
+	}))
+	defer srv.Close()
+
+	var stderr bytes.Buffer
+	require.NoError(t, runBackgroundUpdateCheck(t.Context(), srv.URL, "v2.0.0", &stderr))
+	assert.Equal(t, 0, calls)
+	assert.Empty(t, stderr.String())
+}
+
+func TestRunBackgroundUpdateCheckWritesNoticeAndTimestamp(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 5, 14, 6, 0, 0, 0, time.UTC)
+	oldClock := updateCheckClock
+	t.Cleanup(func() { updateCheckClock = oldClock })
+	updateCheckClock = func() time.Time { return now }
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"v2.1.0","upgrade":"paladin update"}`))
+	}))
+	defer srv.Close()
+
+	var stderr bytes.Buffer
+	require.NoError(t, runBackgroundUpdateCheck(t.Context(), srv.URL, "v2.0.0", &stderr))
+
+	assert.Contains(t, stderr.String(), "paladin update available: v2.0.0 -> v2.1.0")
+	cfg, err := loadConfig()
+	require.NoError(t, err)
+	assert.True(t, cfg.LastUpdateCheck.Equal(now))
 }
 
 func TestIsNewerVersion(t *testing.T) {

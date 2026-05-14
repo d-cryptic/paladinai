@@ -44,10 +44,11 @@ func configPath() string {
 // Token is retained only to read legacy plaintext configs; new tokens are stored
 // in the OS keychain and are never written back to this file.
 type PaladinConfig struct {
-	APIEndpoint   string `yaml:"api_endpoint"`
-	AuthEndpoint  string `yaml:"auth_endpoint"`
-	DefaultTenant string `yaml:"default_tenant"`
-	OutputFormat  string `yaml:"output_format"`
+	APIEndpoint     string    `yaml:"api_endpoint"`
+	AuthEndpoint    string    `yaml:"auth_endpoint"`
+	DefaultTenant   string    `yaml:"default_tenant"`
+	OutputFormat    string    `yaml:"output_format"`
+	LastUpdateCheck time.Time `yaml:"last_update_check,omitempty"`
 	// Token is omitted when empty so PALADIN_TOKEN remains the production mechanism.
 	Token string `yaml:"token,omitempty"`
 }

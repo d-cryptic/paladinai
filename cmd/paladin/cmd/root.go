@@ -25,6 +25,9 @@ Environment variables:
   PALADIN_AUTH_URL  Base URL of paladin-auth (default: http://localhost:9003)
   PALADIN_TENANT    Tenant ID for all requests
   PALADIN_TOKEN     API authentication token`,
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		maybeStartBackgroundUpdateCheck(cmd)
+	},
 	RunE: runRoot,
 }
 
