@@ -44,22 +44,7 @@ Examples:
 			return fmt.Errorf("invalid --source %q: must be one of github, confluence, notion, file", source)
 		}
 
-		repo, _ := cmd.Flags().GetString("repo")
-		path, _ := cmd.Flags().GetString("path")
-		space, _ := cmd.Flags().GetString("space")
-
-		payload := map[string]any{
-			"source": source,
-		}
-		if repo != "" {
-			payload["repo"] = repo
-		}
-		if path != "" {
-			payload["path"] = path
-		}
-		if space != "" {
-			payload["space"] = space
-		}
+		payload := runbookImportPayload(cmd, source)
 
 		data, err := json.Marshal(payload)
 		if err != nil {
@@ -106,6 +91,17 @@ type runbooksImportResult struct {
 	Imported int    `json:"imported"`
 	JobID    string `json:"job_id,omitempty"`
 	Message  string `json:"message,omitempty"`
+}
+
+func runbookImportPayload(cmd *cobra.Command, source string) map[string]any {
+	payload := map[string]any{"source": source}
+	for _, key := range []string{"repo", "path", "space", "branch", "url", "database-id", "token"} {
+		value, _ := cmd.Flags().GetString(key)
+		if strings.TrimSpace(value) != "" {
+			payload[key] = value
+		}
+	}
+	return payload
 }
 
 func writeRunbooksImportResult(cmd *cobra.Command, result runbooksImportResult) error {
@@ -294,6 +290,10 @@ func init() {
 	runbooksImportCmd.Flags().String("repo", "", "GitHub repository (owner/repo) — for --source github")
 	runbooksImportCmd.Flags().String("path", "", "Path within repo or local file path")
 	runbooksImportCmd.Flags().String("space", "", "Confluence/Notion space key — for --source confluence/notion")
+	runbooksImportCmd.Flags().String("branch", "", "Git branch to import from — for --source github")
+	runbooksImportCmd.Flags().String("url", "", "Source base URL — for Confluence or other hosted sources")
+	runbooksImportCmd.Flags().String("database-id", "", "Notion database ID — for --source notion")
+	runbooksImportCmd.Flags().String("token", "", "Source access token; prefer env vars in shells")
 
 	runbooksListCmd.Flags().Int("limit", 50, "Maximum number of runbooks to return")
 	runbooksListCmd.Flags().String("source", "", "Filter by source type")
