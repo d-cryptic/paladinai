@@ -286,6 +286,28 @@ func TestCreateTenant_InvalidBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
+func TestCreateTenant_OversizedBody(t *testing.T) {
+	r, _ := newRouter()
+	body := append([]byte(`{"slug":"ok-slug","name":"`), bytes.Repeat([]byte("x"), 64*1024)...)
+	body = append(body, []byte(`"}`)...)
+	req := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Admin-Secret", testAdminSecret)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+}
+
+func TestCreateTenant_RejectsMultipleJSONDocuments(t *testing.T) {
+	r, _ := newRouter()
+	req := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewBufferString(`{"slug":"ok-slug","name":"Ok"} {}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Admin-Secret", testAdminSecret)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
 func TestCreateTenant_EmptyName(t *testing.T) {
 	r, _ := newRouter()
 	req := adminReq(http.MethodPost, "/tenants", bodyJSON(map[string]string{"slug": "ok-slug", "name": ""}))

@@ -220,10 +220,25 @@ func (h *Handler) issueToken(w http.ResponseWriter, r *http.Request) {
 // decodeBody reads and JSON-decodes the request body with size and field restrictions.
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxBodyBytes))
+	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body exceeds 64 KiB")
+			return false
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return false
+	}
+	var extra struct{}
+	if err := dec.Decode(&extra); err != io.EOF {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body exceeds 64 KiB")
+			return false
+		}
+		writeError(w, http.StatusBadRequest, "invalid request body: must contain a single JSON document")
 		return false
 	}
 	return true
