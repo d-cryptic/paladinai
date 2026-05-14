@@ -9,6 +9,8 @@ import (
 	"github.com/paladinai/paladinai/internal/storm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // fakeStore is a minimal in-memory implementation of storm.Store.
@@ -129,4 +131,19 @@ func TestDetector_DefaultBurstAndWindow(t *testing.T) {
 	isStorm, _, err = d.Record(ctx, "tenant-1")
 	require.NoError(t, err)
 	assert.True(t, isStorm)
+}
+
+func TestDetector_LogsOnlyWhenThresholdIsCrossed(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+	d := storm.New(newFakeStore(), zap.New(core)).WithBurst(3).WithWindow(time.Minute)
+	ctx := context.Background()
+
+	for i := 0; i < 6; i++ {
+		_, _, err := d.Record(ctx, "tenant-1")
+		require.NoError(t, err)
+	}
+
+	entries := logs.FilterMessage("alert storm detected").All()
+	require.Len(t, entries, 1)
+	assert.Equal(t, int64(3), entries[0].ContextMap()["count"])
 }

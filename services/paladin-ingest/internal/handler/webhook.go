@@ -174,7 +174,7 @@ func (h *WebhookHandler) handleWebhook(
 		if stormErr != nil {
 			h.log.Warn("storm detector error", zap.String("tenant", tenantID), zap.Error(stormErr))
 		} else if isStorm {
-			h.log.Warn("alert storm in progress",
+			h.log.Debug("alert storm in progress",
 				zap.String("tenant", tenantID),
 				zap.Int64("count", stormCount),
 			)

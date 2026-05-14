@@ -78,7 +78,7 @@ func (d *Detector) Record(ctx context.Context, tenantID string) (storm bool, cou
 	}
 
 	storm = count >= d.burst
-	if storm {
+	if count == d.burst {
 		d.log.Warn("alert storm detected",
 			zap.String("tenant", tenantID),
 			zap.Int64("count", count),
