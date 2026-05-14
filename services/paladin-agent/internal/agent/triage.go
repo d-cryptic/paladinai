@@ -109,7 +109,7 @@ func NewTriageAgent(ctx context.Context, m model.ToolCallingChatModel, log *zap.
 	a, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: m,
 		MessageModifier:  react.NewPersonaModifier(tenantguard.TrustedBoundarySystemPrompt + "\n\n" + triageSystemPrompt), //nolint:staticcheck
-		MaxStep:          10,
+		MaxStep:          1,
 		GraphName:        "PaladinTriageAgent",
 	})
 	if err != nil {
