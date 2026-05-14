@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/internal/workflow"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,6 +55,20 @@ func (f *blockingRCA) Analyze(ctx context.Context, _ *alert.AlertEnvelope, _ *ag
 	f.calls++
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+type fakeRunbook struct {
+	result *agent.RunbookResult
+	err    error
+	calls  int
+}
+
+func (f *fakeRunbook) Runbook(_ context.Context, _ *alert.AlertEnvelope) (*agent.RunbookResult, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
 }
 
 func makeSupEnv(sev alert.Severity) alert.AlertEnvelope {
@@ -135,7 +150,41 @@ func TestSupervisorPipeline_P3_RoutesToTriage(t *testing.T) {
 	assert.False(t, state.NeedsHuman)
 }
 
-func TestSupervisorPipeline_SpecialistRouteFallsBackToTriage(t *testing.T) {
+func TestSupervisorPipeline_RunbookRouteUsesRunbookSpecialist(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"service_down","agent_type":"runbook","severity":"P2","confidence":0.88}`}
+	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
+	triager := &fakeTriager{result: makeTriageRes("P2", true)}
+	rca := &fakeRCA{result: makeRCARes()}
+	runbook := &fakeRunbook{result: &agent.RunbookResult{
+		Plan: workflow.RunbookPlan{
+			RunbookID: "postgres-failover",
+			Name:      "Postgres Failover",
+			Steps: []workflow.RunbookStep{
+				{StepID: "verify", Name: "verify replica", Type: workflow.StepTypeHumanAction},
+			},
+		},
+	}}
+
+	sp := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop()).
+		WithRunbookSpecialist(runbook)
+	env := makeSupEnv(alert.SeverityP2)
+	env.Title = "Known Postgres Failover Procedure"
+	env.Description = "Standard failover: promote replica, update DNS, verify replication"
+	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
+	require.NoError(t, err)
+
+	assert.Equal(t, "runbook", state.AgentType)
+	assert.Equal(t, 0, triager.calls)
+	assert.Equal(t, 0, rca.calls)
+	assert.Equal(t, 1, runbook.calls)
+	require.NotNil(t, state.RunbookPlan)
+	assert.Equal(t, "postgres-failover", state.RunbookPlan.RunbookID)
+	assert.True(t, state.NeedsHuman)
+	assert.Nil(t, state.TriageResult)
+}
+
+func TestSupervisorPipeline_RunbookRouteFallsBackToTriageWhenUnconfigured(t *testing.T) {
 	ctx := context.Background()
 	stub := &stubModel{response: `{"intent":"service_down","agent_type":"runbook","severity":"P2","confidence":0.88}`}
 	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
@@ -153,6 +202,7 @@ func TestSupervisorPipeline_SpecialistRouteFallsBackToTriage(t *testing.T) {
 	assert.Equal(t, 1, triager.calls)
 	assert.Equal(t, 0, rca.calls)
 	require.NotNil(t, state.TriageResult)
+	assert.Nil(t, state.RunbookPlan)
 }
 
 func TestSupervisorPipeline_RCANil_FallsBackToTriage(t *testing.T) {

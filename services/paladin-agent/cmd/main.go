@@ -229,6 +229,7 @@ func main() {
 	// This is the production path. The worker dispatches through the supervisor
 	// instead of calling triager/rca directly, giving us the classifier gate.
 	supervisor := agent.NewSupervisorPipeline(classifierAgent, triageAgent, rcaAgent, log).
+		WithRunbookSpecialist(agent.NewPlanningRunbookSpecialist(agent.StaticRunbookSelector{}, nil, log)).
 		WithTimeouts(cfg.TriageTimeout, cfg.RCATimeout)
 
 	// ── NATS ─────────────────────────────────────────────────────────────────

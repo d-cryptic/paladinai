@@ -18,6 +18,7 @@ type SupervisorPipeline struct {
 	classifier    *ClassifierAgent
 	triager       Triager
 	rca           RCAAnalyzer // optional; if nil, alerts routed to "rca" fall back to triage
+	runbook       RunbookSpecialist
 	log           *zap.Logger
 	triageTimeout time.Duration
 	rcaTimeout    time.Duration
@@ -41,6 +42,12 @@ func NewSupervisorPipeline(classifier *ClassifierAgent, triager Triager, rcaAnal
 func (s *SupervisorPipeline) WithTimeouts(triageTimeout, rcaTimeout time.Duration) *SupervisorPipeline {
 	s.triageTimeout = triageTimeout
 	s.rcaTimeout = rcaTimeout
+	return s
+}
+
+// WithRunbookSpecialist configures the runbook execution path.
+func (s *SupervisorPipeline) WithRunbookSpecialist(runbook RunbookSpecialist) *SupervisorPipeline {
+	s.runbook = runbook
 	return s
 }
 
@@ -104,13 +111,31 @@ func (s *SupervisorPipeline) Process(ctx context.Context, state *IncidentState) 
 			state.NeedsHuman = tr.NeedsHuman
 		}
 
-	case "runbook", "memory", "integration":
-		// Specialist workers are not yet separate runtime dependencies in this
-		// process. Preserve the classified route for observability/evals, then
-		// execute triage as the safe baseline path until the specialist is wired.
-		s.log.Info("supervisor: specialist route falling back to triage",
-			zap.String("agent_type", state.AgentType),
-		)
+	case "runbook":
+		if s.runbook != nil {
+			runbookCtx, runbookCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
+			rr, err := s.runbook.Runbook(runbookCtx, &state.Alert)
+			runbookCancel()
+			if err != nil {
+				return state, fmt.Errorf("supervisor: runbook: %w", err)
+			}
+			state.RunbookPlan = &rr.Plan
+			state.RunbookResults = rr.Results
+			state.NeedsHuman = runbookNeedsHuman(rr)
+			return state, nil
+		}
+		s.log.Info("supervisor: runbook not configured, falling back to triage")
+		triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
+		tr, err := s.triager.Triage(triageCtx, &state.Alert)
+		triageCancel()
+		if err != nil {
+			return state, fmt.Errorf("supervisor: runbook fallback triage: %w", err)
+		}
+		state.TriageResult = tr
+		state.NeedsHuman = tr.NeedsHuman
+
+	case "memory", "integration":
+		s.log.Info("supervisor: specialist route falling back to triage", zap.String("agent_type", state.AgentType))
 		triageCtx, triageCancel := contextWithOptionalTimeout(ctx, s.triageTimeout)
 		tr, err := s.triager.Triage(triageCtx, &state.Alert)
 		triageCancel()
@@ -132,6 +157,18 @@ func (s *SupervisorPipeline) Process(ctx context.Context, state *IncidentState) 
 	}
 
 	return state, nil
+}
+
+func runbookNeedsHuman(result *RunbookResult) bool {
+	if result == nil {
+		return false
+	}
+	for _, step := range result.Plan.Steps {
+		if step.RequiresApproval || step.Type == "human_action" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SupervisorPipeline) effectiveRCATimeout() time.Duration {
