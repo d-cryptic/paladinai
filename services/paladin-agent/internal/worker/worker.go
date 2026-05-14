@@ -202,7 +202,7 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	pctx, cancel := context.WithTimeout(ctx, w.triageTimeout)
 	defer cancel()
 
-	result, err := w.triager.Triage(pctx, &env)
+	result, rcaResult, err := w.process(pctx, &env)
 	if err != nil {
 		if deliveries >= maxDeliveries {
 			w.log.Error("worker: triage failed at max deliveries, routing to DLQ",
@@ -224,25 +224,6 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 			w.log.Warn("worker: NakWithDelay failed", zap.Error(nakErr))
 		}
 		return
-	}
-
-	// Optionally run RCA after triage. On failure, fall back to triage-only publish.
-	var rcaResult *agent.RCAResult
-	if w.rcaAnalyzer != nil {
-		timeout := w.rcaTimeout
-		if timeout <= 0 {
-			timeout = w.triageTimeout
-		}
-		rcaCtx, rcaCancel := context.WithTimeout(ctx, timeout)
-		rcaResult, err = w.rcaAnalyzer.Analyze(rcaCtx, &env, result)
-		rcaCancel() // cancel immediately; do not defer (timer would run until handleMsg returns)
-		if err != nil {
-			w.log.Warn("worker: rca failed, publishing triage-only result",
-				zap.String("fingerprint", env.Fingerprint),
-				zap.Error(err),
-			)
-			rcaResult = nil // ensure fallback to triaged subject
-		}
 	}
 
 	// Publish downstream before Acking.
@@ -345,9 +326,34 @@ func nakDelay(deliveries uint64) time.Duration {
 // ProcessEnvelope runs the full pipeline (triage, optional RCA) for a single envelope.
 // Exported for tests that bypass the NATS consumer.
 func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) error {
-	triage, err := w.triager.Triage(ctx, env)
+	triage, rca, err := w.process(ctx, env)
 	if err != nil {
 		return err
+	}
+	return w.publishCombined(ctx, env, triage, rca)
+}
+
+func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.TriageResult, *agent.RCAResult, error) {
+	if w.supervisor != nil {
+		state, err := w.supervisor.Process(ctx, &agent.IncidentState{
+			TenantID: env.TenantID,
+			Alert:    *env,
+		})
+		if err == nil {
+			if state.TriageResult == nil {
+				return nil, nil, errors.New("supervisor: missing triage result")
+			}
+			return state.TriageResult, state.RCAResult, nil
+		}
+		w.log.Warn("supervisor pipeline failed, falling back to direct triage",
+			zap.String("fingerprint", env.Fingerprint),
+			zap.Error(err),
+		)
+	}
+
+	triage, err := w.triager.Triage(ctx, env)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var rca *agent.RCAResult
@@ -368,7 +374,7 @@ func (w *Worker) ProcessEnvelope(ctx context.Context, env *alert.AlertEnvelope) 
 		}
 	}
 
-	return w.publishCombined(ctx, env, triage, rca)
+	return triage, rca, nil
 }
 
 // TriageEnvelope runs only the triage agent on the envelope and returns the result.

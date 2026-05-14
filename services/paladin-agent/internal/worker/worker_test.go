@@ -2,10 +2,13 @@ package worker_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/worker"
@@ -60,6 +63,25 @@ func (s *stubTriager) callCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.calls)
+}
+
+type classifierModel struct {
+	response string
+	err      error
+}
+
+func (m classifierModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return schema.AssistantMessage(m.response, nil), nil
+}
+
+func (m classifierModel) Stream(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return nil, nil
 }
 
 type stubPublisher struct {
@@ -306,10 +328,71 @@ func TestWorkerWithSupervisor_ReturnsCopyWithSupervisor(t *testing.T) {
 	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).WithSupervisor(nil)
 	require.NotNil(t, w, "WithSupervisor should return a non-nil Worker")
 
-	// ProcessEnvelope still uses the direct triager path when called directly.
+	// Nil supervisor preserves the direct triager path.
 	err := w.ProcessEnvelope(context.Background(), firingEnv("t5", "fp-sup"))
 	require.NoError(t, err)
 	assert.Equal(t, 1, triager.callCount())
+}
+
+func TestWorkerWithSupervisor_ProcessEnvelopeRoutesToRCA(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P1", NeedsHuman: true}}
+	rca := &stubRCA{result: &agent.RCAResult{Confidence: "HIGH"}}
+	pub := &stubPublisher{}
+	classifier := agent.NewClassifierAgent(classifierModel{
+		response: `{"intent":"service_down","agent_type":"rca","severity":"P1","confidence":0.96}`,
+	}, zap.NewNop())
+	supervisor := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop())
+
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).
+		WithRCA(rca).
+		WithSupervisor(supervisor)
+
+	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("tenant-sup", "fp-sup-rca")))
+
+	assert.Equal(t, 1, triager.callCount())
+	assert.Equal(t, 1, rca.callCount())
+	assert.Equal(t, 1, pub.count())
+	assert.Contains(t, pub.lastSubject(), "paladin.alerts.analyzed.")
+}
+
+func TestWorkerWithSupervisor_ProcessEnvelopeRoutesToTriage(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P3", NeedsHuman: false}}
+	rca := &stubRCA{result: &agent.RCAResult{Confidence: "HIGH"}}
+	pub := &stubPublisher{}
+	classifier := agent.NewClassifierAgent(classifierModel{
+		response: `{"intent":"metric_spike","agent_type":"triage","severity":"P3","confidence":0.82}`,
+	}, zap.NewNop())
+	supervisor := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop())
+
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).
+		WithRCA(rca).
+		WithSupervisor(supervisor)
+
+	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("tenant-sup", "fp-sup-triage")))
+
+	assert.Equal(t, 1, triager.callCount())
+	assert.Equal(t, 0, rca.callCount(), "supervisor triage route must skip RCA")
+	assert.Equal(t, 1, pub.count())
+	assert.Contains(t, pub.lastSubject(), "paladin.alerts.triaged.")
+}
+
+func TestWorkerWithSupervisor_FailureFallsBackToDirectPath(t *testing.T) {
+	triager := &stubTriager{result: &agent.TriageResult{ConfirmedSeverity: "P2", NeedsHuman: true}}
+	rca := &stubRCA{result: &agent.RCAResult{Confidence: "HIGH"}}
+	pub := &stubPublisher{}
+	classifier := agent.NewClassifierAgent(classifierModel{err: errors.New("classifier unavailable")}, zap.NewNop())
+	supervisor := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop())
+
+	w := worker.New(triager, pub, 5*time.Second, 2, zap.NewNop()).
+		WithRCA(rca).
+		WithSupervisor(supervisor)
+
+	require.NoError(t, w.ProcessEnvelope(context.Background(), firingEnv("tenant-sup", "fp-sup-fallback")))
+
+	assert.Equal(t, 1, triager.callCount())
+	assert.Equal(t, 1, rca.callCount(), "fallback should preserve direct RCA behavior")
+	assert.Equal(t, 1, pub.count())
+	assert.Contains(t, pub.lastSubject(), "paladin.alerts.analyzed.")
 }
 
 func TestWorkerConcurrencyDefault_ZeroConcurrency(t *testing.T) {
