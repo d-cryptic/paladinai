@@ -158,6 +158,53 @@ func TestWriteRunbooksImportResult_HumanCompletedImport(t *testing.T) {
 	}
 }
 
+func TestRunbookImportPayloadIncludesDocumentedFlags(t *testing.T) {
+	cmd := &cobra.Command{Use: "import"}
+	for _, key := range []string{"repo", "path", "space", "branch", "url", "database-id", "token"} {
+		cmd.Flags().String(key, "", "")
+	}
+	values := map[string]string{
+		"repo":        "acme/runbooks",
+		"path":        "docs/runbooks",
+		"space":       "ENG",
+		"branch":      "main",
+		"url":         "https://acme.atlassian.net",
+		"database-id": "notion-db",
+		"token":       "secret-token",
+	}
+	for key, value := range values {
+		if err := cmd.Flags().Set(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	payload := runbookImportPayload(cmd, "github")
+
+	if payload["source"] != "github" {
+		t.Fatalf("source = %v, want github", payload["source"])
+	}
+	for key, value := range values {
+		if payload[key] != value {
+			t.Fatalf("payload[%s] = %v, want %s", key, payload[key], value)
+		}
+	}
+}
+
+func TestWriteRunbooksImportResultDoesNotExposeToken(t *testing.T) {
+	cmd := newRunbooksOutputTestCmd(false)
+
+	stdout := captureStdout(t, func() {
+		err := writeRunbooksImportResult(cmd, runbooksImportResult{Source: "github", JobID: "job-123"})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if strings.Contains(stdout, "secret-token") {
+		t.Fatalf("stdout exposed token: %s", stdout)
+	}
+}
+
 func newRunbooksOutputTestCmd(ci bool) *cobra.Command {
 	cmd := &cobra.Command{Use: "runbooks"}
 	cmd.Flags().StringP("output", "o", "table", "")
