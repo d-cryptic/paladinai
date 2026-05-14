@@ -235,7 +235,7 @@ func (c *MemL3) Get(ctx context.Context, tenantID, toolName string, args any) ([
 	if !ok || time.Now().After(e.expiresAt) {
 		return nil, nil
 	}
-	return e.value, nil
+	return append([]byte(nil), e.value...), nil
 }
 
 func (c *MemL3) Set(ctx context.Context, tenantID, toolName string, args any, result []byte) error {
@@ -247,7 +247,7 @@ func (c *MemL3) Set(ctx context.Context, tenantID, toolName string, args any, re
 		return err
 	}
 	c.mu.Lock()
-	c.entries[key] = memEntry{value: result, expiresAt: time.Now().Add(L3TTL(toolName))}
+	c.entries[key] = memEntry{value: append([]byte(nil), result...), expiresAt: time.Now().Add(L3TTL(toolName))}
 	c.mu.Unlock()
 	return nil
 }

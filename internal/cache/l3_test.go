@@ -156,6 +156,35 @@ func TestMemL3_SetAndGet(t *testing.T) {
 	}
 }
 
+func TestMemL3_IsolatesCachedBytes(t *testing.T) {
+	c := NewMemL3()
+	ctx := context.Background()
+	args := map[string]string{"pod": "api"}
+	value := []byte(`{"cpu": "50m"}`)
+
+	if err := c.Set(ctx, "t1", "mcp-k8s", args, value); err != nil {
+		t.Fatal(err)
+	}
+	value[9] = '9'
+
+	got, err := c.Get(ctx, "t1", "mcp-k8s", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"cpu": "50m"}` {
+		t.Fatalf("cached value mutated through Set input: %q", got)
+	}
+
+	got[9] = '8'
+	again, err := c.Get(ctx, "t1", "mcp-k8s", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != `{"cpu": "50m"}` {
+		t.Fatalf("cached value mutated through Get result: %q", again)
+	}
+}
+
 func TestMemL3_UncacheableToolIsNoop(t *testing.T) {
 	c := NewMemL3()
 	ctx := context.Background()
