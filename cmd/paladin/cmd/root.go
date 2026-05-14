@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +24,10 @@ Environment variables:
   PALADIN_AUTH_URL  Base URL of paladin-auth (default: http://localhost:9003)
   PALADIN_TENANT    Tenant ID for all requests
   PALADIN_TOKEN     API authentication token`,
+	RunE: runRoot,
 }
+
+var rootIsTerminal = isatty.IsTerminal
 
 // Execute runs the root command.
 func Execute() error {
@@ -119,4 +123,14 @@ func isCIMode(cmd *cobra.Command) bool {
 // Opt-out via PALADIN_NO_TELEMETRY=1 or config telemetry=false.
 func telemetryEnabled() bool {
 	return os.Getenv("PALADIN_NO_TELEMETRY") == ""
+}
+
+func runRoot(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return cmd.Help()
+	}
+	if isCIMode(cmd) || !rootIsTerminal(os.Stdout.Fd()) {
+		return cmd.Help()
+	}
+	return dashboardCmd.RunE(cmd, nil)
 }
