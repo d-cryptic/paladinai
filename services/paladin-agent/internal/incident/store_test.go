@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -183,13 +184,22 @@ func TestStore_StartReplay_CrossTenant(t *testing.T) {
 // ─── ReplayPublisher tests ────────────────────────────────────────────────────
 
 type fakeReplayPublisher struct {
+	mu       sync.Mutex
 	subjects []string
 	err      error
 }
 
 func (f *fakeReplayPublisher) Publish(_ context.Context, subject string, _ []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.subjects = append(f.subjects, subject)
 	return f.err
+}
+
+func (f *fakeReplayPublisher) Subjects() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.subjects...)
 }
 
 func TestReplay_PublishesToNATS(t *testing.T) {
@@ -220,11 +230,12 @@ func TestReplay_PublishesToNATS(t *testing.T) {
 	// Give the goroutine time to publish.
 	time.Sleep(50 * time.Millisecond)
 
-	if len(pub.subjects) != 1 {
-		t.Fatalf("want 1 NATS publish, got %d", len(pub.subjects))
+	subjects := pub.Subjects()
+	if len(subjects) != 1 {
+		t.Fatalf("want 1 NATS publish, got %d", len(subjects))
 	}
-	if !strings.Contains(pub.subjects[0], "paladin.alerts.raw") {
-		t.Errorf("expected raw ingest subject, got %q", pub.subjects[0])
+	if !strings.Contains(subjects[0], "paladin.alerts.raw") {
+		t.Errorf("expected raw ingest subject, got %q", subjects[0])
 	}
 }
 
@@ -250,8 +261,8 @@ func TestReplay_NoEnvelope_MarksResolvedWithoutPublish(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// No publish should happen.
-	if len(pub.subjects) != 0 {
-		t.Errorf("expected no NATS publish for legacy incident, got %d", len(pub.subjects))
+	if subjects := pub.Subjects(); len(subjects) != 0 {
+		t.Errorf("expected no NATS publish for legacy incident, got %d", len(subjects))
 	}
 }
 
@@ -317,8 +328,8 @@ func TestReplay_InvalidFingerprintDoesNotPublish(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if len(pub.subjects) != 0 {
-		t.Fatalf("expected no NATS publish for invalid fingerprint, got %d", len(pub.subjects))
+	if subjects := pub.Subjects(); len(subjects) != 0 {
+		t.Fatalf("expected no NATS publish for invalid fingerprint, got %d", len(subjects))
 	}
 
 	var result map[string]any
