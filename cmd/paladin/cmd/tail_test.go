@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -176,4 +177,44 @@ func TestPrintEvent_NoSideEffectsOnDiscard(t *testing.T) {
 	}
 	w := tabwriter.NewWriter(io.Discard, 0, 0, 2, ' ', 0)
 	printEvent(w, ev)
+}
+
+func TestPrintEventJSON_WritesOneEventPerLine(t *testing.T) {
+	ev := AlertEvent{
+		Fingerprint:   "fp-1",
+		Severity:      "p1",
+		Status:        "firing",
+		Service:       "api",
+		Title:         "High latency",
+		CorrelationID: "corr-1",
+		StartsAt:      time.Date(2026, 5, 14, 5, 0, 0, 0, time.UTC),
+	}
+
+	var sb strings.Builder
+	if err := printEventJSON(&sb, ev); err != nil {
+		t.Fatalf("printEventJSON: %v", err)
+	}
+
+	if !strings.HasSuffix(sb.String(), "\n") {
+		t.Fatalf("json stream event must end with newline, got %q", sb.String())
+	}
+	var got AlertEvent
+	if err := json.Unmarshal([]byte(sb.String()), &got); err != nil {
+		t.Fatalf("unmarshal json event: %v", err)
+	}
+	if got.Fingerprint != "fp-1" || got.Service != "api" {
+		t.Fatalf("unexpected event: %+v", got)
+	}
+}
+
+func TestIsJSONStreamMode_RootPersistentFlag(t *testing.T) {
+	cmd := newTestCmd("", "", "")
+	cmd.PersistentFlags().Bool("json-stream", false, "")
+	if err := cmd.PersistentFlags().Set("json-stream", "true"); err != nil {
+		t.Fatalf("set json-stream: %v", err)
+	}
+
+	if !isJSONStreamMode(cmd) {
+		t.Fatal("expected json stream mode")
+	}
 }

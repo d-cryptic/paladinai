@@ -213,3 +213,13 @@ func TestRunRoot_SimpleModeUsesAlertListPath(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tenant ID is required")
 }
+
+func TestRunRoot_JSONStreamUsesTailPath(t *testing.T) {
+	cmd := newTestCmd("", "", "http://api")
+	cmd.Flags().Bool("json-stream", true, "")
+
+	err := runRoot(cmd, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tenant ID is required")
+}
