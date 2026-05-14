@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -78,17 +79,20 @@ func runTail(cmd *cobra.Command, _ []string) error {
 	}
 
 	header := tailAuthHeaders(tenant, token)
+	jsonStream := isJSONStreamMode(cmd)
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tSEVERITY\tSERVICE\tSTATUS\tALERT")
-	w.Flush()
+	if !jsonStream {
+		fmt.Fprintln(w, "TIME\tSEVERITY\tSERVICE\tSTATUS\tALERT")
+		w.Flush()
+	}
 
 	fmt.Fprintf(os.Stderr, "Connecting to %s (tenant: %s) — Ctrl+C to quit\n", wsURL, tenant)
 
-	return connectAndStream(ctx, wsURL, header, w)
+	return connectAndStream(ctx, wsURL, header, w, jsonStream)
 }
 
 func tailAuthHeaders(tenant, token string) http.Header {
@@ -103,7 +107,7 @@ func tailAuthHeaders(tenant, token string) http.Header {
 
 // connectAndStream connects to the WebSocket URL and writes arriving events to w.
 // It reconnects with exponential backoff on unexpected disconnects.
-func connectAndStream(ctx context.Context, wsURL string, header http.Header, w *tabwriter.Writer) error {
+func connectAndStream(ctx context.Context, wsURL string, header http.Header, w *tabwriter.Writer, jsonStream bool) error {
 	backoff := time.Second
 	dialer := websocket.Dialer{HandshakeTimeout: wsDialTimeout}
 
@@ -132,7 +136,7 @@ func connectAndStream(ctx context.Context, wsURL string, header http.Header, w *
 		backoff = time.Second // reset on successful connect
 		fmt.Fprintln(os.Stderr, "connected")
 
-		reconnect := streamMessages(ctx, conn, w)
+		reconnect := streamMessages(ctx, conn, w, jsonStream)
 		conn.Close()
 
 		if !reconnect || ctx.Err() != nil {
@@ -150,7 +154,7 @@ func connectAndStream(ctx context.Context, wsURL string, header http.Header, w *
 
 // streamMessages reads events from conn until ctx is cancelled or the connection
 // closes unexpectedly. Returns true if a reconnect should be attempted.
-func streamMessages(ctx context.Context, conn *websocket.Conn, w *tabwriter.Writer) bool {
+func streamMessages(ctx context.Context, conn *websocket.Conn, w *tabwriter.Writer, jsonStream bool) bool {
 	// Extend read deadline on each pong to detect half-open connections.
 	conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	conn.SetPongHandler(func(string) error {
@@ -196,6 +200,10 @@ func streamMessages(ctx context.Context, conn *websocket.Conn, w *tabwriter.Writ
 		if err := json.Unmarshal(msg, &ev); err != nil {
 			continue // skip malformed frames
 		}
+		if jsonStream {
+			_ = printEventJSON(os.Stdout, ev)
+			continue
+		}
 		printEvent(w, ev)
 	}
 }
@@ -217,6 +225,28 @@ func printEvent(w *tabwriter.Writer, ev AlertEvent) {
 	}
 	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ts, sev, svc, ev.Status, title)
 	w.Flush()
+}
+
+func printEventJSON(dst io.Writer, ev AlertEvent) error {
+	if err := json.NewEncoder(dst).Encode(ev); err != nil {
+		return fmt.Errorf("write alert event json: %w", err)
+	}
+	return nil
+}
+
+func isJSONStreamMode(cmd *cobra.Command) bool {
+	if f := cmd.Flag("json-stream"); f != nil && f.Value.String() == "true" {
+		return true
+	}
+	if f := cmd.InheritedFlags().Lookup("json-stream"); f != nil && f.Value.String() == "true" {
+		return true
+	}
+	if root := cmd.Root(); root != nil {
+		if f := root.PersistentFlags().Lookup("json-stream"); f != nil && f.Value.String() == "true" {
+			return true
+		}
+	}
+	return false
 }
 
 // alertWSURL converts the HTTP api base URL into a WebSocket alerts URL and
