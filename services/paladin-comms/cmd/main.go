@@ -122,7 +122,10 @@ func main() {
 			continue
 		}
 
-		sem <- struct{}{}
+		if !acquireSlot(ctx, sem) {
+			_ = msg.Nak()
+			goto shutdown
+		}
 		go func(m jetstream.Msg) {
 			defer func() { <-sem }()
 			if procErr := h.ProcessMessage(ctx, m); procErr != nil {
@@ -151,4 +154,13 @@ func commsHTTPPort() string {
 		return port
 	}
 	return "9009"
+}
+
+func acquireSlot(ctx context.Context, sem chan<- struct{}) bool {
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
