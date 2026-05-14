@@ -25,6 +25,21 @@ func TestMemStore_CreateAndGet(t *testing.T) {
 	assert.Equal(t, tenant.ID, got.ID)
 }
 
+func TestMemStore_CreateReturnDoesNotMutateStoredTenant(t *testing.T) {
+	s := store.NewMemStore()
+	ctx := context.Background()
+
+	tenant, err := s.Create(ctx, "isolated", "Isolated")
+	require.NoError(t, err)
+	tenant.State = store.TenantStateSuspended
+	tenant.Name = "mutated"
+
+	got, err := s.Get(ctx, tenant.ID)
+	require.NoError(t, err)
+	assert.Equal(t, store.TenantStateActive, got.State)
+	assert.Equal(t, "Isolated", got.Name)
+}
+
 func TestMemStore_GetBySlug(t *testing.T) {
 	s := store.NewMemStore()
 	ctx := context.Background()

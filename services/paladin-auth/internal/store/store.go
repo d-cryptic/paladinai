@@ -76,7 +76,8 @@ func (s *MemStore) Create(_ context.Context, slug, name string) (*Tenant, error)
 	}
 	s.byID[t.ID] = t
 	s.bySlug[t.Slug] = t
-	return t, nil
+	cp := *t
+	return &cp, nil
 }
 
 func (s *MemStore) Get(_ context.Context, id string) (*Tenant, error) {

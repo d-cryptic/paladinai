@@ -27,10 +27,6 @@ func (f *FakeEpisodicStore) Write(_ context.Context, req *memoryv1.WriteEpisodeR
 		return "", fmt.Errorf("memory: fake episodic write: tenant_id and incident_id are required")
 	}
 	id := uuid.NewString()
-	labels := req.Labels
-	if labels == nil {
-		labels = map[string]string{}
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.episodes = append(f.episodes, &Episode{
@@ -42,7 +38,7 @@ func (f *FakeEpisodicStore) Write(_ context.Context, req *memoryv1.WriteEpisodeR
 		RootCause:   req.RootCause,
 		Resolution:  req.Resolution,
 		Severity:    req.Severity,
-		Labels:      labels,
+		Labels:      cloneEpisodeLabels(req.Labels),
 		ValidAt:     time.Now().UTC(),
 		RecordedAt:  time.Now().UTC(),
 	})
@@ -69,7 +65,7 @@ func (f *FakeEpisodicStore) Search(_ context.Context, tenantID, query string, to
 			!strings.Contains(strings.ToLower(ep.Severity), q) {
 			continue
 		}
-		out = append(out, ep)
+		out = append(out, cloneEpisode(ep))
 		if len(out) >= topK {
 			break
 		}
@@ -100,6 +96,26 @@ func (f *FakeEpisodicStore) Delete(_ context.Context, tenantID string, incidentI
 	}
 	f.episodes = kept
 	return deleted, nil
+}
+
+func cloneEpisode(ep *Episode) *Episode {
+	if ep == nil {
+		return nil
+	}
+	cp := *ep
+	cp.Labels = cloneEpisodeLabels(ep.Labels)
+	return &cp
+}
+
+func cloneEpisodeLabels(labels map[string]string) map[string]string {
+	if labels == nil {
+		return map[string]string{}
+	}
+	cp := make(map[string]string, len(labels))
+	for k, v := range labels {
+		cp[k] = v
+	}
+	return cp
 }
 
 // FakeWorkingStore is an in-memory WorkingStore for unit tests.

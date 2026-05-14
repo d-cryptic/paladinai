@@ -164,6 +164,32 @@ func TestFakeEpisodicStore_Delete_CrossTenantNotDeleted(t *testing.T) {
 	assert.Len(t, results, 1, "t2's episode must survive t1's delete")
 }
 
+func TestFakeEpisodicStore_IsolatesLabels(t *testing.T) {
+	t.Parallel()
+	s := store.NewFakeEpisodicStore()
+	labels := map[string]string{"env": "prod"}
+	_, err := s.Write(context.Background(), &memoryv1.WriteEpisodeRequest{
+		TenantID:   "t1",
+		IncidentID: "inc-labels",
+		Summary:    "summary",
+		Severity:   "P2",
+		Labels:     labels,
+	})
+	require.NoError(t, err)
+	labels["env"] = "mutated"
+
+	results, err := s.Search(context.Background(), "t1", "", 10)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "prod", results[0].Labels["env"])
+
+	results[0].Labels["env"] = "search-mutated"
+	again, err := s.Search(context.Background(), "t1", "", 10)
+	require.NoError(t, err)
+	require.Len(t, again, 1)
+	assert.Equal(t, "prod", again[0].Labels["env"])
+}
+
 func TestFakeEpisodicStore_Write_NilRequest_ReturnsError(t *testing.T) {
 	t.Parallel()
 	s := store.NewFakeEpisodicStore()
