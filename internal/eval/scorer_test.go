@@ -116,6 +116,52 @@ func TestAgentTypeScore(t *testing.T) {
 	}
 }
 
+func TestCostRegressionScore(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		baseline int
+		observed int
+		wantPass bool
+	}{
+		{"under baseline", 1000, 950, true},
+		{"within ten percent", 1000, 1100, true},
+		{"over ten percent", 1000, 1101, false},
+		{"invalid baseline", 0, 1, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := CostRegressionScore(tc.baseline, tc.observed, 0.10)
+			assert.Equal(t, tc.wantPass, s.Pass)
+			assert.GreaterOrEqual(t, s.Score, 0.0)
+			assert.LessOrEqual(t, s.Score, 1.0)
+		})
+	}
+}
+
+func TestLatencyBudgetScore(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		budget   int
+		observed int
+		wantPass bool
+	}{
+		{"under budget", 5000, 4200, true},
+		{"equal budget", 5000, 5000, true},
+		{"over budget", 5000, 5100, false},
+		{"invalid budget", 0, 1, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := LatencyBudgetScore(tc.budget, tc.observed)
+			assert.Equal(t, tc.wantPass, s.Pass)
+			assert.GreaterOrEqual(t, s.Score, 0.0)
+			assert.LessOrEqual(t, s.Score, 1.0)
+		})
+	}
+}
+
 func TestAggregateResults(t *testing.T) {
 	t.Parallel()
 	t.Run("empty", func(t *testing.T) {

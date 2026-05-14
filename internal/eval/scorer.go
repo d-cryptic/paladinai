@@ -140,6 +140,51 @@ func ToolF1Score(expected, got []string) Score {
 	}
 }
 
+// CostRegressionScore checks whether observed token usage is within the
+// tolerated increase over a stable baseline. The Stage 10 default tolerance is
+// 10%, so callers should pass 0.10.
+func CostRegressionScore(baselineTokens, observedTokens int, tolerance float64) Score {
+	if baselineTokens <= 0 {
+		return Score{Pass: false, Score: 0, Details: "baseline_tokens must be positive"}
+	}
+	if observedTokens < 0 {
+		return Score{Pass: false, Score: 0, Details: "observed_tokens must not be negative"}
+	}
+	limit := float64(baselineTokens) * (1 + tolerance)
+	pass := float64(observedTokens) <= limit
+	score := 1.0
+	if !pass && observedTokens > 0 {
+		score = limit / float64(observedTokens)
+	}
+	return Score{
+		Pass:  pass,
+		Score: clamp01(score),
+		Details: fmt.Sprintf("baseline=%d observed=%d limit=%.0f tolerance=%.2f",
+			baselineTokens, observedTokens, limit, tolerance),
+	}
+}
+
+// LatencyBudgetScore checks whether observed latency stays within the
+// per-case budget expressed in milliseconds.
+func LatencyBudgetScore(budgetMS, observedMS int) Score {
+	if budgetMS <= 0 {
+		return Score{Pass: false, Score: 0, Details: "latency_budget_ms must be positive"}
+	}
+	if observedMS < 0 {
+		return Score{Pass: false, Score: 0, Details: "observed_latency_ms must not be negative"}
+	}
+	pass := observedMS <= budgetMS
+	score := 1.0
+	if !pass && observedMS > 0 {
+		score = float64(budgetMS) / float64(observedMS)
+	}
+	return Score{
+		Pass:    pass,
+		Score:   clamp01(score),
+		Details: fmt.Sprintf("budget_ms=%d observed_ms=%d", budgetMS, observedMS),
+	}
+}
+
 // AggregateResults returns the pass rate and mean score across the slice.
 func AggregateResults(scores []Score) (passRate, meanScore float64) {
 	if len(scores) == 0 {
@@ -154,6 +199,16 @@ func AggregateResults(scores []Score) (passRate, meanScore float64) {
 		sum += s.Score
 	}
 	return float64(passed) / float64(len(scores)), sum / float64(len(scores))
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func toSet(items []string) map[string]struct{} {

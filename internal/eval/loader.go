@@ -90,10 +90,32 @@ func validateCase(tc TestCase) error {
 	if !tc.Category.Valid() {
 		return fmt.Errorf("invalid category %q", tc.Category)
 	}
-	// Summary, tool_use, and adversarial cases may have empty or unusual titles.
-	if tc.Category != CategorySummary && tc.Category != CategoryToolUse && tc.Category != CategoryAdversarial {
+	// Summary, tool_use, adversarial, and regression-budget cases may have empty
+	// or unusual titles because they validate scorer/gate behavior rather than
+	// alert classification shape.
+	if tc.Category != CategorySummary &&
+		tc.Category != CategoryToolUse &&
+		tc.Category != CategoryAdversarial &&
+		tc.Category != CategoryCostRegression &&
+		tc.Category != CategoryLatencyBudget {
 		if strings.TrimSpace(tc.Alert.Title) == "" {
 			return fmt.Errorf("missing alert.title")
+		}
+	}
+	if tc.Category == CategoryCostRegression {
+		if tc.BaselineTokens <= 0 {
+			return fmt.Errorf("baseline_tokens must be positive")
+		}
+		if tc.ObservedTokens < 0 {
+			return fmt.Errorf("observed_tokens must not be negative")
+		}
+	}
+	if tc.Category == CategoryLatencyBudget {
+		if tc.LatencyBudgetMS <= 0 {
+			return fmt.Errorf("latency_budget_ms must be positive")
+		}
+		if tc.ObservedLatencyMS < 0 {
+			return fmt.Errorf("observed_latency_ms must not be negative")
 		}
 	}
 	if !tc.HasExpectations() {

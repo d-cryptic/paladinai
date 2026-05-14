@@ -96,6 +96,8 @@ func TestLoadFixtures_RealFixtures(t *testing.T) {
 	assert.Greater(t, cats[CategorySummary], 0)
 	assert.Greater(t, cats[CategoryAdversarial], 0)
 	assert.GreaterOrEqual(t, cats[CategorySupervisorRouting], 200, "expect 200+ supervisor routing cases")
+	assert.GreaterOrEqual(t, cats[CategoryCostRegression], 50, "expect 50+ cost regression cases")
+	assert.GreaterOrEqual(t, cats[CategoryLatencyBudget], 50, "expect 50+ latency budget cases")
 }
 
 func TestLoadFixtures_SupervisorRoutingCategory(t *testing.T) {
@@ -108,4 +110,40 @@ func TestLoadFixtures_SupervisorRoutingCategory(t *testing.T) {
 	require.Len(t, cases, 1)
 	assert.Equal(t, CategorySupervisorRouting, cases[0].Category)
 	assert.Equal(t, "triage", cases[0].ExpectedAgentType)
+}
+
+func TestLoadFixtures_CostRegressionCategory(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"id":"cost-001","category":"cost_regression","description":"token budget","baseline_tokens":1000,"observed_tokens":1080}` + "\n"
+	writeJSONL(t, dir, "cost.jsonl", content)
+
+	cases, err := LoadFixtures(dir)
+	require.NoError(t, err)
+	require.Len(t, cases, 1)
+	assert.Equal(t, CategoryCostRegression, cases[0].Category)
+	assert.Equal(t, 1000, cases[0].BaselineTokens)
+	assert.Equal(t, 1080, cases[0].ObservedTokens)
+}
+
+func TestLoadFixtures_LatencyBudgetCategory(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"id":"lat-001","category":"latency_budget","description":"latency budget","latency_budget_ms":5000,"observed_latency_ms":4200}` + "\n"
+	writeJSONL(t, dir, "latency.jsonl", content)
+
+	cases, err := LoadFixtures(dir)
+	require.NoError(t, err)
+	require.Len(t, cases, 1)
+	assert.Equal(t, CategoryLatencyBudget, cases[0].Category)
+	assert.Equal(t, 5000, cases[0].LatencyBudgetMS)
+	assert.Equal(t, 4200, cases[0].ObservedLatencyMS)
+}
+
+func TestLoadFixtures_CostRegressionRequiresBaseline(t *testing.T) {
+	dir := t.TempDir()
+	writeJSONL(t, dir, "cost.jsonl",
+		`{"id":"cost-001","category":"cost_regression","description":"token budget","observed_tokens":1080}`)
+
+	_, err := LoadFixtures(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseline_tokens")
 }
