@@ -118,6 +118,22 @@ export const sloBudget = [
   { service: "job-queue", budget: 64, tone: "good" },
 ]
 
+export const qualityTrend = [
+  { time: "18:50", accuracy: 83, latency: 31 },
+  { time: "19:00", accuracy: 86, latency: 28 },
+  { time: "19:10", accuracy: 88, latency: 24 },
+  { time: "19:20", accuracy: 89, latency: 22 },
+  { time: "19:30", accuracy: 91, latency: 19 },
+  { time: "19:40", accuracy: 92, latency: 17 },
+  { time: "19:50", accuracy: 93, latency: 16 },
+]
+
+export const modelMix = [
+  { tier: "Tier A", label: "qwen3-1.7b", share: 71, color: "from-violet-500 to-fuchsia-500" },
+  { tier: "Tier B", label: "qwen3-8b", share: 24, color: "from-emerald-500 to-cyan-500" },
+  { tier: "Tier C", label: "deepseek-v3", share: 5, color: "from-amber-500 to-orange-500" },
+]
+
 export const runbooks = [
   ["Pool exhaustion", "payments-db-pool", "embedded"],
   ["Redis latency", "auth-cache-latency", "embedded"],

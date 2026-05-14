@@ -31,6 +31,8 @@ test.describe("local dashboard", () => {
     await expect(page.getByText("Agent path")).toBeVisible();
     await expect(page.getByText("Error budget")).toBeVisible();
     await expect(page.getByText("Activity")).toBeVisible();
+    await expect(page.getByText("Eval quality")).toBeVisible();
+    await expect(page.getByText("Model mix")).toBeVisible();
   });
 
   test("filters incidents and updates selected detail", async ({ page }) => {

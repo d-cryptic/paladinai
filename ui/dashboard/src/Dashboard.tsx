@@ -45,6 +45,8 @@ import {
   incidentTrend,
   incidents,
   integrations,
+  modelMix,
+  qualityTrend,
   runbooks,
   severitySplit,
   sloBudget,
@@ -241,6 +243,8 @@ export function Dashboard() {
 
             <div className="grid gap-2.5">
               <SeverityDonut />
+              <QualityTrendCard />
+              <ModelMixCard />
               <SLOBudgetCard />
               <ActivityStream />
               <SideStacks />
@@ -587,6 +591,108 @@ function SeverityDonut() {
             </div>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function QualityTrendCard() {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">LLM evals</CardDescription>
+            <CardTitle className="text-[15px]">Eval quality</CardTitle>
+          </div>
+          <div className="rounded-full border bg-background/70 px-2 py-1 text-xs text-muted-foreground">93% acc</div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="h-36" aria-label="Eval quality chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={qualityTrend} margin={{ left: -28, right: 4, top: 8, bottom: 0 }}>
+              <defs>
+                <linearGradient id="accuracy-fill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.28} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="latency-fill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.22} />
+                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="time" tickLine={false} axisLine={false} minTickGap={16} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
+              <YAxis hide domain={[0, 100]} />
+              <Tooltip
+                cursor={{ stroke: "hsl(var(--border))" }}
+                contentStyle={{
+                  borderRadius: 8,
+                  borderColor: "hsl(var(--border))",
+                  background: "hsl(var(--card))",
+                  color: "hsl(var(--foreground))",
+                  boxShadow: "0 12px 32px rgba(15, 23, 42, 0.12)",
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="accuracy"
+                stroke="#10b981"
+                strokeWidth={2}
+                fill="url(#accuracy-fill)"
+                isAnimationActive={false}
+              />
+              <Area
+                type="monotone"
+                dataKey="latency"
+                stroke="#8b5cf6"
+                strokeWidth={2}
+                fill="url(#latency-fill)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-emerald-500" />
+            accuracy
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-violet-500" />
+            latency
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ModelMixCard() {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-2">
+        <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.08em]">Router policy</CardDescription>
+        <CardTitle className="text-[15px]">Model mix</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {modelMix.map((item) => (
+          <div key={item.tier} className="grid gap-1.5">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-medium">{item.tier}</span>
+              <span className="min-w-0 truncate text-muted-foreground">{item.label}</span>
+              <span className="tabular-nums">{item.share}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <motion.div
+                className={cn("h-full rounded-full bg-gradient-to-r", item.color)}
+                initial={{ width: 0 }}
+                animate={{ width: `${item.share}%` }}
+                transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+              />
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   )
