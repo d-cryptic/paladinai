@@ -39,6 +39,25 @@ func TestMemL1_Expiry(t *testing.T) {
 	assert.Nil(t, v, "expired entry should be a miss")
 }
 
+func TestMemL1_CopiesValuesOnSetAndGet(t *testing.T) {
+	c := cache.NewMemL1()
+	ctx := context.Background()
+	key := cache.CacheKey([]byte("copy-test"))
+	value := []byte("original")
+
+	require.NoError(t, c.Set(ctx, key, value, time.Minute))
+	value[0] = 'X'
+
+	got, err := c.Get(ctx, key)
+	require.NoError(t, err)
+	require.Equal(t, []byte("original"), got)
+
+	got[0] = 'Y'
+	gotAgain, err := c.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("original"), gotAgain)
+}
+
 func TestCacheKey_Deterministic(t *testing.T) {
 	k1 := cache.CacheKey([]byte("same"))
 	k2 := cache.CacheKey([]byte("same"))

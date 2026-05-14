@@ -105,15 +105,23 @@ func (c *MemL1) Get(_ context.Context, key string) ([]byte, error) {
 	c.mu.RLock()
 	e, ok := c.entries[key]
 	c.mu.RUnlock()
-	if !ok || time.Now().After(e.expiresAt) {
+	if !ok {
 		return nil, nil
 	}
-	return e.value, nil
+	if time.Now().After(e.expiresAt) {
+		c.mu.Lock()
+		if current, exists := c.entries[key]; exists && time.Now().After(current.expiresAt) {
+			delete(c.entries, key)
+		}
+		c.mu.Unlock()
+		return nil, nil
+	}
+	return append([]byte(nil), e.value...), nil
 }
 
 func (c *MemL1) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {
 	c.mu.Lock()
-	c.entries[key] = memEntry{value: value, expiresAt: time.Now().Add(ttl)}
+	c.entries[key] = memEntry{value: append([]byte(nil), value...), expiresAt: time.Now().Add(ttl)}
 	c.mu.Unlock()
 	return nil
 }
