@@ -30,6 +30,9 @@ type IncidentState struct {
 	RunbookPlan    *workflow.RunbookPlan
 	RunbookResults []workflow.StepResult
 
+	// Integration output
+	IntegrationResult *IntegrationResult
+
 	// Control
 	NeedsHuman   bool
 	ErrorMessage string

@@ -71,6 +71,20 @@ func (f *fakeRunbook) Runbook(_ context.Context, _ *alert.AlertEnvelope) (*agent
 	return f.result, nil
 }
 
+type fakeIntegration struct {
+	result *agent.IntegrationResult
+	err    error
+	calls  int
+}
+
+func (f *fakeIntegration) DiagnoseIntegration(_ context.Context, _ *alert.AlertEnvelope) (*agent.IntegrationResult, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
+}
+
 func makeSupEnv(sev alert.Severity) alert.AlertEnvelope {
 	return alert.AlertEnvelope{
 		TenantID:    "tenant-sup",
@@ -205,6 +219,59 @@ func TestSupervisorPipeline_RunbookRouteFallsBackToTriageWhenUnconfigured(t *tes
 	assert.Equal(t, 0, rca.calls)
 	require.NotNil(t, state.TriageResult)
 	assert.Nil(t, state.RunbookPlan)
+}
+
+func TestSupervisorPipeline_IntegrationRouteUsesIntegrationSpecialist(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"service_down","agent_type":"integration","severity":"P1","confidence":0.9}`}
+	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
+	triager := &fakeTriager{result: makeTriageRes("P1", true)}
+	rca := &fakeRCA{result: makeRCARes()}
+	integration := &fakeIntegration{result: &agent.IntegrationResult{
+		Provider:          "stripe",
+		FailureMode:       "webhook_delivery_failure",
+		Checks:            []string{"check provider status page"},
+		RecommendedAction: "replay failed events",
+		NeedsHuman:        true,
+	}}
+
+	sp := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop()).
+		WithIntegrationSpecialist(integration)
+	env := makeSupEnv(alert.SeverityP1)
+	env.Title = "Payment Service Down"
+	env.Description = "All Stripe webhook deliveries failing"
+	env.Labels["service"] = "payments"
+	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
+	require.NoError(t, err)
+
+	assert.Equal(t, "integration", state.AgentType)
+	assert.Equal(t, 0, triager.calls)
+	assert.Equal(t, 0, rca.calls)
+	assert.Equal(t, 1, integration.calls)
+	require.NotNil(t, state.IntegrationResult)
+	assert.Equal(t, "stripe", state.IntegrationResult.Provider)
+	assert.True(t, state.NeedsHuman)
+}
+
+func TestSupervisorPipeline_IntegrationRouteFallsBackToTriageWhenUnconfigured(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{"intent":"service_down","agent_type":"integration","severity":"P1","confidence":0.9}`}
+	classifier := agent.NewClassifierAgent(stub, zap.NewNop())
+	triager := &fakeTriager{result: makeTriageRes("P1", true)}
+	rca := &fakeRCA{result: makeRCARes()}
+
+	sp := agent.NewSupervisorPipeline(classifier, triager, rca, zap.NewNop())
+	env := makeSupEnv(alert.SeverityP1)
+	env.Title = "Payment Service Down"
+	env.Description = "All Stripe webhook deliveries failing"
+	state, err := sp.Process(ctx, &agent.IncidentState{TenantID: env.TenantID, Alert: env})
+	require.NoError(t, err)
+
+	assert.Equal(t, "integration", state.AgentType)
+	assert.Equal(t, 1, triager.calls)
+	assert.Equal(t, 0, rca.calls)
+	require.NotNil(t, state.TriageResult)
+	assert.Nil(t, state.IntegrationResult)
 }
 
 func TestSupervisorPipeline_RCANil_FallsBackToTriage(t *testing.T) {
