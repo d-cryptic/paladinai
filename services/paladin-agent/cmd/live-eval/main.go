@@ -38,6 +38,7 @@ type caseResult struct {
 	AgentType      string        `json:"agent_type,omitempty"`
 	TriageDegraded bool          `json:"triage_degraded,omitempty"`
 	RCADegraded    bool          `json:"rca_degraded,omitempty"`
+	ProviderError  bool          `json:"provider_error,omitempty"`
 	Error          string        `json:"error,omitempty"`
 	duration       time.Duration `json:"-"`
 }
@@ -47,7 +48,9 @@ type liveSummary struct {
 	Total          int                     `json:"total"`
 	Passed         int                     `json:"passed"`
 	Failed         int                     `json:"failed"`
+	ProviderErrors int                     `json:"provider_errors"`
 	PassRate       float64                 `json:"pass_rate"`
+	ModelPassRate  float64                 `json:"model_pass_rate"`
 	MeanScore      float64                 `json:"mean_score"`
 	DurationMS     int64                   `json:"duration_ms"`
 	LatencyP50MS   int64                   `json:"latency_p50_ms"`
@@ -338,6 +341,9 @@ func summarize(model string, timeoutSeconds int, duration time.Duration, results
 	for _, r := range results {
 		s.Total++
 		s.MeanScore += r.Score
+		if r.ProviderError {
+			s.ProviderErrors++
+		}
 		if r.Pass {
 			s.Passed++
 		} else {
@@ -357,6 +363,10 @@ func summarize(model string, timeoutSeconds int, duration time.Duration, results
 	if s.Total > 0 {
 		s.PassRate = float64(s.Passed) / float64(s.Total)
 		s.MeanScore /= float64(s.Total)
+	}
+	modelScored := s.Total - s.ProviderErrors
+	if modelScored > 0 {
+		s.ModelPassRate = float64(s.Passed) / float64(modelScored)
 	}
 	s.LatencyMinMS, s.LatencyP50MS, s.LatencyP95MS, s.LatencyMaxMS = latencyStats(latencies)
 
@@ -406,6 +416,7 @@ func errorResult(res caseResult, start time.Time, err error) caseResult {
 	res.Pass = false
 	res.Score = 0
 	res.Error = err.Error()
+	res.ProviderError = isTransientProviderError(res.Error)
 	res.Details = err.Error()
 	return finishResult(res, start)
 }

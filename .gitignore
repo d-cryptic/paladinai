@@ -28,6 +28,9 @@ tmp/
 
 # Test binaries
 *.test
+sqlite_mcp_server.db
+*.sqlite
+*.sqlite3
 
 # Go workspace cache (use GOMODCACHE env instead)
 vendor/

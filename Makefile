@@ -122,7 +122,7 @@ eval-golden: ## Regenerate and run 1000-case golden eval suite with JSON metrics
 	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8 --json
 
 eval-live: ## Run opt-in live OpenRouter eval (uses .env OPENROUTER_API_KEY)
-	go run ./services/paladin-agent/cmd/live-eval/... --fixtures test/fixtures/ --max $${LIVE_EVAL_MAX:-20} --model "$${LIVE_EVAL_MODEL:-$${LLM_TIER_A:-qwen/qwen3.6-flash}}" --shuffle --seed $${LIVE_EVAL_SEED:-0} --retries $${LIVE_EVAL_RETRIES:-2} --case-delay $${LIVE_EVAL_CASE_DELAY:-0s} --json
+	go run ./services/paladin-agent/cmd/live-eval/... --fixtures test/fixtures/ --max $${LIVE_EVAL_MAX:-20} --model "$${LIVE_EVAL_MODEL:-$${LLM_TIER_A:-qwen/qwen3.6-flash}}" --shuffle --seed $${LIVE_EVAL_SEED:-0} --retries $${LIVE_EVAL_RETRIES:-4} --case-delay $${LIVE_EVAL_CASE_DELAY:-2s} --json
 
 e2e: ## Run E2E smoke tests (requires all services running via make up)
 	go test -tags e2e -timeout 120s ./test/e2e/...
