@@ -180,6 +180,35 @@ func TestMemEmbedder_SameTextSameVector(t *testing.T) {
 	}
 }
 
+func TestMemEmbedder_SimilarToSeedsMissingSource(t *testing.T) {
+	emb := NewMemEmbedder(8)
+	ctx := context.Background()
+
+	emb.SimilarTo("source query", "similar query")
+
+	source, err := emb.Embed(ctx, "source query")
+	if err != nil {
+		t.Fatal(err)
+	}
+	similar, err := emb.Embed(ctx, "similar query")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range source {
+		if source[i] != similar[i] {
+			t.Errorf("similar query should share source vector, diff at index %d", i)
+		}
+	}
+}
+
+func TestMemEmbedder_RejectsInvalidDimension(t *testing.T) {
+	emb := NewMemEmbedder(0)
+
+	if _, err := emb.Embed(context.Background(), "query"); err == nil {
+		t.Fatal("expected invalid dimension error")
+	}
+}
+
 // TestCosineSimilarity verifies the similarity helper with known values.
 func TestCosineSimilarity(t *testing.T) {
 	tests := []struct {

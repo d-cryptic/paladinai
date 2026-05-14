@@ -383,27 +383,33 @@ func NewMemEmbedder(dim int) *MemEmbedder {
 func (e *MemEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.dim <= 0 {
+		return nil, fmt.Errorf("mem embedder: dim must be positive")
+	}
+	return e.embedLocked(text), nil
+}
+
+func (e *MemEmbedder) embedLocked(text string) []float32 {
 	if v, ok := e.seen[text]; ok {
-		return v, nil
+		return v
 	}
 	// Create a basis vector with a single 1.0 at position next%dim.
 	v := make([]float32, e.dim)
 	v[e.next%e.dim] = 1.0
 	e.next++
 	e.seen[text] = v
-	return v, nil
+	return v
 }
 
 // SimilarTo registers text2 to return the same vector as text1 (simulating
-// semantic similarity). Panics if text1 has not been embedded yet.
+// semantic similarity). If text1 has not been embedded yet, it is seeded first.
 func (e *MemEmbedder) SimilarTo(text1, text2 string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	v, ok := e.seen[text1]
-	if !ok {
-		panic("MemEmbedder.SimilarTo: text1 '" + text1 + "' has not been embedded yet")
+	if e.dim <= 0 {
+		return
 	}
-	e.seen[text2] = v
+	e.seen[text2] = e.embedLocked(text1)
 }
 
 func (e *MemEmbedder) Dim() int { return e.dim }
