@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -167,6 +168,7 @@ func TestRunRoot_NonTTYShowsHelp(t *testing.T) {
 }
 
 func TestRunRoot_TTYLaunchesDashboardPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	oldIsTerminal := rootIsTerminal
 	t.Cleanup(func() { rootIsTerminal = oldIsTerminal })
 	rootIsTerminal = func(uintptr) bool { return true }
@@ -176,6 +178,31 @@ func TestRunRoot_TTYLaunchesDashboardPath(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tenant ID is required")
+}
+
+func TestMaybeShowFirstRunTourWritesMarker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cmd := newTestCmd("", "", "")
+
+	out := captureStdout(t, func() {
+		require.NoError(t, maybeShowFirstRunTour(cmd))
+	})
+
+	assert.Contains(t, out, "Welcome to PaladinAI")
+	assert.FileExists(t, firstRunPath())
+}
+
+func TestMaybeShowFirstRunTourSkipsWhenMarkerExists(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, os.MkdirAll(configDir(), 0o700))
+	require.NoError(t, os.WriteFile(firstRunPath(), []byte("shown\n"), 0o600))
+	cmd := newTestCmd("", "", "")
+
+	out := captureStdout(t, func() {
+		require.NoError(t, maybeShowFirstRunTour(cmd))
+	})
+
+	assert.Empty(t, out)
 }
 
 func TestRunRoot_TourShowsQuickTour(t *testing.T) {
