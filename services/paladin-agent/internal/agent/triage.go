@@ -96,6 +96,7 @@ func truncate(s string, max int) string {
 // TriageAgent wraps an Eino ReAct agent for alert triage.
 type TriageAgent struct {
 	agent *react.Agent
+	rag   *RAGContextBuilder
 	log   *zap.Logger
 }
 
@@ -114,6 +115,13 @@ func NewTriageAgent(ctx context.Context, m model.ToolCallingChatModel, log *zap.
 	return &TriageAgent{agent: a, log: log}, nil
 }
 
+// WithRAG attaches a runbook retrieval pipeline for context injection.
+// Must be called before the triager is used.
+func (t *TriageAgent) WithRAG(r *RAGContextBuilder) *TriageAgent {
+	t.rag = r
+	return t
+}
+
 // Triage classifies the given AlertEnvelope and returns a validated TriageResult.
 // On non-JSON model output it degrades gracefully, flagging result.Degraded=true.
 func (t *TriageAgent) Triage(ctx context.Context, env *alert.AlertEnvelope) (*TriageResult, error) {
@@ -129,9 +137,13 @@ func (t *TriageAgent) Triage(ctx context.Context, env *alert.AlertEnvelope) (*Tr
 	if err != nil {
 		return nil, fmt.Errorf("triage: marshal alert: %w", err)
 	}
+	prompt := string(alertJSON)
+	if t.rag != nil {
+		prompt += t.rag.Build(ctx, env)
+	}
 
 	messages := []*schema.Message{
-		schema.UserMessage(string(alertJSON)),
+		schema.UserMessage(prompt),
 	}
 
 	resp, err := t.agent.Generate(ctx, messages)

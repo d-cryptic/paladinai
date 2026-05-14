@@ -197,9 +197,15 @@ func main() {
 		} else {
 			ragRetriever := qdrant.NewIndexer(qc, embedder)
 			ragBuilder := agent.NewRAGContextBuilder(ragRetriever, log)
-			if at, ok := triageAgent.(*agent.AnthropicTriager); ok {
+			switch at := triageAgent.(type) {
+			case *agent.AnthropicTriager:
 				at.WithRAG(ragBuilder)
 				log.Info("rag: runbook context injection enabled (qdrant)")
+			case *agent.TriageAgent:
+				at.WithRAG(ragBuilder)
+				log.Info("rag: runbook context injection enabled (qdrant)")
+			default:
+				log.Warn("rag: triage backend does not support context injection")
 			}
 		}
 	}
