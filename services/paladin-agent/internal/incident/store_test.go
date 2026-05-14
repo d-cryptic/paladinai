@@ -212,7 +212,7 @@ func TestReplay_PublishesToNATS(t *testing.T) {
 	env := &alert.AlertEnvelope{
 		TenantID:    "tenant-a",
 		Fingerprint: "fp-abc",
-		Labels:      map[string]string{"alertname": "DB Down", "fingerprint": "fp-abc"},
+		Labels:      map[string]string{"alertname": "DB Down"},
 		Severity:    "P1",
 	}
 	inc := s.RecordFromEnvelope(env, "critical", nil)
@@ -275,7 +275,6 @@ func TestReplay_NATSPublishFailure_DoesNotMarkResolved(t *testing.T) {
 	env := &alert.AlertEnvelope{
 		TenantID:    "tenant-a",
 		Fingerprint: "fp-fail",
-		Labels:      map[string]string{"fingerprint": "fp-fail"},
 	}
 	inc := s.RecordFromEnvelope(env, "P2", nil)
 
@@ -312,8 +311,7 @@ func TestReplay_InvalidFingerprintDoesNotPublish(t *testing.T) {
 
 	env := &alert.AlertEnvelope{
 		TenantID:    "tenant-a",
-		Fingerprint: "fp-bad",
-		Labels:      map[string]string{"fingerprint": "fp.bad"},
+		Fingerprint: "fp.bad",
 	}
 	inc := s.RecordFromEnvelope(env, "P2", nil)
 

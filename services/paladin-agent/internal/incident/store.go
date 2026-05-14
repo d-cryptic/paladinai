@@ -293,7 +293,8 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
-		subject, err := replaySubject(tenantID, src.Labels["fingerprint"])
+		fingerprint := replayFingerprint(src)
+		subject, err := replaySubject(tenantID, fingerprint)
 		if err != nil {
 			h.log.Error("replay: invalid NATS subject",
 				zap.String("replay_id", replay.ID),
@@ -327,6 +328,17 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 		TenantID:  tenantID,
 		StartedAt: replay.CreatedAt,
 	})
+}
+
+func replayFingerprint(src *Incident) string {
+	if src == nil {
+		return ""
+	}
+	var env alert.AlertEnvelope
+	if len(src.RawEnvelope) > 0 && json.Unmarshal(src.RawEnvelope, &env) == nil && env.Fingerprint != "" {
+		return env.Fingerprint
+	}
+	return src.Labels["fingerprint"]
 }
 
 func jsonOK(w http.ResponseWriter, v any) {
