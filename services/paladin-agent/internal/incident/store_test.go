@@ -293,6 +293,48 @@ func TestReplay_NATSPublishFailure_DoesNotMarkResolved(t *testing.T) {
 	}
 }
 
+func TestReplay_InvalidFingerprintDoesNotPublish(t *testing.T) {
+	s := incident.NewStore()
+	pub := &fakeReplayPublisher{}
+	h := incident.NewHandler(s, zap.NewNop()).WithReplayPublisher(pub)
+	srv := mount(h)
+
+	env := &alert.AlertEnvelope{
+		TenantID:    "tenant-a",
+		Fingerprint: "fp-bad",
+		Labels:      map[string]string{"fingerprint": "fp.bad"},
+	}
+	inc := s.RecordFromEnvelope(env, "P2", nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/incidents/"+inc.ID+"/replay", bytes.NewReader(nil))
+	req.Header.Set("X-Tenant-ID", "tenant-a")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d", rec.Code)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	if len(pub.subjects) != 0 {
+		t.Fatalf("expected no NATS publish for invalid fingerprint, got %d", len(pub.subjects))
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode replay response: %v", err)
+	}
+	replayID, _ := result["replay_id"].(string)
+	replayInc := s.Get(replayID)
+	if replayInc == nil {
+		t.Fatal("replay incident not found")
+	}
+	if replayInc.Status == incident.StatusResolved {
+		t.Errorf("want status != resolved when replay subject is invalid, got %s", replayInc.Status)
+	}
+}
+
 func TestRecordFromEnvelope_StoresRawEnvelope(t *testing.T) {
 	s := incident.NewStore()
 	env := &alert.AlertEnvelope{
