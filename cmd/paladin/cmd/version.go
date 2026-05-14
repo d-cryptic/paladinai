@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -22,6 +23,11 @@ var (
 const defaultLatestVersionURL = "https://releases.paladinai.io/latest.json"
 
 var versionHTTPClient = &http.Client{Timeout: 5 * time.Second}
+
+var (
+	updateCheckClock = time.Now
+	updateCheckOnce  sync.Once
+)
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
@@ -112,6 +118,60 @@ func fetchLatestVersion(ctx context.Context, latestURL, current string) (version
 		UpdateAvailable: isNewerVersion(latest.Version, current),
 		Upgrade:         latest.Upgrade,
 	}, nil
+}
+
+func maybeStartBackgroundUpdateCheck(cmd *cobra.Command) {
+	if shouldSkipBackgroundUpdateCheck(cmd) {
+		return
+	}
+	updateCheckOnce.Do(func() {
+		go func() {
+			_ = runBackgroundUpdateCheck(cmd.Context(), defaultLatestVersionURL, Version, os.Stderr)
+		}()
+	})
+}
+
+func shouldSkipBackgroundUpdateCheck(cmd *cobra.Command) bool {
+	if Version == "" || Version == "dev" || Version == "none" {
+		return true
+	}
+	if isCIMode(cmd) {
+		return true
+	}
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "version", "update":
+			return true
+		}
+	}
+	return false
+}
+
+func runBackgroundUpdateCheck(ctx context.Context, latestURL, current string, stderr io.Writer) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("load update check config: %w", err)
+	}
+	now := updateCheckClock().UTC()
+	if !cfg.LastUpdateCheck.IsZero() && now.Sub(cfg.LastUpdateCheck) < 24*time.Hour {
+		return nil
+	}
+	cfg.LastUpdateCheck = now
+	if err := saveConfig(cfg); err != nil {
+		return fmt.Errorf("save update check timestamp: %w", err)
+	}
+	result, err := fetchLatestVersion(ctx, latestURL, current)
+	if err != nil {
+		return fmt.Errorf("check latest version: %w", err)
+	}
+	if result.UpdateAvailable {
+		upgrade := result.Upgrade
+		if upgrade == "" {
+			upgrade = "paladin update"
+		}
+		fmt.Fprintf(stderr, "paladin update available: %s -> %s (run: %s)\n", current, result.Latest, upgrade)
+	}
+	return nil
 }
 
 func isNewerVersion(latest, current string) bool {
