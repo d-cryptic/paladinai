@@ -8,6 +8,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/internal/qdrant"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,12 +17,14 @@ import (
 
 // stubModel is an in-memory ToolCallingChatModel that returns a fixed response.
 type stubModel struct {
-	response string
+	response     string
+	lastMessages []*schema.Message
 }
 
 var _ model.ToolCallingChatModel = (*stubModel)(nil)
 
-func (s *stubModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (s *stubModel) Generate(_ context.Context, messages []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	s.lastMessages = messages
 	return schema.AssistantMessage(s.response, nil), nil
 }
 
@@ -35,6 +38,14 @@ func (s *stubModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel,
 
 func (s *stubModel) BindTools(_ []*schema.ToolInfo) error {
 	return nil
+}
+
+type triageRAGRetriever struct {
+	chunks []qdrant.RunbookChunk
+}
+
+func (r triageRAGRetriever) Search(_ context.Context, _, _ string, _ int) ([]qdrant.RunbookChunk, error) {
+	return r.chunks, nil
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -116,4 +127,41 @@ func TestTriageAgent_P3DoesNotNeedHumanByDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "P3", result.ConfirmedSeverity)
 	assert.False(t, result.NeedsHuman)
+}
+
+func TestTriageAgent_WithRAGInjectsRunbookContext(t *testing.T) {
+	ctx := context.Background()
+	stub := &stubModel{response: `{
+		"confirmed_severity": "P2",
+		"summary": "High error rate on api service",
+		"likely_cause": "Connection pool exhausted",
+		"affected_services": ["api"],
+		"recommended_action": "Follow database pool runbook",
+		"needs_human": true
+	}`}
+
+	ta, err := agent.NewTriageAgent(ctx, stub, zap.NewNop())
+	require.NoError(t, err)
+	ta.WithRAG(agent.NewRAGContextBuilder(triageRAGRetriever{
+		chunks: []qdrant.RunbookChunk{
+			{Source: "db-pool-runbook", Content: "restart api pods after reducing pool size"},
+		},
+	}, zap.NewNop()))
+
+	env := &alert.AlertEnvelope{
+		TenantID:    "t1",
+		Fingerprint: "fp-rag",
+		Title:       "API 5xx spike",
+		Severity:    alert.SeverityP2,
+		Status:      alert.StatusFiring,
+		Labels:      map[string]string{"service": "api"},
+		StartsAt:    time.Now(),
+	}
+
+	_, err = ta.Triage(ctx, env)
+	require.NoError(t, err)
+	require.NotEmpty(t, stub.lastMessages)
+	assert.Contains(t, stub.lastMessages[len(stub.lastMessages)-1].Content, "Relevant Runbooks")
+	assert.Contains(t, stub.lastMessages[len(stub.lastMessages)-1].Content, "db-pool-runbook")
+	assert.Contains(t, stub.lastMessages[len(stub.lastMessages)-1].Content, "restart api pods")
 }
