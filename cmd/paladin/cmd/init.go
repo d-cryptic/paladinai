@@ -838,6 +838,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			r.Status = "fail"
 			r.Detail = err.Error()
 			r.Error = err.Error()
+			r.Remediation = doctorRemediation(c.name)
 			allPassed = false
 		}
 		results = append(results, r)
@@ -893,6 +894,48 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("doctor: one or more checks failed")
 	}
 	return nil
+}
+
+func doctorRemediation(name string) string {
+	switch {
+	case name == "API service ready":
+		return "Check PALADIN_API_URL or run `paladin init --dry-run` with the correct --api-url."
+	case name == "Auth service ready":
+		return "Check PALADIN_AUTH_URL or run `paladin auth login` after the auth service is reachable."
+	case name == "Token configured":
+		return "Run `paladin auth login` or set PALADIN_TOKEN."
+	case name == "Tenant configured":
+		return "Set --tenant, PALADIN_TENANT, or rerun `paladin init`."
+	case name == "MCP servers registered":
+		return "Run `paladin integrations status` and confirm paladin-hub can list registered MCP servers."
+	case name == "Kubernetes cluster context":
+		return "Run `kubectl config current-context` and set kubeconfig before rerunning `paladin doctor`."
+	case name == "NATS reachable":
+		return "Start NATS with `make up` or set NATS_URL to the reachable JetStream endpoint."
+	case name == "Valkey reachable":
+		return "Start Valkey with `make up` or set VALKEY_URL to the reachable Redis-compatible endpoint."
+	case name == "Qdrant reachable":
+		return "Start Qdrant with `make up` or set QDRANT_URL to the reachable vector database endpoint."
+	case name == "paladin-ingest ready":
+		return "Start paladin-ingest or set PALADIN_INGEST_PORT to its HTTP readiness endpoint."
+	case name == "paladin-hub ready":
+		return "Start paladin-hub or set PALADIN_HUB_URL to its HTTP readiness endpoint."
+	case name == "paladin-memory ready":
+		return "Start paladin-memory or set MEMORY_HTTP_ADDR to its HTTP readiness endpoint."
+	case name == "paladin-agent ready":
+		return "Start paladin-agent or set PALADIN_AGENT_PORT to its HTTP readiness endpoint."
+	case name == "paladin-ws ready":
+		return "Start paladin-ws or set PALADIN_WS_PORT to its HTTP readiness endpoint."
+	case name == "paladin-comms ready":
+		return "Start paladin-comms or set PALADIN_COMMS_PORT to its HTTP readiness endpoint."
+	case name == "paladin-orchestrator ready":
+		return "Start paladin-orchestrator or set PALADIN_ORCHESTRATOR_PORT to its HTTP readiness endpoint."
+	case strings.HasPrefix(name, "Integration check: "):
+		integration := strings.TrimSpace(strings.TrimPrefix(name, "Integration check: "))
+		return fmt.Sprintf("Run `paladin integrations status` or `paladin integrations enable %s` before rerunning `paladin doctor %s`.", integration, integration)
+	default:
+		return "Rerun `paladin doctor --json` after checking the failed dependency."
+	}
 }
 
 func doctorClientOptions(tenant, token string) client.Options {
