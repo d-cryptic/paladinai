@@ -2,10 +2,13 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/handler"
@@ -15,6 +18,39 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+type errStore struct {
+	err error
+}
+
+func (e errStore) Upsert(context.Context, *registry.MCPServer) error {
+	return e.err
+}
+
+func (e errStore) Get(context.Context, string, string) (*registry.MCPServer, error) {
+	return nil, e.err
+}
+
+func (e errStore) List(context.Context, string) ([]*registry.MCPServer, error) {
+	return nil, e.err
+}
+
+func (e errStore) Delete(context.Context, string, string) error {
+	return e.err
+}
+
+func (e errStore) Heartbeat(context.Context, string, string, time.Time) error {
+	return e.err
+}
+
+func newErrorRouter(err error) *chi.Mux {
+	h := handler.New(errStore{err: err}, zap.NewNop())
+	r := chi.NewRouter()
+	r.Route("/api/v1", func(r chi.Router) {
+		h.Routes(r)
+	})
+	return r
+}
 
 func newTestRouter() (*chi.Mux, *store.MemStore) {
 	s := store.NewMemStore()
@@ -92,6 +128,13 @@ func TestHandler_Register_ValidationFails(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 }
 
+func TestHandler_Register_StoreError(t *testing.T) {
+	r := newErrorRouter(errors.New("store down"))
+	rr := registerServer(t, r, "t1", validRegisterReq())
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+}
+
 func TestHandler_List(t *testing.T) {
 	r, _ := newTestRouter()
 
@@ -123,6 +166,16 @@ func TestHandler_List_EmptyForNewTenant(t *testing.T) {
 	assert.Len(t, data, 0)
 }
 
+func TestHandler_List_StoreError(t *testing.T) {
+	r := newErrorRouter(errors.New("store down"))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/servers", nil)
+	req = withTenant(req, "t1")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+}
+
 func TestHandler_Get(t *testing.T) {
 	r, _ := newTestRouter()
 	registerServer(t, r, "t1", validRegisterReq())
@@ -143,6 +196,16 @@ func TestHandler_Get_NotFound(t *testing.T) {
 	r.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestHandler_Get_StoreError(t *testing.T) {
+	r := newErrorRouter(errors.New("store down"))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mcp/servers/test-server", nil)
+	req = withTenant(req, "t1")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
 func TestHandler_Deregister(t *testing.T) {
@@ -223,6 +286,16 @@ func TestHandler_Deregister_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
+func TestHandler_Deregister_StoreError(t *testing.T) {
+	r := newErrorRouter(errors.New("store down"))
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/mcp/servers/test-server", nil)
+	req = withTenant(req, "t1")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+}
+
 func TestHandler_Heartbeat_MissingTenant(t *testing.T) {
 	r, _ := newTestRouter()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/servers/test-server/heartbeat", nil)
@@ -238,6 +311,16 @@ func TestHandler_Heartbeat_NotFound(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestHandler_Heartbeat_StoreError(t *testing.T) {
+	r := newErrorRouter(errors.New("store down"))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/servers/test-server/heartbeat", nil)
+	req = withTenant(req, "t1")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
 func TestHandler_Register_ResponseContainsMeta(t *testing.T) {
