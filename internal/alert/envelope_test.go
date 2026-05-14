@@ -93,3 +93,23 @@ func TestAlertEnvelope_NATSSubject_InvalidTenant_Panics(t *testing.T) {
 	}
 	assert.Panics(t, func() { env.NATSSubject() }, "invalid tenant_id should panic")
 }
+
+func TestAlertEnvelope_NATSSubjectE_ValidatesSource(t *testing.T) {
+	env := alert.AlertEnvelope{
+		TenantID: "tenant-abc",
+		Source:   alert.Source("alert.manager"),
+	}
+
+	subject, err := env.NATSSubjectE()
+	assert.Empty(t, subject)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "source")
+}
+
+func TestAlertEnvelope_NATSSubject_InvalidSource_Panics(t *testing.T) {
+	env := alert.AlertEnvelope{
+		TenantID: "tenant-abc",
+		Source:   alert.Source("alertmanager.>"),
+	}
+	assert.Panics(t, func() { env.NATSSubject() }, "invalid source should panic")
+}

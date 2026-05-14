@@ -58,9 +58,9 @@ func NewFromJS(js JetStream, log *zap.Logger) *NATSPublisher {
 
 // PublishAlert serialises and publishes an AlertEnvelope to the raw alerts subject.
 func (p *NATSPublisher) PublishAlert(ctx context.Context, env alert.AlertEnvelope) error {
-	// Validate early to return an error instead of panicking inside NATSSubject.
-	if err := alert.ValidateTenantID(env.TenantID); err != nil {
-		return fmt.Errorf("invalid tenant: %w", err)
+	subject, err := env.NATSSubjectE()
+	if err != nil {
+		return fmt.Errorf("invalid alert subject: %w", err)
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -72,13 +72,13 @@ func (p *NATSPublisher) PublishAlert(ctx context.Context, env alert.AlertEnvelop
 		return fmt.Errorf("marshal alert: %w", err)
 	}
 
-	result, err := p.client.Publish(ctx, env.NATSSubject(), data)
+	result, err := p.client.Publish(ctx, subject, data)
 	if err != nil {
 		return fmt.Errorf("nats publish: %w", err)
 	}
 
 	p.log.Debug("alert published",
-		zap.String("subject", env.NATSSubject()),
+		zap.String("subject", subject),
 		zap.String("fingerprint", env.Fingerprint),
 		zap.Uint64("seq", result.Sequence),
 	)
