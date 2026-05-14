@@ -179,10 +179,14 @@ func streamMessages(ctx context.Context, conn *websocket.Conn, w *tabwriter.Writ
 	// Ping ticker + graceful-close goroutine.
 	ticker := time.NewTicker(wsPingPeriod)
 	defer ticker.Stop()
+	done := make(chan struct{})
+	defer close(done)
 
 	go func() {
 		for {
 			select {
+			case <-done:
+				return
 			case <-ctx.Done():
 				// Signal the peer we are closing; set a short read deadline so
 				// ReadMessage unblocks quickly rather than waiting for peer ACK.

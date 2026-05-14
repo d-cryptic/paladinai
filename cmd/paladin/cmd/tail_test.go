@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"text/tabwriter"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 )
 
@@ -131,6 +134,38 @@ func TestWaitTailBackoff_Cancelled(t *testing.T) {
 func TestWaitTailBackoff_Elapsed(t *testing.T) {
 	if !waitTailBackoff(context.Background(), time.Millisecond) {
 		t.Fatal("expected elapsed backoff to return true")
+	}
+}
+
+func TestStreamMessages_ReturnsOnServerClose(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	closed := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		_ = conn.Close()
+		close(closed)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("server did not close websocket")
+	}
+
+	if !streamMessages(context.Background(), conn, tabwriter.NewWriter(io.Discard, 0, 0, 2, ' ', 0), false) {
+		t.Fatal("server close should request reconnect")
 	}
 }
 
