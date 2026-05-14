@@ -79,13 +79,13 @@ func (s *Store) Record(tenantID, severity, title string, alertCount int, labels 
 		Severity:     severity,
 		Title:        title,
 		AlertCount:   alertCount,
-		TriageResult: result,
+		TriageResult: cloneRawMessage(result),
 		CreatedAt:    now,
 		UpdatedAt:    now,
-		Labels:       labels,
+		Labels:       cloneLabels(labels),
 	}
 	s.incidents[inc.ID] = inc
-	return inc
+	return cloneIncident(inc)
 }
 
 // RecordFromEnvelope creates an incident record from an AlertEnvelope.
@@ -104,7 +104,7 @@ func (s *Store) RecordFromEnvelope(env *alert.AlertEnvelope, severity string, re
 		}
 		s.mu.Unlock()
 	}
-	return inc
+	return s.Get(inc.ID)
 }
 
 // Get returns the incident with the given ID or nil.
@@ -115,8 +115,7 @@ func (s *Store) Get(id string) *Incident {
 	if inc == nil {
 		return nil
 	}
-	cp := *inc
-	return &cp
+	return cloneIncident(inc)
 }
 
 // List returns incidents for the given tenant, sorted by createdAt descending.
@@ -131,8 +130,7 @@ func (s *Store) List(tenantID, status string, limit int) []*Incident {
 		if status != "" && string(inc.Status) != status {
 			continue
 		}
-		cp := *inc
-		out = append(out, &cp)
+		out = append(out, cloneIncident(inc))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].CreatedAt.After(out[j].CreatedAt)
@@ -166,10 +164,10 @@ func (s *Store) StartReplay(sourceID, tenantID string) (*Incident, error) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 		ReplayOf:   sourceID,
-		Labels:     src.Labels,
+		Labels:     cloneLabels(src.Labels),
 	}
 	s.incidents[replay.ID] = replay
-	return replay, nil
+	return cloneIncident(replay), nil
 }
 
 // MarkResolved sets the incident status to resolved.
@@ -180,6 +178,35 @@ func (s *Store) MarkResolved(id string) {
 		inc.Status = StatusResolved
 		inc.UpdatedAt = time.Now().UTC()
 	}
+}
+
+func cloneIncident(inc *Incident) *Incident {
+	if inc == nil {
+		return nil
+	}
+	cp := *inc
+	cp.TriageResult = cloneRawMessage(inc.TriageResult)
+	cp.RawEnvelope = cloneRawMessage(inc.RawEnvelope)
+	cp.Labels = cloneLabels(inc.Labels)
+	return &cp
+}
+
+func cloneLabels(labels map[string]string) map[string]string {
+	if labels == nil {
+		return nil
+	}
+	cp := make(map[string]string, len(labels))
+	for k, v := range labels {
+		cp[k] = v
+	}
+	return cp
+}
+
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if raw == nil {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
 }
 
 // ReplayPublisher is the narrow interface for re-publishing an alert envelope

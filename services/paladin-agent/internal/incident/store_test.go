@@ -360,3 +360,53 @@ func TestRecordFromEnvelope_StoresRawEnvelope(t *testing.T) {
 		t.Error("want RawEnvelope to be set")
 	}
 }
+
+func TestStore_IsolatesMutableIncidentFields(t *testing.T) {
+	s := incident.NewStore()
+	labels := map[string]string{"service": "api"}
+	result := json.RawMessage(`{"summary":"ok"}`)
+
+	inc := s.Record("tenant-a", "P2", "Latency", 1, labels, result)
+	labels["service"] = "mutated"
+	result[12] = 'x'
+	inc.Labels["service"] = "returned-mutated"
+	inc.TriageResult[12] = 'y'
+
+	got := s.Get(inc.ID)
+	if got.Labels["service"] != "api" {
+		t.Fatalf("stored labels mutated through caller reference: %q", got.Labels["service"])
+	}
+	if string(got.TriageResult) != `{"summary":"ok"}` {
+		t.Fatalf("stored triage result mutated through caller reference: %s", got.TriageResult)
+	}
+
+	got.Labels["service"] = "get-mutated"
+	got.TriageResult[12] = 'z'
+	again := s.Get(inc.ID)
+	if again.Labels["service"] != "api" {
+		t.Fatalf("stored labels mutated through Get result: %q", again.Labels["service"])
+	}
+	if string(again.TriageResult) != `{"summary":"ok"}` {
+		t.Fatalf("stored triage result mutated through Get result: %s", again.TriageResult)
+	}
+}
+
+func TestStartReplay_IsolatesLabels(t *testing.T) {
+	s := incident.NewStore()
+	inc := s.Record("tenant-a", "P2", "Latency", 1, map[string]string{"service": "api"}, nil)
+
+	replay, err := s.StartReplay(inc.ID, "tenant-a")
+	if err != nil {
+		t.Fatalf("start replay: %v", err)
+	}
+	replay.Labels["service"] = "mutated"
+
+	source := s.Get(inc.ID)
+	if source.Labels["service"] != "api" {
+		t.Fatalf("source labels mutated through replay result: %q", source.Labels["service"])
+	}
+	gotReplay := s.Get(replay.ID)
+	if gotReplay.Labels["service"] != "api" {
+		t.Fatalf("stored replay labels mutated through replay result: %q", gotReplay.Labels["service"])
+	}
+}
