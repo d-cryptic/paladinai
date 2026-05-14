@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paladinai/paladinai/internal/auth"
 	"github.com/paladinai/paladinai/services/paladin-edge/internal/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,16 +20,18 @@ import (
 // ─── Fake Limiter ─────────────────────────────────────────────────────────────
 
 type fakeLimiter struct {
-	limit     int
-	allowed   bool
-	remaining int
-	resetAt   time.Time
-	err       error
+	limit        int
+	allowed      bool
+	remaining    int
+	resetAt      time.Time
+	err          error
+	lastTenantID string
 }
 
 func (f *fakeLimiter) Limit() int { return f.limit }
 
-func (f *fakeLimiter) Allow(_ context.Context, _ string) (bool, int, time.Time, error) {
+func (f *fakeLimiter) Allow(_ context.Context, tenantID string) (bool, int, time.Time, error) {
+	f.lastTenantID = tenantID
 	return f.allowed, f.remaining, f.resetAt, f.err
 }
 
@@ -73,6 +76,21 @@ func TestMiddleware_UnderLimit_PassesThrough(t *testing.T) {
 	assert.Equal(t, "60", rr.Header().Get("X-RateLimit-Limit"), "limit header must reflect configured limit")
 	assert.Equal(t, "55", rr.Header().Get("X-RateLimit-Remaining"))
 	assert.Equal(t, strconv.FormatInt(resetAt.Unix(), 10), rr.Header().Get("X-RateLimit-Reset"))
+}
+
+func TestMiddleware_ContextTenantOverridesSpoofedHeader(t *testing.T) {
+	resetAt := time.Now().Add(30 * time.Second)
+	limiter := &fakeLimiter{limit: 60, allowed: true, remaining: 55, resetAt: resetAt}
+	mw := ratelimit.Middleware(limiter, zap.NewNop())
+
+	req := newRequest("evil-tenant")
+	req = req.WithContext(auth.WithTenantID(req.Context(), "token-tenant"))
+
+	rr := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "token-tenant", limiter.lastTenantID)
 }
 
 func TestMiddleware_OverLimit_Returns429(t *testing.T) {
