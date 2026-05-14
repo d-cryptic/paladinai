@@ -88,8 +88,11 @@ func (s *OutboundSender) Send(ctx context.Context, method, url string, body []by
 		lastErr = fmt.Errorf("attempt %d: server %d", attempt+1, resp.StatusCode)
 	}
 
-	// All attempts exhausted — publish to DLQ.
-	subject := fmt.Sprintf("dlq.outbound.%s.%s", s.integration, s.tenantID)
+	// All attempts exhausted: publish to DLQ.
+	subject, err := outboundDLQSubject(s.integration, s.tenantID)
+	if err != nil {
+		return fmt.Errorf("all retries failed (%w); build outbound dlq subject: %w", lastErr, err)
+	}
 	if pubErr := s.dlq.Publish(ctx, subject, body); pubErr != nil {
 		return fmt.Errorf("all retries failed (%w); dlq publish also failed: %v", lastErr, pubErr)
 	}

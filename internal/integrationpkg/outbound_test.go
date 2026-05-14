@@ -14,10 +14,12 @@ import (
 
 type fakeDLQ struct {
 	published [][]byte
+	subjects  []string
 	err       error
 }
 
-func (f *fakeDLQ) Publish(_ context.Context, _ string, data []byte) error {
+func (f *fakeDLQ) Publish(_ context.Context, subject string, data []byte) error {
+	f.subjects = append(f.subjects, subject)
 	f.published = append(f.published, data)
 	return f.err
 }
@@ -87,6 +89,9 @@ func TestSend_ServerErrors_RetriesThenDLQ(t *testing.T) {
 	if len(dlq.published) != 1 {
 		t.Errorf("expected 1 DLQ publish, got %d", len(dlq.published))
 	}
+	if len(dlq.subjects) != 1 || dlq.subjects[0] != "dlq.outbound.slack.globex" {
+		t.Errorf("DLQ subject = %v, want [dlq.outbound.slack.globex]", dlq.subjects)
+	}
 	if string(dlq.published[0]) != "payload" {
 		t.Errorf("DLQ payload = %q, want %q", dlq.published[0], "payload")
 	}
@@ -148,5 +153,71 @@ func TestSend_CustomHeaders(t *testing.T) {
 	}
 	if receivedHeader != "tok-abc" {
 		t.Errorf("received header = %q, want %q", receivedHeader, "tok-abc")
+	}
+}
+
+func TestSend_ServerErrorsRejectsInvalidDLQSubject(t *testing.T) {
+	orig := OutboundBackoff
+	OutboundBackoff = [OutboundMaxRetries]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
+	defer func() { OutboundBackoff = orig }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		name        string
+		integration string
+		tenantID    string
+		want        string
+	}{
+		{name: "empty integration", integration: "", tenantID: "acme", want: "integration"},
+		{name: "wildcard integration", integration: "slack.*", tenantID: "acme", want: "integration"},
+		{name: "empty tenant", integration: "slack", tenantID: "", want: "tenantID"},
+		{name: "dotted tenant", integration: "slack", tenantID: "bad.tenant", want: "tenantID"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dlq := &fakeDLQ{}
+			sender := NewOutboundSender(srv.Client(), dlq, tc.integration, tc.tenantID)
+
+			err := sender.Send(context.Background(), http.MethodPost, srv.URL, []byte(`payload`), nil)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want it to mention %q", err.Error(), tc.want)
+			}
+			if len(dlq.published) != 0 {
+				t.Fatalf("expected no DLQ publish for invalid subject, got %d", len(dlq.published))
+			}
+		})
+	}
+}
+
+func TestOutboundDLQSubjectValidatesTokens(t *testing.T) {
+	subject, err := outboundDLQSubject("pagerduty", "tenant-1")
+	if err != nil {
+		t.Fatalf("expected valid subject, got %v", err)
+	}
+	if subject != "dlq.outbound.pagerduty.tenant-1" {
+		t.Fatalf("subject = %q, want %q", subject, "dlq.outbound.pagerduty.tenant-1")
+	}
+
+	for _, tc := range []struct {
+		name        string
+		integration string
+		tenantID    string
+	}{
+		{name: "dotted integration", integration: "pager.duty", tenantID: "tenant-1"},
+		{name: "glob integration", integration: "pagerduty.>", tenantID: "tenant-1"},
+		{name: "star tenant", integration: "pagerduty", tenantID: "*"},
+		{name: "dotted tenant", integration: "pagerduty", tenantID: "tenant.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := outboundDLQSubject(tc.integration, tc.tenantID); err == nil {
+				t.Fatal("expected invalid subject token error")
+			}
+		})
 	}
 }
