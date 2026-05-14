@@ -221,22 +221,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build paladin-ingest image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: services/paladin-ingest/Dockerfile
-          push: false
-          tags: paladin-ingest:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Build all service images
+        run: |
+          services=(
+            paladin-agent
+            paladin-auth
+            paladin-comms
+            paladin-edge
+            paladin-hub
+            paladin-ingest
+            paladin-memory
+            paladin-orchestrator
+            paladin-ws
+          )
 
-      - name: Build paladin-orchestrator image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: services/paladin-orchestrator/Dockerfile
-          push: false
-          tags: paladin-orchestrator:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          for service in "${services[@]}"; do
+            docker buildx build \
+              --cache-from "type=gha,scope=${service}" \
+              --cache-to "type=gha,mode=max,scope=${service}" \
+              --file "services/${service}/Dockerfile" \
+              --tag "${service}:ci" \
+              --load \
+              .
+          done
