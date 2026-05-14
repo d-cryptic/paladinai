@@ -292,7 +292,7 @@ func printCompletionHint() {
 // ── doctor command ────────────────────────────────────────────────────────────
 
 var doctorCmd = &cobra.Command{
-	Use:   "doctor",
+	Use:   "doctor [integration]",
 	Short: "Check PaladinAI connectivity and integration health",
 	Long: `paladin doctor runs a series of health checks and reports status:
 
@@ -302,9 +302,16 @@ var doctorCmd = &cobra.Command{
   ok  Agent            -- paladin-agent service is reachable
   ok  Integrations     -- registered MCP servers pass health checks
 
+Examples:
+  paladin doctor                  # full health check
+  paladin doctor datadog           # only checks relevant to datadog
+  paladin doctor --json            # machine readable output
+  paladin doctor --quiet           # exit code only
+
 Flags:
   --json   Emit machine-readable JSON (for CI pipelines)
   --quiet  Print nothing; exit code only (0=all pass, 1=some fail)`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runDoctor,
 }
 
@@ -369,7 +376,48 @@ func infraTCPCheck(rawURL string, defaultPort int) func() error {
 	}
 }
 
-func runDoctor(cmd *cobra.Command, _ []string) error {
+func parseMCPServers(body []byte) ([]map[string]any, error) {
+	var response struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("parse mcp server response: %w", err)
+	}
+	return response.Data, nil
+}
+
+// serverHealthy reports whether an MCP server is healthy.
+// If field is missing or malformed, returns false with explanation.
+func serverHealthy(server map[string]any) (bool, error) {
+	raw, ok := server["healthy"]
+	if !ok {
+		return false, fmt.Errorf("missing healthy flag")
+	}
+	if b, ok := raw.(bool); ok {
+		return b, nil
+	}
+	return false, fmt.Errorf("unexpected healthy flag type %T", raw)
+}
+
+func containsIntegration(servers []map[string]any, target string) (bool, error) {
+	target = strings.ToLower(strings.TrimSpace(target))
+	for _, srv := range servers {
+		if strings.EqualFold(strings.TrimSpace(strField(srv, "name")), target) ||
+			strings.EqualFold(strings.TrimSpace(strField(srv, "id")), target) {
+			healthy, err := serverHealthy(srv)
+			if err != nil {
+				return false, err
+			}
+			if !healthy {
+				return false, fmt.Errorf("integration %q is unhealthy", target)
+			}
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("integration %q not found", target)
+}
+
+func runDoctor(cmd *cobra.Command, args []string) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	quietMode, _ := cmd.Flags().GetBool("quiet")
 
@@ -413,7 +461,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 
 	opts := client.Options{TenantID: tenant, Token: token}
 
-	checks := []check{
+	baseChecks := []check{
 		{
 			name: "API service reachable",
 			fn: func() error {
@@ -446,69 +494,101 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 				return nil
 			},
 		},
-		{
-			name: "MCP servers registered",
-			fn: func() error {
-				endpoint, err := url.JoinPath(apiBase, "/api/v1/mcp/servers")
-				if err != nil {
-					return fmt.Errorf("build url: %w", err)
-				}
-				body, err := client.Get(cmd.Context(), endpoint, opts)
-				if err != nil {
-					return err
-				}
-				if !strings.Contains(string(body), `"data"`) {
-					return fmt.Errorf("unexpected response: %s", body)
-				}
-				return nil
-			},
+	}
+
+	mcpCheck := check{
+		name: "MCP servers registered",
+		fn: func() error {
+			endpoint, err := url.JoinPath(apiBase, "/api/v1/mcp/servers")
+			if err != nil {
+				return fmt.Errorf("build url: %w", err)
+			}
+			body, err := client.Get(cmd.Context(), endpoint, opts)
+			if err != nil {
+				return err
+			}
+			servers, err := parseMCPServers(body)
+			if err != nil {
+				return err
+			}
+			if len(servers) == 0 {
+				return fmt.Errorf("no MCP servers registered")
+			}
+			return nil
 		},
-		{
-			name: "Kubernetes cluster context",
-			fn: func() error {
-				out, err := exec.Command("kubectl", "config", "current-context").Output()
-				if err != nil {
-					if errors.Is(err, exec.ErrNotFound) {
-						return fmt.Errorf("kubectl not installed")
+	}
+	checks := make([]check, 0, len(baseChecks)+1)
+	checks = append(checks, baseChecks...)
+	if len(args) == 0 {
+		checks = append(checks,
+			mcpCheck,
+			check{
+				name: "Kubernetes cluster context",
+				fn: func() error {
+					out, err := exec.Command("kubectl", "config", "current-context").Output()
+					if err != nil {
+						if errors.Is(err, exec.ErrNotFound) {
+							return fmt.Errorf("kubectl not installed")
+						}
+						return fmt.Errorf("kubectl current-context: %w", err)
 					}
-					return fmt.Errorf("kubectl current-context: %w", err)
-				}
-				if !quietMode && !jsonMode {
-					fmt.Printf("      context: %s\n", strings.TrimSpace(string(out)))
-				}
-				return nil
+					if !quietMode && !jsonMode {
+						fmt.Printf("      context: %s\n", strings.TrimSpace(string(out)))
+					}
+					return nil
+				},
 			},
-		},
-		{
-			name: "NATS reachable",
-			fn:   infraTCPCheck(envStr("NATS_URL", "nats://localhost:4222"), 4222),
-		},
-		{
-			name: "Valkey reachable",
-			fn:   infraTCPCheck(envStr("VALKEY_URL", "redis://localhost:6379"), 6379),
-		},
-		{
-			name: "Qdrant reachable",
-			fn:   infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333),
-		},
-		{
-			name: "paladin-comms reachable",
-			fn: func() error {
-				commsPort := envStr("PALADIN_COMMS_PORT", "9009")
-				commsBase := "http://localhost:" + commsPort
-				_, err := client.Get(cmd.Context(), commsBase+"/healthz", client.Options{})
-				return err
+			check{name: "NATS reachable", fn: infraTCPCheck(envStr("NATS_URL", "nats://localhost:4222"), 4222)},
+			check{name: "Valkey reachable", fn: infraTCPCheck(envStr("VALKEY_URL", "redis://localhost:6379"), 6379)},
+			check{name: "Qdrant reachable", fn: infraTCPCheck(envStr("QDRANT_URL", "http://localhost:6333"), 6333)},
+			check{
+				name: "paladin-comms reachable",
+				fn: func() error {
+					commsPort := envStr("PALADIN_COMMS_PORT", "9009")
+					commsBase := "http://localhost:" + commsPort
+					_, err := client.Get(cmd.Context(), commsBase+"/healthz", client.Options{})
+					return err
+				},
 			},
-		},
-		{
-			name: "paladin-orchestrator reachable",
-			fn: func() error {
-				orchPort := envStr("PALADIN_ORCHESTRATOR_PORT", "9008")
-				orchBase := "http://localhost:" + orchPort
-				_, err := client.Get(cmd.Context(), orchBase+"/healthz", client.Options{})
-				return err
+			check{
+				name: "paladin-orchestrator reachable",
+				fn: func() error {
+					orchPort := envStr("PALADIN_ORCHESTRATOR_PORT", "9008")
+					orchBase := "http://localhost:" + orchPort
+					_, err := client.Get(cmd.Context(), orchBase+"/healthz", client.Options{})
+					return err
+				},
 			},
-		},
+		)
+	} else {
+		integration := strings.TrimSpace(args[0])
+		checks = append(checks,
+			check{
+				name: fmt.Sprintf("Integration check: %s", integration),
+				fn: func() error {
+					endpoint, err := url.JoinPath(apiBase, "/api/v1/mcp/servers")
+					if err != nil {
+						return fmt.Errorf("build url: %w", err)
+					}
+					body, err := client.Get(cmd.Context(), endpoint, opts)
+					if err != nil {
+						return err
+					}
+					servers, err := parseMCPServers(body)
+					if err != nil {
+						return err
+					}
+					found, err := containsIntegration(servers, integration)
+					if err != nil {
+						return err
+					}
+					if !found {
+						return fmt.Errorf("integration %q not found", integration)
+					}
+					return nil
+				},
+			},
+		)
 	}
 
 	// Run all checks and collect results.

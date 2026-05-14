@@ -7,12 +7,33 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func runDoctorJSON(output string) (DoctorReport, error) {
+	var report DoctorReport
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &report)
+	return report, err
+}
+
+func withDoctorConfig(t *testing.T, apiURL, authURL, tenant string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	confDir := filepath.Join(home, ".paladin")
+	require.NoError(t, os.MkdirAll(confDir, 0o700))
+
+	data := fmt.Sprintf("api_endpoint: %s\nauth_endpoint: %s\ndefault_tenant: %s\n", apiURL, authURL, tenant)
+	file := filepath.Join(confDir, "config.yaml")
+	require.NoError(t, os.WriteFile(file, []byte(data), 0o600))
+}
 
 // ─── infraDialAddr ────────────────────────────────────────────────────────────
 
@@ -183,6 +204,88 @@ func TestDoctorCmd_JSONMode_PassedFieldReflectsResults(t *testing.T) {
 	r2 := CheckResult{Name: "test", Passed: false, Error: "connection refused"}
 	assert.False(t, r2.Passed)
 	assert.Equal(t, "connection refused", r2.Error)
+}
+
+func TestDoctorCmd_TargetedIntegrationCheck_PassesWhenHealthy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/healthz") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v1/mcp/servers":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"prometheus","name":"prometheus","healthy":true}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	withDoctorConfig(t, server.URL, server.URL, "test-tenant")
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"prometheus",
+			"--api-url", server.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		_ = rootCmd.Execute()
+	})
+
+	report, err := runDoctorJSON(output)
+	require.NoError(t, err)
+	require.True(t, report.Passed)
+	assert.Len(t, report.Checks, 5)
+	assert.Equal(t, "API service reachable", report.Checks[0].Name)
+	assert.Equal(t, "Integration check: prometheus", report.Checks[4].Name)
+	assert.True(t, report.Checks[4].Passed)
+
+	for _, c := range report.Checks {
+		assert.NotEqual(t, "NATS reachable", c.Name)
+	}
+}
+
+func TestDoctorCmd_TargetedIntegrationCheck_FailsWhenIntegrationMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/healthz") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v1/mcp/servers":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"grafana","name":"grafana","healthy":true}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	withDoctorConfig(t, server.URL, server.URL, "test-tenant")
+
+	var runErr error
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{
+			"doctor",
+			"prometheus",
+			"--api-url", server.URL,
+			"--tenant", "test-tenant",
+			"--token", "test-token",
+			"--json",
+		})
+		runErr = rootCmd.Execute()
+	})
+
+	report, parseErr := runDoctorJSON(output)
+	require.NoError(t, parseErr)
+	require.Len(t, report.Checks, 5)
+	require.Equal(t, "integration \"prometheus\" not found", report.Checks[4].Error)
+	require.Error(t, runErr)
+	assert.Equal(t, false, report.Passed)
 }
 
 func TestDoctorReport_JSONRoundTrip(t *testing.T) {
