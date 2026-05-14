@@ -69,6 +69,28 @@ func TestRCAAgent_ParsesValidJSON(t *testing.T) {
 	assert.False(t, result.Degraded)
 }
 
+func TestRCAAgent_ParsesFencedJSON(t *testing.T) {
+	ctx := context.Background()
+	payload := `{
+  "root_cause_hypothesis": "Connection pool saturation after traffic spike",
+  "evidence": ["checkout p99 latency breached threshold"],
+  "confidence": "HIGH",
+  "recommended_fix": "Increase pool and inspect slow queries",
+  "runbook_keywords": ["postgres", "pool", "latency"]
+}`
+	stub := &stubModel{response: "```json\n" + payload + "\n```"}
+
+	ra, err := agent.NewRCAAgent(ctx, stub, zap.NewNop())
+	require.NoError(t, err)
+
+	result, err := ra.Analyze(ctx, makeEnv(t, alert.SeverityP2), makeTriageResult("P2"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "HIGH", result.Confidence)
+	assert.False(t, result.Degraded)
+	assert.Contains(t, result.RunbookKeywords, "postgres")
+}
+
 func TestRCAAgent_WrapsAlertContentInTrustedBoundary(t *testing.T) {
 	ctx := context.Background()
 	stub := rcaStub(map[string]any{

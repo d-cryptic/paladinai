@@ -16,11 +16,11 @@ import (
 type Tier string
 
 const (
-	// TierA — fast, cheap (qwen/qwen3-1.7b). Use for classification, routing.
+	// TierA — fast, cheap (qwen/qwen3.6-flash). Use for classification, routing.
 	TierA Tier = "A"
 	// TierB — balanced (qwen/qwen3-8b). Default for triage + RCA.
 	TierB Tier = "B"
-	// TierC — powerful (deepseek/deepseek-v3). Use for complex reasoning.
+	// TierC — powerful (deepseek/deepseek-v3.2). Use for complex reasoning.
 	TierC Tier = "C"
 )
 

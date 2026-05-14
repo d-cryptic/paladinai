@@ -86,9 +86,9 @@ func TestLoadLLM_DefaultTiersWhenUnset(t *testing.T) {
 	assert.Equal(t, "sk-test", llm.OpenRouterKey)
 	assert.Equal(t, "https://openrouter.ai/api/v1", llm.GatewayURL)
 	assert.False(t, llm.AllowInsecureGateway)
-	assert.Equal(t, "qwen/qwen3-1.7b", llm.TierA)
+	assert.Equal(t, "qwen/qwen3.6-flash", llm.TierA)
 	assert.Equal(t, "qwen/qwen3-8b", llm.TierB)
-	assert.Equal(t, "deepseek/deepseek-v3", llm.TierC)
+	assert.Equal(t, "deepseek/deepseek-v3.2", llm.TierC)
 }
 
 func TestLoadLLM_AllowsExplicitInsecureGatewayForLocalMocks(t *testing.T) {

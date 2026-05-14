@@ -135,9 +135,9 @@ func TestNew_HTTPSSucceeds(t *testing.T) {
 	cfg := llm.Config{
 		BaseURL:    "https://openrouter.ai/api/v1",
 		APIKey:     llm.Secret("test-key"),
-		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierA: "qwen/qwen3.6-flash",
 		ModelTierB: "qwen/qwen3-8b",
-		ModelTierC: "deepseek/deepseek-v3",
+		ModelTierC: "deepseek/deepseek-v3.2",
 	}
 	client, err := llm.New(context.Background(), cfg)
 	require.NoError(t, err)
@@ -148,9 +148,9 @@ func TestNew_AllThreeTiersAccessible(t *testing.T) {
 	cfg := llm.Config{
 		BaseURL:    "https://openrouter.ai/api/v1",
 		APIKey:     llm.Secret("test-key"),
-		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierA: "qwen/qwen3.6-flash",
 		ModelTierB: "qwen/qwen3-8b",
-		ModelTierC: "deepseek/deepseek-v3",
+		ModelTierC: "deepseek/deepseek-v3.2",
 	}
 	client, err := llm.New(context.Background(), cfg)
 	require.NoError(t, err)
@@ -166,9 +166,9 @@ func TestClient_Model_UnknownTierReturnsError(t *testing.T) {
 	cfg := llm.Config{
 		BaseURL:    "https://openrouter.ai/api/v1",
 		APIKey:     llm.Secret("test-key"),
-		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierA: "qwen/qwen3.6-flash",
 		ModelTierB: "qwen/qwen3-8b",
-		ModelTierC: "deepseek/deepseek-v3",
+		ModelTierC: "deepseek/deepseek-v3.2",
 	}
 	client, err := llm.New(context.Background(), cfg)
 	require.NoError(t, err)
@@ -201,9 +201,9 @@ func TestNew_ModelTierIsStableAfterCreation(t *testing.T) {
 	cfg := llm.Config{
 		BaseURL:    "https://openrouter.ai/api/v1",
 		APIKey:     llm.Secret("key"),
-		ModelTierA: "qwen/qwen3-1.7b",
+		ModelTierA: "qwen/qwen3.6-flash",
 		ModelTierB: "qwen/qwen3-8b",
-		ModelTierC: "deepseek/deepseek-v3",
+		ModelTierC: "deepseek/deepseek-v3.2",
 	}
 	client, err := llm.New(context.Background(), cfg)
 	require.NoError(t, err)

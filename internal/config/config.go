@@ -48,9 +48,9 @@ type LLM struct {
 	// AllowInsecureGateway permits http:// gateways for local mocks only.
 	AllowInsecureGateway bool
 	// Default model tiers (see stage 9 for full routing table)
-	TierA string // fast, cheap: qwen/qwen3-1.7b
+	TierA string // fast, cheap: qwen/qwen3.6-flash
 	TierB string // balanced: qwen/qwen3-8b
-	TierC string // powerful: deepseek/deepseek-v3
+	TierC string // powerful: deepseek/deepseek-v3.2
 }
 
 func LoadLLM() (LLM, error) {
@@ -62,9 +62,9 @@ func LoadLLM() (LLM, error) {
 		GatewayURL:           getEnv("LLM_GATEWAY_URL", "https://openrouter.ai/api/v1"),
 		OpenRouterKey:        key,
 		AllowInsecureGateway: getEnvBool("LLM_ALLOW_INSECURE_GATEWAY", false),
-		TierA:                getEnv("LLM_TIER_A", "qwen/qwen3-1.7b"),
+		TierA:                getEnv("LLM_TIER_A", "qwen/qwen3.6-flash"),
 		TierB:                getEnv("LLM_TIER_B", "qwen/qwen3-8b"),
-		TierC:                getEnv("LLM_TIER_C", "deepseek/deepseek-v3"),
+		TierC:                getEnv("LLM_TIER_C", "deepseek/deepseek-v3.2"),
 	}, nil
 }
 

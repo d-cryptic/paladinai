@@ -79,7 +79,7 @@ Per-service: `make build-ingest`, `make test-ingest`. For ad-hoc Go commands, pr
 - **Correlation windows:** 5-minute sliding windows keyed by label subsets, stored in Valkey with TTL. Correlator emits group IDs when windows overlap on configured label keys.
 - **Pipeline order:** Deduplicator -> Correlator -> Publisher (NATS JetStream). Each stage is an interface; pipeline is composed in `cmd/`.
 - **NATS streams:** `PALADIN_ALERTS` (ingest -> agent), `PALADIN_AGENT_WORK` (agent task fanout). JetStream durables per consumer.
-- **LLM tiering (OpenRouter):** TierA=qwen3-1.7b (cheap classification), TierB=qwen3-8b (triage), TierC=deepseek-v3 (deep reasoning). Agents pick tier per step.
+- **LLM tiering (OpenRouter):** TierA=qwen3.6-flash (cheap classification), TierB=qwen3-8b (triage), TierC=deepseek-v3.2 (deep reasoning). Agents pick tier per step.
 - **Multi-tenancy:** `ValidateTenantID` is the boundary check. Every envelope must carry a valid tenant; cross-tenant access is a hard error, not a 403 — it should be impossible by construction.
 
 ## Pointers

@@ -153,7 +153,7 @@ func (r *RCAAgent) Analyze(ctx context.Context, env *alert.AlertEnvelope, triage
 	}
 
 	var result RCAResult
-	if err := json.Unmarshal([]byte(resp.Content), &result); err != nil {
+	if err := json.Unmarshal([]byte(extractJSONContent(resp.Content)), &result); err != nil {
 		r.log.Warn("rca: model returned non-JSON, degrading",
 			zap.String("fingerprint", env.Fingerprint),
 			zap.String("content_prefix", truncate(resp.Content, 200)),
@@ -184,4 +184,20 @@ func (r *RCAAgent) Analyze(ctx context.Context, env *alert.AlertEnvelope, triage
 		zap.Bool("degraded", result.Degraded),
 	)
 	return &result, nil
+}
+
+func extractJSONContent(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "```") {
+		return trimmed
+	}
+	trimmed = strings.TrimPrefix(trimmed, "```")
+	trimmed = strings.TrimSpace(trimmed)
+	if rest, ok := strings.CutPrefix(trimmed, "json"); ok {
+		trimmed = strings.TrimSpace(rest)
+	}
+	if rest, ok := strings.CutSuffix(trimmed, "```"); ok {
+		trimmed = strings.TrimSpace(rest)
+	}
+	return trimmed
 }

@@ -104,7 +104,7 @@ See `make help` for the full target list.
                                                   +-----------------------+
 ```
 
-Persistence: **Valkey 8** (dedup, correlation, rate limits), **Postgres 17** (state, audit), **Qdrant** (vector memory), **FalkorDB** (graph). Observability: **Prometheus + OpenTelemetry**. LLM routing: **OpenRouter** with three tiers (qwen3-1.7b, qwen3-8b, deepseek-v3).
+Persistence: **Valkey 8** (dedup, correlation, rate limits), **Postgres 17** (state, audit), **Qdrant** (vector memory), **FalkorDB** (graph). Observability: **Prometheus + OpenTelemetry**. LLM routing: **OpenRouter** with three tiers (qwen3.6-flash, qwen3-8b, deepseek-v3.2).
 
 ## Repository Layout
 
