@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -71,6 +72,8 @@ type Model struct {
 	slashMode    bool
 	helpVisible  bool
 	recent       []string
+	width        int
+	height       int
 }
 
 // AlertsLoadedMsg is sent when alerts are fetched from the API.
@@ -100,7 +103,7 @@ func New(tenant string) Model {
 	s.Selected = s.Selected.Foreground(lipgloss.Color("#FFFDF5")).Background(lipgloss.Color("#25A065")).Bold(false)
 	t.SetStyles(s)
 
-	m := Model{table: t, tenant: tenant, mode: "monitor"}
+	m := Model{table: t, tenant: tenant, mode: "monitor", width: 96, height: 28}
 	state, err := loadSessionState(dashboardSessionPath())
 	if err != nil {
 		return m
@@ -145,6 +148,12 @@ func (m Model) Init() tea.Cmd {
 // Update handles messages and key events.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.table.SetWidth(tableWidth(msg.Width))
+		m.table.SetHeight(tableHeight(msg.Height))
+		return m, nil
 	case tea.KeyMsg:
 		if m.slashMode {
 			next, cmd := m.updateCommandInput(msg)
@@ -193,7 +202,7 @@ func (m Model) updateCommandInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.slashMode = false
 		m.commandInput = ""
 		if command != "" {
-			m.recent = append([]string{command}, m.recent...)
+			m.recent = prependRecentCommand(m.recent, command)
 		}
 		return m.applySlashCommand(command)
 	case tea.KeyRunes:
@@ -254,6 +263,21 @@ func (m Model) sessionState() SessionState {
 	}
 }
 
+func prependRecentCommand(recent []string, command string) []string {
+	next := make([]string, 0, minInt(len(recent)+1, 8))
+	next = append(next, command)
+	for _, item := range recent {
+		if item == command {
+			continue
+		}
+		next = append(next, item)
+		if len(next) == 8 {
+			break
+		}
+	}
+	return next
+}
+
 func isDashboardMode(mode string) bool {
 	switch mode {
 	case "monitor", "tail", "configure", "config-validate", "runbooks", "runbook-search", "doctor":
@@ -290,6 +314,9 @@ func saveSessionState(path string, state SessionState) error {
 	if state.Mode == "" {
 		state.Mode = "monitor"
 	}
+	if len(state.Recent) > 8 {
+		state.Recent = append([]string(nil), state.Recent[:8]...)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create session dir: %w", err)
 	}
@@ -306,10 +333,16 @@ func saveSessionState(path string, state SessionState) error {
 
 // View renders the dashboard.
 func (m Model) View() string {
-	header := titleStyle.Render(fmt.Sprintf(" PaladinAI Dashboard — tenant: %s • mode: %s ", m.tenant, m.mode))
-	help := helpStyle.Render("↑/↓ navigate  •  / commands  •  ? help  •  r refresh  •  q quit")
+	header := titleStyle.Width(contentWidth(m.width)).Render(
+		fmt.Sprintf(" PaladinAI Dashboard — tenant: %s • mode: %s ", m.tenant, m.mode),
+	)
+	help := helpStyle.Render("↑/↓ navigate  •  enter inspect  •  / commands  •  ? help  •  r refresh  •  q quit")
 
-	body := baseStyle.Render(m.table.View())
+	body := lipgloss.JoinHorizontal(lipgloss.Top,
+		baseStyle.Render(m.table.View()),
+		" ",
+		baseStyle.Width(detailWidth(m.width)).Render(m.detailPane()),
+	)
 
 	errLine := ""
 	if m.err != nil {
@@ -317,7 +350,7 @@ func (m Model) View() string {
 			fmt.Sprintf("Error: %v", m.err))
 	}
 
-	parts := []string{header, body}
+	parts := []string{header, summaryStrip(m.alerts), body}
 	if errLine != "" {
 		parts = append(parts, errLine)
 	}
@@ -334,7 +367,11 @@ func commandBar(m Model) string {
 	if input == "" {
 		input = "_"
 	}
-	return helpStyle.Render("/incidents  /tail  /runbooks  /doctor  /config  /help  /quit") + "\n> " + input
+	recent := ""
+	if len(m.recent) > 0 {
+		recent = "  recent: " + strings.Join(m.recent[:minInt(len(m.recent), 3)], "  ")
+	}
+	return helpStyle.Render("/incidents  /tail  /runbooks  /doctor  /config  /help  /quit"+recent) + "\n> " + input
 }
 
 func helpOverlay() string {
@@ -351,4 +388,152 @@ func helpOverlay() string {
 		"  /config     configure mode",
 		"  /quit       exit",
 	}, "\n"))
+}
+
+func (m Model) detailPane() string {
+	if len(m.alerts) == 0 {
+		return strings.Join([]string{
+			"Incident detail",
+			"",
+			"No active alerts.",
+			"Run `paladin tail` for the live stream or press r to refresh.",
+		}, "\n")
+	}
+	alert := m.selectedAlert()
+	return strings.Join([]string{
+		"Incident detail",
+		"",
+		"Title:       " + nonEmpty(alert.Title, "untitled"),
+		"Severity:    " + strings.ToUpper(nonEmpty(alert.Severity, "unknown")),
+		"Status:      " + nonEmpty(alert.Status, "unknown"),
+		"Correlation: " + nonEmpty(alert.CorrelationID, "none"),
+		"Fingerprint: " + nonEmpty(alert.Fingerprint, "none"),
+		"Tenant:      " + nonEmpty(alert.Tenant, m.tenant),
+		"",
+		modeHint(m.mode),
+	}, "\n")
+}
+
+func (m Model) selectedAlert() Alert {
+	if len(m.alerts) == 0 {
+		return Alert{}
+	}
+	cursor := m.table.Cursor()
+	if cursor < 0 || cursor >= len(m.alerts) {
+		return m.alerts[0]
+	}
+	return m.alerts[cursor]
+}
+
+func summaryStrip(alerts []Alert) string {
+	counts := severityCounts(alerts)
+	statuses := statusCounts(alerts)
+	parts := []string{
+		fmt.Sprintf("active=%d", len(alerts)),
+		fmt.Sprintf("P1=%d", counts["P1"]),
+		fmt.Sprintf("P2=%d", counts["P2"]),
+		fmt.Sprintf("P3=%d", counts["P3"]),
+		fmt.Sprintf("P4=%d", counts["P4"]),
+	}
+	for _, status := range sortedKeys(statuses) {
+		parts = append(parts, fmt.Sprintf("%s=%d", status, statuses[status]))
+	}
+	return helpStyle.Render(strings.Join(parts, "  "))
+}
+
+func severityCounts(alerts []Alert) map[string]int {
+	counts := map[string]int{"P1": 0, "P2": 0, "P3": 0, "P4": 0}
+	for _, alert := range alerts {
+		severity := strings.ToUpper(alert.Severity)
+		if _, ok := counts[severity]; !ok {
+			severity = "P4"
+		}
+		counts[severity]++
+	}
+	return counts
+}
+
+func statusCounts(alerts []Alert) map[string]int {
+	counts := make(map[string]int)
+	for _, alert := range alerts {
+		status := strings.ToLower(strings.TrimSpace(alert.Status))
+		if status == "" {
+			status = "unknown"
+		}
+		counts[status]++
+	}
+	return counts
+}
+
+func sortedKeys(values map[string]int) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func modeHint(mode string) string {
+	switch mode {
+	case "tail":
+		return "Tail mode: watch alert flow and correlation changes."
+	case "runbooks", "runbook-search":
+		return "Runbooks mode: search response procedures before approving actions."
+	case "doctor":
+		return "Doctor mode: verify API, auth, integration, and stream health."
+	case "configure", "config-validate":
+		return "Config mode: inspect local settings and validate paladin.yaml."
+	default:
+		return "Monitor mode: review active alerts and select incidents for detail."
+	}
+}
+
+func nonEmpty(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func contentWidth(width int) int {
+	if width < 60 {
+		return 60
+	}
+	return width
+}
+
+func tableWidth(width int) int {
+	if width < 100 {
+		return 84
+	}
+	return width - detailWidth(width) - 6
+}
+
+func tableHeight(height int) int {
+	if height < 16 {
+		return 10
+	}
+	return minInt(height-12, 18)
+}
+
+func detailWidth(width int) int {
+	if width < 100 {
+		return 34
+	}
+	return minInt(42, maxInt(34, width/3))
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
