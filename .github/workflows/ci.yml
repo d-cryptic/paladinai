@@ -64,6 +64,38 @@ jobs:
           go build -o /tmp/paladin-ws ./services/paladin-ws/cmd
           go build -o /tmp/paladin-comms ./services/paladin-comms/cmd/main.go
 
+      - name: Stage 11 init dry-run smoke
+        env:
+          PALADIN_TENANT: ci-tenant
+          PALADIN_TOKEN: ci-token
+        run: |
+          python3 - <<'PY' &
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path == "/readyz":
+                      self.send_response(200)
+                      self.end_headers()
+                      self.wfile.write(b"ok")
+                      return
+                  self.send_response(404)
+                  self.end_headers()
+
+              def log_message(self, *_):
+                  return
+
+          HTTPServer(("127.0.0.1", 9002), Handler).serve_forever()
+          PY
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for i in $(seq 1 10); do
+            nc -z 127.0.0.1 9002 && break
+            sleep 1
+          done
+          nc -z 127.0.0.1 9002
+          /tmp/paladin --ci init --dry-run
+
   # ── unit tests ──────────────────────────────────────────────────────────────
   test:
     name: Unit Tests
