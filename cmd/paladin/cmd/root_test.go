@@ -203,3 +203,13 @@ func TestWriteTour_JSON(t *testing.T) {
 	require.Len(t, result.Steps, 4)
 	assert.Contains(t, result.Steps[0], "incident feed")
 }
+
+func TestRunRoot_SimpleModeUsesAlertListPath(t *testing.T) {
+	cmd := newTestCmd("", "", "http://api")
+	cmd.Flags().Bool("simple", true, "")
+
+	err := runRoot(cmd, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tenant ID is required")
+}
