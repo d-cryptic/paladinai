@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -127,6 +128,38 @@ func TestRunbookRecords_ConcurrentImportAndList(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestRunbookImport_BodyTooLarge(t *testing.T) {
+	h, _ := newTestRunbookHandler()
+	srv := mountRunbookRoutes(h)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/import", strings.NewReader(`{"source":"file","path":"`+strings.Repeat("x", 70*1024)+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-abc")
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("want 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRunbookSearch_BodyTooLarge(t *testing.T) {
+	h, _ := newTestRunbookHandler()
+	srv := mountRunbookRoutes(h)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/search", strings.NewReader(`{"query":"`+strings.Repeat("x", 70*1024)+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-abc")
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("want 413, got %d: %s", rec.Code, rec.Body.String())
+	}
 }
 
 // ── searchRunbooks coverage ───────────────────────────────────────────────────

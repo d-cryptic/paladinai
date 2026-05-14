@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +119,17 @@ func TestHandler_Register_InvalidBody(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestHandler_Register_BodyTooLarge(t *testing.T) {
+	r, _ := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/servers", strings.NewReader(`{"id":"`+strings.Repeat("x", 70*1024)+`"}`))
+	req = withTenant(req, "t1")
+	rr := httptest.NewRecorder()
+
+	r.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
 }
 
 func TestHandler_Register_ValidationFails(t *testing.T) {

@@ -80,8 +80,7 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req importRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonErr(w, "INVALID_BODY", "request body must be valid JSON", http.StatusBadRequest)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	if req.Source == "" {
@@ -187,8 +186,7 @@ func (h *RunbookHandler) searchRunbooks(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req searchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonErr(w, "INVALID_BODY", "request body must be valid JSON", http.StatusBadRequest)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	if req.Query == "" {

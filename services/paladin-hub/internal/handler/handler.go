@@ -6,6 +6,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/store"
 	"go.uber.org/zap"
 )
+
+const maxJSONBodyBytes = 64 * 1024
 
 // Handler wires the registry store to HTTP routes.
 type Handler struct {
@@ -45,8 +48,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req registry.RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonErr(w, "INVALID_BODY", "request body must be valid JSON", http.StatusBadRequest)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	if err := req.Validate(); err != nil {
@@ -175,4 +177,23 @@ func jsonErr(w http.ResponseWriter, code, msg string, status int) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]string{"code": code, "message": msg},
 	})
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(v); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			jsonErr(w, "BODY_TOO_LARGE", "request body exceeds 64 KiB", http.StatusRequestEntityTooLarge)
+			return false
+		}
+		jsonErr(w, "INVALID_BODY", "request body must be valid JSON", http.StatusBadRequest)
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		jsonErr(w, "INVALID_BODY", "request body must contain a single JSON document", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
