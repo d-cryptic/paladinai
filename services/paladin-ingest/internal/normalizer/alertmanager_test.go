@@ -48,6 +48,16 @@ func TestNormalizeAlertmanager_MultipleAlerts(t *testing.T) {
 	assert.Len(t, envelopes, 2)
 }
 
+func TestNormalizeAlertmanager_EmptyAlertsErrors(t *testing.T) {
+	payload := json.RawMessage(`{"version":"4","status":"firing","receiver":"paladin","alerts":[]}`)
+
+	envelopes, err := normalizer.NormalizeAlertmanager("t1", payload, zap.NewNop())
+
+	require.Error(t, err)
+	assert.Nil(t, envelopes)
+	assert.Contains(t, err.Error(), "contains no alerts")
+}
+
 func TestNormalizeAlertmanager_ResolvedAlert(t *testing.T) {
 	endsAt := time.Now().Add(time.Minute)
 	payload := alertmanagerPayloadResolved(t, endsAt)

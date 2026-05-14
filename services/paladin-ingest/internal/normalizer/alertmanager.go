@@ -46,6 +46,9 @@ func NormalizeAlertmanager(tenantID string, raw json.RawMessage, log *zap.Logger
 	if err := json.Unmarshal(raw, &webhook); err != nil {
 		return nil, fmt.Errorf("unmarshal alertmanager payload: %w", err)
 	}
+	if len(webhook.Alerts) == 0 {
+		return nil, fmt.Errorf("alertmanager payload contains no alerts")
+	}
 
 	now := time.Now().UTC()
 	envelopes := make([]alert.AlertEnvelope, 0, len(webhook.Alerts))
