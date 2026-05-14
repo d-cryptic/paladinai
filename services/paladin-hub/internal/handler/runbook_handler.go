@@ -25,6 +25,7 @@ const maxRunbookContentBytes = 2 << 20
 // RunbookRecord is the metadata record returned by list and import.
 type RunbookRecord struct {
 	ID        string    `json:"id"`
+	TenantID  string    `json:"tenant_id,omitempty"`
 	Title     string    `json:"title"`
 	Source    string    `json:"source"`
 	Path      string    `json:"path,omitempty"`
@@ -95,6 +96,7 @@ func (h *RunbookHandler) importRunbook(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	rec := &RunbookRecord{
 		ID:        uuid.New().String(),
+		TenantID:  tenantID,
 		Title:     title,
 		Source:    req.Source,
 		Path:      srcPath,
@@ -149,6 +151,9 @@ func (h *RunbookHandler) listRunbooks(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]*RunbookRecord, 0, len(h.records))
 	for _, rec := range h.records {
+		if rec.TenantID != tenantID {
+			continue
+		}
 		if sourceFilter != "" && rec.Source != sourceFilter {
 			continue
 		}
