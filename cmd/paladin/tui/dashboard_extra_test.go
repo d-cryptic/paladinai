@@ -319,3 +319,58 @@ func TestDashboardModel_SetAlerts_LongStrings(t *testing.T) {
 		t.Errorf("expected 1 alert, got %d", len(m.alerts))
 	}
 }
+
+func TestDashboardModel_ViewShowsSummaryAndDetailPane(t *testing.T) {
+	m := New("tenant-1")
+	m = m.SetAlerts([]Alert{
+		{Fingerprint: "fp1", Severity: "P1", Status: "firing", Title: "DB Down", CorrelationID: "corr-1", Tenant: "tenant-1"},
+		{Fingerprint: "fp2", Severity: "P2", Status: "triaging", Title: "API Latency", CorrelationID: "corr-2", Tenant: "tenant-1"},
+	})
+
+	view := m.View()
+	for _, want := range []string{"active=2", "P1=1", "P2=1", "firing=1", "triaging=1", "Incident detail", "DB Down"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDashboardModel_ViewEmptyState(t *testing.T) {
+	m := New("tenant-1")
+
+	view := m.View()
+	if !strings.Contains(view, "No active alerts") {
+		t.Fatalf("view missing empty state:\n%s", view)
+	}
+}
+
+func TestDashboardModel_WindowSizeResizesTable(t *testing.T) {
+	m := New("tenant-1")
+
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	wm := result.(Model)
+	if wm.width != 140 || wm.height != 32 {
+		t.Fatalf("window size not stored: width=%d height=%d", wm.width, wm.height)
+	}
+	if wm.table.Width() <= 84 {
+		t.Fatalf("table width did not expand: %d", wm.table.Width())
+	}
+}
+
+func TestPrependRecentCommandDeduplicatesAndCaps(t *testing.T) {
+	got := []string{}
+	for _, command := range []string{"/a", "/b", "/c", "/d", "/e", "/f", "/g", "/h", "/i", "/c"} {
+		got = prependRecentCommand(got, command)
+	}
+	if len(got) != 8 {
+		t.Fatalf("recent length = %d, want 8: %+v", len(got), got)
+	}
+	if got[0] != "/c" {
+		t.Fatalf("latest command = %q, want /c: %+v", got[0], got)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] == "/c" {
+			t.Fatalf("duplicate command retained: %+v", got)
+		}
+	}
+}
