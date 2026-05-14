@@ -6,7 +6,7 @@ AI-powered, multi-tenant infrastructure monitoring and incident response platfor
 
 ## Status
 
-Phases **1 through 7** are implemented and merged to `v2`:
+Phases **1 through 11** are implemented and merged to `v2`:
 
 1. Architecture & language split
 2. Messaging (NATS JetStream, dedup, correlation)
@@ -17,8 +17,12 @@ Phases **1 through 7** are implemented and merged to `v2`:
 5. Memory
 6. RAG / hybrid search
 7. Integrations (MCP hub)
+8. Multitenancy hardening
+9. Cache layers and cost attribution
+10. Eval and local testing harness
+11. Onboarding UX (`paladin init`, `doctor`, integrations, tail)
 
-Phases 8 onward (multitenancy hardening, caching, eval, onboarding UX, specialised agents, gateway, security, frontend, deployment, billing, DR, enterprise scale) are in design — see `docs/plans/08..25.*.md`.
+Phases 12 onward (specialised agents, gateway, observability, security, API, frontend, deployment, billing, DR, enterprise scale) are in design — see `docs/plans/12..25.*.md`.
 
 ## Services
 
@@ -26,9 +30,13 @@ Phases 8 onward (multitenancy hardening, caching, eval, onboarding UX, specialis
 |---|---|---|
 | `paladin-ingest` | Alert ingestion HTTP API; dedup, normalize, NATS publish | `9001` |
 | `paladin-edge` | API gateway; rate limiting, routing, tenant auth | `9002` |
-| `paladin-agent` | Eino ReAct triage agent; NATS consumer; OpenRouter LLM | n/a (consumer) |
+| `paladin-agent` | Eino ReAct triage/RCA agent; NATS consumer; OpenRouter LLM; incident replay API | `9006` |
 | `paladin-hub` | MCP server registry (register/list/deregister/heartbeat) | `8082` |
-| `paladin-auth`, `paladin-memory`, `paladin-ws`, `paladin-orchestrator` | Scaffolded; in progress | — |
+| `paladin-auth` | Tenant registry and JWT issuance | `9003` |
+| `paladin-memory` | Working/episodic/procedural/semantic memory API | `9010` HTTP, `9011` gRPC |
+| `paladin-ws` | Authenticated live alert stream for CLI/UI clients | `9007` |
+| `paladin-orchestrator` | Raw-alert pipeline runner and Hatchet boundary | `9008` |
+| `paladin-comms` | Triage/analyzed-alert notification worker | `9009` |
 
 CLI: `cmd/paladin` (Cobra + Bubble Tea TUI).
 
@@ -121,7 +129,8 @@ Architecture plans (staged):
 - [`03.5.decision-math-stage3.5.md`](docs/plans/03.5.decision-math-stage3.5.md) — Statistics, thresholds, probabilistic systems
 - [`04.workflows-stage4.md`](docs/plans/04.workflows-stage4.md), [`04.5.prompt-engineering-stage4.5.md`](docs/plans/04.5.prompt-engineering-stage4.5.md)
 - [`05.memory-stage5.md`](docs/plans/05.memory-stage5.md), [`06.rag-hybrid-search-stage6.md`](docs/plans/06.rag-hybrid-search-stage6.md), [`07.integrations-stage7.md`](docs/plans/07.integrations-stage7.md)
-- Phases 8–25: multitenancy, cache, eval, onboarding, specialised agents, gateway, observability, security, API, frontend, deployment, billing, DR, enterprise scale.
+- [`08.multitenancy-stage8.md`](docs/plans/08.multitenancy-stage8.md), [`09.cache-stage9.md`](docs/plans/09.cache-stage9.md), [`10.eval-testing-stage10.md`](docs/plans/10.eval-testing-stage10.md), [`11.onboarding-ux-stage11.md`](docs/plans/11.onboarding-ux-stage11.md)
+- Phases 12–25: specialised agents, gateway, observability, security, API, frontend, deployment, billing, DR, enterprise scale.
 
 Working with Claude Code in this repo: see [`CLAUDE.md`](CLAUDE.md).
 
