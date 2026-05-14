@@ -46,6 +46,12 @@ export type DashboardData = {
   modelMix: typeof modelMix
 }
 
+export type ReplayResult = {
+  replayID: string
+  sourceID: string
+  startedAt: string
+}
+
 type APIResponse<T> = {
   data?: T
 }
@@ -126,6 +132,21 @@ export function dashboardWebSocketProtocols(token = dashboardToken()): string[] 
   return ["paladinai.v2", `paladinai.jwt.${token}`]
 }
 
+export async function requestIncidentReplay(incidentID: string, signal?: AbortSignal): Promise<ReplayResult> {
+  const apiBaseURL = dashboardAPIBaseURL()
+  const token = dashboardToken()
+  const tenantID = dashboardTenantID()
+  if (!token) {
+    throw new Error("paladin auth token is required")
+  }
+  const result = await postJSON<ReplayWire>(`${apiBaseURL}/incidents/${encodeURIComponent(incidentID)}/replay`, token, tenantID, signal)
+  return {
+    replayID: String(result.replay_id || ""),
+    sourceID: String(result.source_id || incidentID),
+    startedAt: String(result.started_at || ""),
+  }
+}
+
 async function fetchIncidents(apiBaseURL: string, token: string, tenantID: string, signal?: AbortSignal): Promise<Incident[]> {
   const response = await getJSON<APIResponse<AgentIncident[]>>(`${apiBaseURL}/incidents`, token, tenantID, signal)
   return (response.data ?? []).map(toDashboardIncident)
@@ -158,6 +179,21 @@ async function getJSON<T>(url: string, token: string, tenantID: string, signal?:
   return response.json() as Promise<T>
 }
 
+async function postJSON<T>(url: string, token: string, tenantID: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Tenant-ID": tenantID,
+    },
+    signal,
+  })
+  if (!response.ok) {
+    throw new Error(`POST ${url} returned ${response.status}`)
+  }
+  return response.json() as Promise<T>
+}
+
 type AgentIncident = {
   id: string
   status: string
@@ -176,6 +212,12 @@ type RunbookWire = {
   source?: string
   embedded?: boolean
   updated_at?: string
+}
+
+type ReplayWire = {
+  replay_id?: string
+  source_id?: string
+  started_at?: string
 }
 
 function toDashboardIncident(incident: AgentIncident): Incident {

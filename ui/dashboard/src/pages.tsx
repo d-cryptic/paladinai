@@ -51,6 +51,7 @@ type WorkspacePageProps = {
   view: DashboardView
   onNavigate: (view: DashboardView) => void
   data: DashboardData
+  onReplayIncident: (incidentID: string) => Promise<void>
 }
 
 const pageCopy: Record<Exclude<DashboardView, "dashboard">, { eyebrow: string; title: string; description: string }> = {
@@ -107,14 +108,14 @@ const auditRows = [
   ["19:29", "paladin-eval", "ran 1000-case golden suite", "evals"],
 ]
 
-export function WorkspacePage({ view, onNavigate, data }: WorkspacePageProps) {
+export function WorkspacePage({ view, onNavigate, data, onReplayIncident }: WorkspacePageProps) {
   if (view === "dashboard") return null
   const copy = pageCopy[view]
 
   return (
     <div className="grid gap-3">
       <PageHeader copy={copy} view={view} onNavigate={onNavigate} />
-      {view === "incidents" ? <IncidentsPage incidents={data.incidents} activity={data.activity} /> : null}
+      {view === "incidents" ? <IncidentsPage incidents={data.incidents} activity={data.activity} onReplayIncident={onReplayIncident} /> : null}
       {view === "runbooks" ? <RunbooksPage runbooks={data.runbooks} /> : null}
       {view === "integrations" ? <IntegrationsPage integrations={data.integrations} /> : null}
       {view === "evals" ? <EvalsPage data={data} /> : null}
@@ -170,10 +171,21 @@ function PageHeader({
   )
 }
 
-function IncidentsPage({ incidents, activity }: { incidents: Incident[]; activity: DashboardData["activity"] }) {
+function IncidentsPage({
+  incidents,
+  activity,
+  onReplayIncident,
+}: {
+  incidents: Incident[]
+  activity: DashboardData["activity"]
+  onReplayIncident: (incidentID: string) => Promise<void>
+}) {
   const [selected, setSelected] = useState<Incident>(incidents[0])
   const [approvalOpen, setApprovalOpen] = useState(false)
   const [query, setQuery] = useState("")
+  const [pending, setPending] = useState(false)
+  const [replayStatus, setReplayStatus] = useState("")
+  const [replayError, setReplayError] = useState("")
 
   useEffect(() => {
     if (!incidents.some((incident) => incident.id === selected.id)) {
@@ -261,8 +273,25 @@ function IncidentsPage({ incidents, activity }: { incidents: Incident[]; activit
         open={approvalOpen}
         title="Approve remediation"
         body={`Approve "${selected.action}" for ${selected.id}? This records an audit entry and releases the runbook executor.`}
+        confirmLabel={pending ? "Queuing" : "Approve replay"}
+        disabled={pending}
+        onConfirm={async () => {
+          setPending(true)
+          setReplayError("")
+          try {
+            await onReplayIncident(selected.id)
+            setReplayStatus(`Replay queued for ${selected.id}`)
+            setApprovalOpen(false)
+          } catch {
+            setReplayError("Replay request failed")
+          } finally {
+            setPending(false)
+          }
+        }}
         onClose={() => setApprovalOpen(false)}
       />
+      {replayStatus ? <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">{replayStatus}</div> : null}
+      {replayError ? <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{replayError}</div> : null}
     </section>
   )
 }
@@ -552,7 +581,23 @@ function FormRows({ rows }: { rows: string[] }) {
   )
 }
 
-function ConfirmDialog({ open, title, body, onClose }: { open: boolean; title: string; body: string; onClose: () => void }) {
+function ConfirmDialog({
+  open,
+  title,
+  body,
+  confirmLabel = "Confirm",
+  disabled = false,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean
+  title: string
+  body: string
+  confirmLabel?: string
+  disabled?: boolean
+  onConfirm?: () => void | Promise<void>
+  onClose: () => void
+}) {
   return (
     <AnimatePresence>
       {open ? (
@@ -563,7 +608,10 @@ function ConfirmDialog({ open, title, body, onClose }: { open: boolean; title: s
               <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close dialog"><X className="size-4" /></Button>
             </div>
             <Separator className="my-4" />
-            <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={onClose}>Confirm</Button></div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button disabled={disabled} onClick={() => void (onConfirm ? onConfirm() : onClose())}>{confirmLabel}</Button>
+            </div>
           </motion.div>
         </motion.div>
       ) : null}

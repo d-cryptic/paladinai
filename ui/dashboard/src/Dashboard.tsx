@@ -41,7 +41,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { dashboardToken, dashboardWSURL, dashboardWebSocketProtocols, loadDashboardData, mockDashboardData, type DashboardData } from "@/api"
+import {
+  dashboardToken,
+  dashboardWSURL,
+  dashboardWebSocketProtocols,
+  loadDashboardData,
+  mockDashboardData,
+  requestIncidentReplay,
+  type DashboardData,
+} from "@/api"
 import {
   activity,
   agentTimeline,
@@ -104,6 +112,7 @@ export function Dashboard() {
   const [dark, setDark] = useState(() => window.localStorage.getItem("paladin-theme") === "dark")
   const [streamState, setStreamState] = useState<StreamState>(() => (dashboardToken() ? "connecting" : "mock"))
   const [liveAlertCount, setLiveAlertCount] = useState(0)
+  const [replayStatus, setReplayStatus] = useState("")
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -173,6 +182,10 @@ export function Dashboard() {
   const navigate = (nextView: DashboardView) => {
     setView(nextView)
     window.history.replaceState(null, "", nextView === "dashboard" ? "#" : `#${nextView}`)
+  }
+  const replayIncident = async (incidentID: string) => {
+    const result = await requestIncidentReplay(incidentID)
+    setReplayStatus(`Replay ${result.replayID || "started"} queued for ${result.sourceID}`)
   }
 
   return (
@@ -296,7 +309,7 @@ export function Dashboard() {
                   </Card>
                 </div>
                 <div className="grid gap-2.5">
-                  <IncidentDetail incident={selected} />
+                  <IncidentDetail incident={selected} replayStatus={replayStatus} onReplayIncident={replayIncident} />
                   <SeverityDonut />
                   <QualityTrendCard />
                   <ModelMixCard />
@@ -307,7 +320,7 @@ export function Dashboard() {
               </section>
             </>
           ) : (
-            <WorkspacePage view={view} onNavigate={navigate} data={dashboardData} />
+            <WorkspacePage view={view} onNavigate={navigate} data={dashboardData} onReplayIncident={replayIncident} />
           )}
         </main>
       </div>
@@ -781,7 +794,31 @@ function Metric({
   )
 }
 
-function IncidentDetail({ incident }: { incident: Incident }) {
+function IncidentDetail({
+  incident,
+  replayStatus,
+  onReplayIncident,
+}: {
+  incident: Incident
+  replayStatus: string
+  onReplayIncident: (incidentID: string) => Promise<void>
+}) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState("")
+  const canReplay = incident.status === "Awaiting approval"
+  const replay = async () => {
+    if (!canReplay || pending) return
+    setPending(true)
+    setError("")
+    try {
+      await onReplayIncident(incident.id)
+    } catch {
+      setError("Replay request failed")
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
     <Card className="xl:row-span-2">
       <CardHeader className="border-b bg-card/70 pb-3">
@@ -814,15 +851,17 @@ function IncidentDetail({ incident }: { incident: Incident }) {
             ))}
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border bg-accent/50 p-3">
+        <div className="grid gap-3 rounded-lg border bg-accent/50 p-3">
           <div className="flex items-center gap-2 text-sm">
             <CircleDot className="size-3 fill-amber-500 text-amber-500" />
             {incident.status === "Awaiting approval" ? incident.action : "No action pending"}
           </div>
-          <Button variant="outline" disabled={incident.status !== "Awaiting approval"}>
-            Approve
+          <Button className="w-fit" variant="outline" disabled={!canReplay || pending} onClick={replay}>
+            {pending ? "Queuing" : "Approve replay"}
           </Button>
         </div>
+        {replayStatus ? <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">{replayStatus}</div> : null}
+        {error ? <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
       </CardContent>
     </Card>
   )

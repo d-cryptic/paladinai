@@ -109,7 +109,7 @@ test.describe("local dashboard", () => {
           data: [
             {
               id: "live-1",
-              status: "open",
+              status: "replaying",
               severity: "critical",
               title: "Live API outage",
               alert_count: 2,
@@ -138,11 +138,26 @@ test.describe("local dashboard", () => {
         }),
       });
     });
+    await page.route("http://127.0.0.1:9002/api/v1/incidents/live-1/replay", async (route) => {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().headers().authorization).toBe("Bearer test-token");
+      expect(route.request().headers()["x-tenant-id"]).toBe("tenant-live");
+      await route.fulfill({
+        status: 201,
+        headers: {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ replay_id: "replay-live-1", source_id: "live-1", started_at: "2026-05-14T00:00:00Z" }),
+      });
+    });
 
     await page.goto(dashboardURL);
 
     await expect(page.getByText("Live backend")).toBeVisible();
     await expect(page.getByText("Live API outage")).toBeVisible();
+    await page.getByRole("button", { name: "Approve replay" }).click();
+    await expect(page.getByText("Replay replay-live-1 queued for live-1")).toBeVisible();
     await page.getByRole("button", { name: "Runbooks" }).click();
     await expect(page.getByText("Live failover")).toBeVisible();
   });
