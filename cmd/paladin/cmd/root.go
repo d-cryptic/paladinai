@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -148,6 +149,9 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	if isCIMode(cmd) || !rootIsTerminal(os.Stdout.Fd()) {
 		return cmd.Help()
 	}
+	if err := maybeShowFirstRunTour(cmd); err != nil {
+		return err
+	}
 	return dashboardCmd.RunE(cmd, nil)
 }
 
@@ -171,6 +175,29 @@ func writeTour(cmd *cobra.Command) error {
 	fmt.Fprintln(os.Stdout, "Welcome to PaladinAI. Quick tour:")
 	for i, step := range result.Steps {
 		fmt.Fprintf(os.Stdout, "  [%d/%d] %s\n", i+1, len(result.Steps), step)
+	}
+	return nil
+}
+
+func firstRunPath() string {
+	return filepath.Join(configDir(), "first_run")
+}
+
+func maybeShowFirstRunTour(cmd *cobra.Command) error {
+	path := firstRunPath()
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check first-run marker: %w", err)
+	}
+	if err := writeTour(cmd); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(configDir(), 0o700); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	if err := os.WriteFile(path, []byte("shown\n"), 0o600); err != nil {
+		return fmt.Errorf("write first-run marker: %w", err)
 	}
 	return nil
 }
