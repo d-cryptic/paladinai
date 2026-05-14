@@ -248,6 +248,71 @@ var integrationsShowCmd = &cobra.Command{
 	},
 }
 
+var integrationsLintCmd = &cobra.Command{
+	Use:   "lint [name]",
+	Short: "Validate integration package definitions",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var integrations []integrationpkg.Integration
+		if len(args) == 1 {
+			integ, err := integrationpkg.LoadByName(integrationsDir(cmd), args[0])
+			if err != nil {
+				return fmt.Errorf("load integration: %w", err)
+			}
+			integrations = []integrationpkg.Integration{*integ}
+		} else {
+			all, err := integrationpkg.LoadAll(integrationsDir(cmd))
+			if err != nil {
+				return fmt.Errorf("load integrations: %w", err)
+			}
+			integrations = all
+		}
+
+		issues := make([]integrationpkg.LintIssue, 0)
+		for _, integ := range integrations {
+			issues = append(issues, integrationpkg.Lint(integ)...)
+		}
+
+		if outputFormat(cmd) == "json" {
+			result := integrationLintResult{
+				Checked: len(integrations),
+				Passed:  !integrationpkg.HasLintErrors(issues),
+				Issues:  issues,
+			}
+			enc := json.NewEncoder(os.Stdout)
+			if err := enc.Encode(result); err != nil {
+				return fmt.Errorf("write json: %w", err)
+			}
+		} else {
+			printIntegrationLintResult(len(integrations), issues)
+		}
+
+		if integrationpkg.HasLintErrors(issues) {
+			return fmt.Errorf("integration lint failed")
+		}
+		return nil
+	},
+}
+
+type integrationLintResult struct {
+	Checked int                        `json:"checked"`
+	Passed  bool                       `json:"passed"`
+	Issues  []integrationpkg.LintIssue `json:"issues"`
+}
+
+func printIntegrationLintResult(checked int, issues []integrationpkg.LintIssue) {
+	if len(issues) == 0 {
+		fmt.Fprintf(os.Stdout, "Checked %d integration(s): ok\n", checked)
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "SEVERITY\tINTEGRATION\tFIELD\tMESSAGE")
+	for _, issue := range issues {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", issue.Severity, issue.Integration, issue.Field, issue.Message)
+	}
+	_ = w.Flush()
+}
+
 func printIntegrationsTable(body []byte) error {
 	var response struct {
 		Data []map[string]any `json:"data"`
@@ -416,6 +481,7 @@ func init() {
 		integrationsEnableCmd,
 		integrationsDisableCmd,
 		integrationsShowCmd,
+		integrationsLintCmd,
 	)
 	rootCmd.AddCommand(integrationsCmd)
 }

@@ -64,6 +64,9 @@ jobs:
           go build -o /tmp/paladin-ws ./services/paladin-ws/cmd
           go build -o /tmp/paladin-comms ./services/paladin-comms/cmd/main.go
 
+      - name: Stage 7 integration catalog lint
+        run: /tmp/paladin --ci integrations lint --integrations-dir integrations
+
       - name: Stage 11 init dry-run smoke
         env:
           PALADIN_TENANT: ci-tenant

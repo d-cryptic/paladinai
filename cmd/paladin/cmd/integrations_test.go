@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -166,4 +167,65 @@ func TestWriteIntegrationActionResult_HumanOutput(t *testing.T) {
 	})
 
 	assert.Equal(t, "Integration \"loki\" disabled.\n", stdout)
+}
+
+func TestIntegrationsLintCommand_JSONSuccess(t *testing.T) {
+	dir := writeIntegrationCatalog(t, "valid", `
+name: valid
+version: "1.0.0"
+description: Valid integration definition for testing
+receiver:
+  type: none
+auth:
+  type: none
+tools:
+  - query_metrics
+docs_url: https://example.com/docs
+`)
+
+	var runErr error
+	stdout := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"--ci", "integrations", "lint", "--integrations-dir", dir})
+		t.Cleanup(func() { rootCmd.SetArgs(nil) })
+		runErr = rootCmd.Execute()
+	})
+
+	require.NoError(t, runErr)
+	var result integrationLintResult
+	require.NoError(t, json.Unmarshal([]byte(stdout), &result))
+	assert.True(t, result.Passed)
+	assert.Equal(t, 1, result.Checked)
+	assert.Empty(t, result.Issues)
+}
+
+func TestIntegrationsLintCommand_FailsOnInvalidCatalog(t *testing.T) {
+	dir := writeIntegrationCatalog(t, "invalid", `
+name: Invalid Name
+version: "1.0.0"
+description: anytime
+receiver:
+  type: webhook
+  path: missing-slash
+auth:
+  type: made_up
+`)
+
+	var runErr error
+	_ = captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"integrations", "lint", "--integrations-dir", dir})
+		t.Cleanup(func() { rootCmd.SetArgs(nil) })
+		runErr = rootCmd.Execute()
+	})
+
+	require.Error(t, runErr)
+	assert.Contains(t, runErr.Error(), "integration lint failed")
+}
+
+func writeIntegrationCatalog(t *testing.T, name, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	integrationDir := filepath.Join(dir, name)
+	require.NoError(t, os.MkdirAll(integrationDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(integrationDir, "integration.yaml"), []byte(content), 0o644))
+	return dir
 }
