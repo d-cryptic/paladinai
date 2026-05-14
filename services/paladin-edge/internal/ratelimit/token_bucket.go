@@ -12,6 +12,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+
+	"github.com/paladinai/paladinai/internal/auth"
 )
 
 // Store is the minimal interface for the rate-limit counter.
@@ -92,11 +94,15 @@ func (s *valkeyStore) IncrWithExpire(key string, window time.Duration) (int, err
 }
 
 // Middleware returns an HTTP middleware that enforces rate limits per tenant.
-// The tenant ID is read from the X-Tenant-ID header (set by the auth layer upstream).
+// Authenticated routes use the tenant from JWT context. The X-Tenant-ID fallback
+// is only for legacy/internal routes that are intentionally not behind JWT.
 func Middleware(limiter Limiter, log *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tenantID := r.Header.Get("X-Tenant-ID")
+			tenantID, _ := auth.TenantIDFromContext(r.Context())
+			if tenantID == "" {
+				tenantID = r.Header.Get("X-Tenant-ID")
+			}
 			if tenantID == "" {
 				next.ServeHTTP(w, r)
 				return

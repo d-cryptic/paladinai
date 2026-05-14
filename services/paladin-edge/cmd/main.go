@@ -113,8 +113,6 @@ func run() error {
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID", "X-Tenant-ID"},
 	}))
-	r.Use(ratelimit.Middleware(rateLimiter, log))
-
 	r.Get("/healthz", health.Liveness)
 	r.Get("/readyz", health.Readiness)
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
@@ -140,6 +138,7 @@ func run() error {
 		// long-lived proxy responses (SSE, streaming JSON-RPC) are not cut short.
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.JWTMiddleware(jwtSecret, log))
+			r.Use(ratelimit.Middleware(rateLimiter, log))
 			if opaEnabled {
 				r.Use(middleware.OPAMiddleware(opaClient, true, log))
 			}
