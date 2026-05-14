@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -197,8 +198,17 @@ func (NoopReplayPublisher) Publish(_ context.Context, _ string, _ []byte) error 
 
 // replaySubject returns the NATS subject for replaying an envelope.
 // Republish to the raw ingest topic so dedup+correlate runs again.
-func replaySubject(tenantID, fingerprint string) string {
-	return fmt.Sprintf("paladin.alerts.raw.%s.%s", tenantID, fingerprint)
+func replaySubject(tenantID, fingerprint string) (string, error) {
+	if err := alert.ValidateTenantID(tenantID); err != nil {
+		return "", fmt.Errorf("replay subject tenant: %w", err)
+	}
+	if fingerprint == "" {
+		return "", fmt.Errorf("replay subject fingerprint must not be empty")
+	}
+	if strings.ContainsAny(fingerprint, ".*>") {
+		return "", fmt.Errorf("replay subject fingerprint must not contain '.', '*', or '>'")
+	}
+	return fmt.Sprintf("paladin.alerts.raw.%s.%s", tenantID, fingerprint), nil
 }
 
 // Handler exposes incident CRUD over HTTP.
@@ -283,7 +293,14 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
-		subject := replaySubject(tenantID, src.Labels["fingerprint"])
+		subject, err := replaySubject(tenantID, src.Labels["fingerprint"])
+		if err != nil {
+			h.log.Error("replay: invalid NATS subject",
+				zap.String("replay_id", replay.ID),
+				zap.Error(err),
+			)
+			return
+		}
 		pubCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := h.replayPub.Publish(pubCtx, subject, src.RawEnvelope); err != nil {
