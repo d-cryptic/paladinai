@@ -154,10 +154,11 @@ func main() {
 	memoryv1.RegisterMemoryServiceServer(grpcServer, h)
 
 	httpSrv := memoryHealthServer(cfg.HTTPAddr, pool, rdb)
+	serverErr := make(chan error, 2)
 	go func() {
 		log.Info("paladin-memory HTTP listening", zap.String("addr", cfg.HTTPAddr))
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("HTTP server error", zap.Error(err))
+			serverErr <- fmt.Errorf("http server: %w", err)
 		}
 	}()
 
@@ -168,12 +169,16 @@ func main() {
 			zap.String("db", sanitizeDSN(cfg.DatabaseURL)),
 		)
 		if err := grpcServer.Serve(lis); err != nil {
-			log.Error("grpc serve error", zap.Error(err))
-			os.Exit(1)
+			serverErr <- fmt.Errorf("grpc server: %w", err)
 		}
 	}()
 
-	<-ctx.Done()
+	var runErr error
+	select {
+	case runErr = <-serverErr:
+	case <-ctx.Done():
+	}
+
 	log.Info("shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -192,6 +197,11 @@ func main() {
 	case <-time.After(10 * time.Second):
 		log.Warn("graceful stop timed out; forcing")
 		grpcServer.Stop()
+	}
+	if runErr != nil {
+		log.Error("paladin-memory stopped after server error", zap.Error(runErr))
+		_ = log.Sync()
+		os.Exit(1)
 	}
 	log.Info("paladin-memory stopped")
 }
