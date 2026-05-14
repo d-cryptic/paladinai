@@ -56,6 +56,14 @@ func TestMemStore_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
+func TestMemStore_GetBySlug_NotFound(t *testing.T) {
+	s := store.NewMemStore()
+
+	_, err := s.GetBySlug(context.Background(), "missing")
+
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
 func TestMemStore_SetState(t *testing.T) {
 	s := store.NewMemStore()
 	ctx := context.Background()
@@ -71,6 +79,14 @@ func TestMemStore_SetState(t *testing.T) {
 	got, err := s.Get(ctx, tenant.ID)
 	require.NoError(t, err)
 	assert.Equal(t, store.TenantStateSuspended, got.State)
+}
+
+func TestMemStore_SetState_NotFound(t *testing.T) {
+	s := store.NewMemStore()
+
+	_, err := s.SetState(context.Background(), "missing", store.TenantStateSuspended)
+
+	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
 func TestMemStore_List(t *testing.T) {

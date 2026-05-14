@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,6 +119,64 @@ func TestScanTenant_Error(t *testing.T) {
 	tn, err := scanTenant(row)
 	assert.Nil(t, tn)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+type migrationExecer struct {
+	calls int
+	fail  int
+}
+
+func (m *migrationExecer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	m.calls++
+	if m.fail == m.calls {
+		return pgconn.CommandTag{}, errors.New("exec failed")
+	}
+	return pgconn.CommandTag{}, nil
+}
+
+func TestMigrateTenantsTable_Success(t *testing.T) {
+	exec := &migrationExecer{}
+
+	err := migrateTenantsTable(context.Background(), exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, 4, exec.calls)
+}
+
+func TestMigrateTenantsTable_ExtensionError(t *testing.T) {
+	exec := &migrationExecer{fail: 1}
+
+	err := migrateTenantsTable(context.Background(), exec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pgcrypto")
+}
+
+func TestMigrateTenantsTable_CreateTableError(t *testing.T) {
+	exec := &migrationExecer{fail: 2}
+
+	err := migrateTenantsTable(context.Background(), exec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create tenants")
+}
+
+func TestMigrateTenantsTable_SlugIndexError(t *testing.T) {
+	exec := &migrationExecer{fail: 3}
+
+	err := migrateTenantsTable(context.Background(), exec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slug index")
+}
+
+func TestMigrateTenantsTable_StateIndexError(t *testing.T) {
+	exec := &migrationExecer{fail: 4}
+
+	err := migrateTenantsTable(context.Background(), exec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "state index")
 }
 
 // ─── PostgresStore method-level tests with an unreachable pool ──────────────
