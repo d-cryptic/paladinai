@@ -70,6 +70,8 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	resetBoolFlag(initCmd.Flags(), "dry-run")
 	resetBoolFlag(initCmd.Flags(), "tui")
 	resetBoolFlag(versionCmd.Flags(), "check")
+	resetBoolFlag(updateCmd.Flags(), "dry-run")
+	resetBoolFlag(updateCmd.Flags(), "yes")
 	resetBoolFlag(rootCmd.PersistentFlags(), "ci")
 	rootCmd.SilenceErrors = false
 	rootCmd.SilenceUsage = false
