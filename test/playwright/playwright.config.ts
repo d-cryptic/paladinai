@@ -45,5 +45,9 @@ export default defineConfig({
         baseURL: HUB_URL,
       },
     },
+    {
+      name: "ui-dashboard",
+      testMatch: /.*\.ui\.ts$/,
+    },
   ],
 });
