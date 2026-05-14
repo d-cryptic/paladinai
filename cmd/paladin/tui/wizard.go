@@ -112,7 +112,7 @@ func NewWizardModel(apiEndpoint, authEndpoint, defaultTenant, existingToken stri
 		Tier:         "pool",
 	}
 	m.detectModel = NewDetectModel()
-	m.authModel = NewAuthModel(apiEndpoint, existingToken)
+	m.authModel = NewAuthModel(authEndpoint, existingToken)
 	m.tierModel = NewTierModel()
 	m.integrationsModel = NewIntegrationsModel()
 	m.deployModel = NewDeployModel()
@@ -157,6 +157,10 @@ func (m WizardModel) advanceStep(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.integrationsModel = m.integrationsModel.withDetected(msg.detected)
+		if m.result.Token != "" {
+			m.step = stepTier
+			return m, m.initCurrentStep()
+		}
 	case stepAuth:
 		if msg.token != "" {
 			m.result.Token = msg.token
@@ -423,19 +427,19 @@ func probeEnvVar(key string) func() (bool, string) {
 
 // ── Step 2: Authentication ─────────────────────────────────────────────────────
 
-// AuthModel handles token input (simplified; full PKCE OAuth in Stage 11 proper).
+// AuthModel handles token input for the authentication wizard step.
 type AuthModel struct {
-	input       textinput.Model
-	apiEndpoint string
-	existing    string
+	input        textinput.Model
+	authEndpoint string
+	existing     string
 }
 
-func NewAuthModel(apiEndpoint, existing string) AuthModel {
+func NewAuthModel(authEndpoint, existing string) AuthModel {
 	ti := textinput.New()
 	ti.Placeholder = "paste token or press Enter to use existing"
 	ti.EchoMode = textinput.EchoPassword
 	ti.Focus()
-	return AuthModel{input: ti, apiEndpoint: apiEndpoint, existing: existing}
+	return AuthModel{input: ti, authEndpoint: authEndpoint, existing: existing}
 }
 
 func (m AuthModel) Init() tea.Cmd { return textinput.Blink }
@@ -466,6 +470,9 @@ func (m AuthModel) View() string {
 		b.WriteString(dimStyle.Render("  Press Enter to keep it or paste a new one:\n"))
 	} else {
 		b.WriteString("  API token (leave blank to continue unauthenticated):\n")
+	}
+	if strings.TrimSpace(m.authEndpoint) != "" {
+		fmt.Fprintf(&b, "%s\n", dimStyle.Render("  Auth endpoint: "+m.authEndpoint))
 	}
 	b.WriteString("  " + m.input.View() + "\n")
 	return b.String()

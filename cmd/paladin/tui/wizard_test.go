@@ -56,7 +56,7 @@ func TestWizardModel_RenderProgress(t *testing.T) {
 }
 
 func TestWizardModel_AdvanceStep_Detect(t *testing.T) {
-	m := NewWizardModel("http://api", "http://auth", "t1", "tok")
+	m := NewWizardModel("http://api", "http://auth", "t1", "")
 	detected := []DetectedIntegration{
 		{Name: "prometheus", Found: true, Confidence: "Medium"},
 	}
@@ -68,6 +68,29 @@ func TestWizardModel_AdvanceStep_Detect(t *testing.T) {
 	}
 	if len(wm.result.Detected) != 1 {
 		t.Errorf("detected len = %d, want 1", len(wm.result.Detected))
+	}
+}
+
+func TestWizardModel_AdvanceStep_DetectSkipsAuthWithExistingToken(t *testing.T) {
+	m := NewWizardModel("http://api", "http://auth", "t1", "tok")
+
+	updated, _ := m.advanceStep(stepCompleteMsg{detected: []DetectedIntegration{
+		{Name: "prometheus", Found: true, Confidence: "Medium"},
+	}})
+	wm := updated.(WizardModel)
+
+	if wm.step != stepTier {
+		t.Errorf("after detect with existing token, step = %d, want %d", wm.step, stepTier)
+	}
+	if wm.result.Token != "tok" {
+		t.Errorf("token = %q, want %q", wm.result.Token, "tok")
+	}
+}
+
+func TestNewWizardModel_AuthModelUsesAuthEndpoint(t *testing.T) {
+	m := NewWizardModel("http://api", "http://auth", "t1", "")
+	if m.authModel.authEndpoint != "http://auth" {
+		t.Errorf("auth endpoint = %q, want %q", m.authModel.authEndpoint, "http://auth")
 	}
 }
 
