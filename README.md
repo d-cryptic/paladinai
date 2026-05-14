@@ -22,6 +22,15 @@ Phases **1 through 11** are implemented and merged to `v2`:
 10. Eval and local testing harness
 11. Onboarding UX (`paladin init`, `doctor`, integrations, tail)
 
+The `.5` planning docs are included in the implemented scope where present:
+Stage 3.5 decision math is implemented through confidence scoring, routing,
+correlation, anomaly/flap/SLO thresholds, eval datasets, and latency gates;
+Stage 4.5 prompt engineering is implemented through versioned prompt seeds,
+trusted-boundary prompt wrapping, structured JSON validation, fenced-output
+tolerance, prompt caching paths, and prompt/eval tests. There is no standalone
+Stage 5.5 plan file in `docs/plans/`; the current `5.5` marker is Stage 8's
+audit log subsection, implemented as the `audit_logs` migration with tenant RLS.
+
 Phases 12 onward (specialised agents, gateway, observability, security, API, frontend, deployment, billing, DR, enterprise scale) are in design — see `docs/plans/12..25.*.md`.
 
 ## Services
