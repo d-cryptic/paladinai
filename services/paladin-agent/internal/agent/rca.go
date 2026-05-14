@@ -13,6 +13,7 @@ import (
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/internal/tenantguard"
 	"go.uber.org/zap"
 )
 
@@ -112,7 +113,7 @@ type RCAAgent struct {
 func NewRCAAgent(ctx context.Context, m model.ToolCallingChatModel, log *zap.Logger) (*RCAAgent, error) {
 	a, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: m,
-		MessageModifier:  react.NewPersonaModifier(rcaSystemPrompt), //nolint:staticcheck
+		MessageModifier:  react.NewPersonaModifier(tenantguard.TrustedBoundarySystemPrompt + "\n\n" + rcaSystemPrompt), //nolint:staticcheck
 		MaxStep:          10,
 		GraphName:        "PaladinRCAAgent",
 	})
@@ -131,7 +132,7 @@ func (r *RCAAgent) Analyze(ctx context.Context, env *alert.AlertEnvelope, triage
 			"severity":    string(env.Severity),
 			"labels":      env.Labels,
 			"annotations": env.Annotations,
-			"description": env.Description,
+			"description": tenantguard.WrapAlertContent(env.Description),
 			"starts_at":   env.StartsAt,
 		},
 		"triage": map[string]any{
