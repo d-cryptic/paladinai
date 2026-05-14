@@ -136,10 +136,50 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		return runInitDryRun(cmd, defaultAPI, defaultAuth, defaultTenant, existingToken)
+	}
+
 	if useTUI {
 		return runInitTUI(cmd, cfg, defaultAPI, defaultAuth, defaultTenant, existingToken, tokenFromEnv)
 	}
 	return runInitPrompt(cmd, cfg, defaultAPI, defaultAuth, defaultTenant, existingToken, tokenFromEnv)
+}
+
+func runInitDryRun(cmd *cobra.Command, apiEndpoint, authEndpoint, tenant, token string) error {
+	apiEndpoint = strings.TrimRight(apiEndpoint, "/")
+	authEndpoint = strings.TrimRight(authEndpoint, "/")
+	if _, err := url.ParseRequestURI(apiEndpoint); err != nil {
+		return fmt.Errorf("invalid API URL %q: %w", apiEndpoint, err)
+	}
+	if _, err := url.ParseRequestURI(authEndpoint); err != nil {
+		return fmt.Errorf("invalid auth URL %q: %w", authEndpoint, err)
+	}
+
+	activeToken := token
+	if t := os.Getenv("PALADIN_TOKEN"); t != "" {
+		activeToken = t
+	}
+
+	fmt.Println("PaladinAI init dry-run")
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("  API:    %s\n", apiEndpoint)
+	fmt.Printf("  Auth:   %s\n", authEndpoint)
+	fmt.Printf("  Tenant: %s\n", tenant)
+	fmt.Println("  Writes: disabled")
+
+	if _, err := client.Get(cmd.Context(), apiEndpoint+"/readyz", client.Options{
+		TenantID: tenant,
+		Token:    activeToken,
+	}); err != nil {
+		fmt.Printf("  x API readiness check failed: %v\n", err)
+		fmt.Println("Dry-run completed without writing config.")
+		return nil
+	}
+	fmt.Println("  ok API readiness check passed")
+	fmt.Println("Dry-run completed without writing config.")
+	return nil
 }
 
 // runInitTUI launches the Bubble Tea 6-step wizard.
@@ -693,6 +733,7 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(doctorCmd)
 	initCmd.Flags().Bool("tui", false, "Force Bubble Tea interactive wizard (auto-detected when stdout is a TTY)")
+	initCmd.Flags().Bool("dry-run", false, "Validate init defaults without writing config files")
 	doctorCmd.Flags().Bool("json", false, "Emit machine-readable JSON output (for CI)")
 	doctorCmd.Flags().Bool("quiet", false, "Suppress output; communicate status via exit code only")
 }

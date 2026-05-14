@@ -163,6 +163,76 @@ func TestRunInitPrompt_InvalidAPIURL_Returns_Error(t *testing.T) {
 	}
 }
 
+func TestRunInitDryRun_DoesNotWriteProjectOrToken(t *testing.T) {
+	homeDir, projectDir := setupInitTest(t)
+	t.Setenv("PALADIN_TOKEN", "")
+	t.Setenv("PALADIN_TENANT", "")
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := &PaladinConfig{
+		APIEndpoint:   srv.URL,
+		AuthEndpoint:  "http://localhost:9003",
+		DefaultTenant: "dry-run-tenant",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var runErr error
+	stdout := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"init", "--dry-run"})
+		runErr = rootCmd.Execute()
+	})
+	if runErr != nil {
+		t.Fatalf("dry-run init: %v", runErr)
+	}
+	if gotPath != "/readyz" {
+		t.Fatalf("readiness path = %q, want /readyz", gotPath)
+	}
+	if !strings.Contains(stdout, "Writes: disabled") {
+		t.Fatalf("dry-run output missing write-disabled marker:\n%s", stdout)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "paladin.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run must not write paladin.yaml, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, ".paladin", "tokens")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run must not write token store, stat err=%v", err)
+	}
+}
+
+func TestRunInitDryRun_InvalidAuthURLReturnsError(t *testing.T) {
+	setupInitTest(t)
+	t.Setenv("PALADIN_TOKEN", "")
+	t.Setenv("PALADIN_TENANT", "")
+
+	cfg := &PaladinConfig{
+		APIEndpoint:   "http://localhost:9002",
+		AuthEndpoint:  "not-a-url",
+		DefaultTenant: "tenant-a",
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var runErr error
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"init", "--dry-run"})
+		runErr = rootCmd.Execute()
+	})
+	if runErr == nil {
+		t.Fatal("expected invalid auth URL error")
+	}
+	if !strings.Contains(runErr.Error(), "invalid auth URL") {
+		t.Fatalf("error = %v, want invalid auth URL", runErr)
+	}
+}
+
 // ── applyAndSave ──────────────────────────────────────────────────────────────
 
 func TestApplyAndSave_WritesConfig(t *testing.T) {
