@@ -162,6 +162,49 @@ func TestLatencyBudgetScore(t *testing.T) {
 	}
 }
 
+func TestMemoryRecallScore(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		expected []string
+		recalled []string
+		wantPass bool
+	}{
+		{
+			name:     "perfect",
+			expected: []string{"inc-1", "inc-2", "inc-3"},
+			recalled: []string{"inc-1", "inc-2", "inc-3", "inc-x"},
+			wantPass: true,
+		},
+		{
+			name:     "duplicate recall does not inflate hits",
+			expected: []string{"inc-1", "inc-2"},
+			recalled: []string{"inc-1", "inc-1", "inc-2"},
+			wantPass: true,
+		},
+		{
+			name:     "low recall fails",
+			expected: []string{"inc-1", "inc-2", "inc-3", "inc-4", "inc-5"},
+			recalled: []string{"inc-1", "inc-x", "inc-y"},
+			wantPass: false,
+		},
+		{
+			name:     "empty expected fails",
+			expected: nil,
+			recalled: []string{"inc-1"},
+			wantPass: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := MemoryRecallScore(tc.expected, tc.recalled)
+			assert.Equal(t, tc.wantPass, s.Pass)
+			assert.GreaterOrEqual(t, s.Score, 0.0)
+			assert.LessOrEqual(t, s.Score, 1.0)
+		})
+	}
+}
+
 func TestAggregateResults(t *testing.T) {
 	t.Parallel()
 	t.Run("empty", func(t *testing.T) {

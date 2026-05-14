@@ -22,6 +22,8 @@ const (
 	CategoryCostRegression Category = "cost_regression"
 	// CategoryLatencyBudget covers per-case latency budget regressions.
 	CategoryLatencyBudget Category = "latency_budget"
+	// CategoryMemoryRecall covers episodic/procedural memory retrieval quality.
+	CategoryMemoryRecall Category = "memory_recall"
 )
 
 // Valid returns true if c is a recognised category.
@@ -29,7 +31,7 @@ func (c Category) Valid() bool {
 	switch c {
 	case CategoryClassification, CategorySupervisorRouting, CategoryToolUse,
 		CategorySummary, CategorySafety, CategoryAdversarial,
-		CategoryCostRegression, CategoryLatencyBudget:
+		CategoryCostRegression, CategoryLatencyBudget, CategoryMemoryRecall:
 		return true
 	}
 	return false
@@ -77,6 +79,10 @@ type TestCase struct {
 	ObservedTokens    int `json:"observed_tokens,omitempty"`
 	LatencyBudgetMS   int `json:"latency_budget_ms,omitempty"`
 	ObservedLatencyMS int `json:"observed_latency_ms,omitempty"`
+
+	// Memory recall expectations for Stage 10 retrieval gates.
+	ExpectedIncidentIDs []string `json:"expected_incident_ids,omitempty"`
+	RecalledIncidentIDs []string `json:"recalled_incident_ids,omitempty"`
 }
 
 // AllExpectedTools returns expected tools from either field (new or legacy).
@@ -97,5 +103,6 @@ func (tc TestCase) HasExpectations() bool {
 		len(tc.ExpectedKeywords) > 0 ||
 		len(tc.MustNotContain) > 0 ||
 		(tc.Category == CategoryCostRegression && tc.BaselineTokens > 0) ||
-		(tc.Category == CategoryLatencyBudget && tc.LatencyBudgetMS > 0)
+		(tc.Category == CategoryLatencyBudget && tc.LatencyBudgetMS > 0) ||
+		(tc.Category == CategoryMemoryRecall && len(tc.ExpectedIncidentIDs) > 0)
 }
