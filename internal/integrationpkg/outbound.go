@@ -59,10 +59,8 @@ func (s *OutboundSender) Send(ctx context.Context, method, url string, body []by
 	var lastErr error
 	for attempt := 0; attempt <= OutboundMaxRetries; attempt++ {
 		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("outbound send cancelled: %w", ctx.Err())
-			case <-time.After(OutboundBackoff[attempt-1]):
+			if err := waitOutboundBackoff(ctx, OutboundBackoff[attempt-1]); err != nil {
+				return err
 			}
 		}
 
@@ -97,4 +95,23 @@ func (s *OutboundSender) Send(ctx context.Context, method, url string, body []by
 		return fmt.Errorf("all retries failed (%w); dlq publish also failed: %v", lastErr, pubErr)
 	}
 	return fmt.Errorf("all retries failed, payload sent to DLQ %s: %w", subject, lastErr)
+}
+
+func waitOutboundBackoff(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("outbound send cancelled: %w", ctx.Err())
+	case <-timer.C:
+		return nil
+	}
 }

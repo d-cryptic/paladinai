@@ -124,10 +124,8 @@ func connectAndStream(ctx context.Context, wsURL string, header http.Header, w *
 				return nil
 			}
 			fmt.Fprintf(os.Stderr, "connect error: %v — retrying in %s\n", err, backoff)
-			select {
-			case <-ctx.Done():
+			if !waitTailBackoff(ctx, backoff) {
 				return nil
-			case <-time.After(backoff):
 			}
 			backoff = min(backoff*2, wsMaxBackoff)
 			continue
@@ -143,12 +141,29 @@ func connectAndStream(ctx context.Context, wsURL string, header http.Header, w *
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "disconnected — retrying in %s\n", backoff)
-		select {
-		case <-ctx.Done():
+		if !waitTailBackoff(ctx, backoff) {
 			return nil
-		case <-time.After(backoff):
 		}
 		backoff = min(backoff*2, wsMaxBackoff)
+	}
+}
+
+func waitTailBackoff(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

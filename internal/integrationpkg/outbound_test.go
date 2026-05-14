@@ -136,6 +136,26 @@ func TestSend_ContextCancelled_Stops(t *testing.T) {
 	}
 }
 
+func TestWaitOutboundBackoff_Cancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	err := waitOutboundBackoff(ctx, time.Second)
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("cancelled backoff took %s", elapsed)
+	}
+}
+
+func TestWaitOutboundBackoff_Elapsed(t *testing.T) {
+	if err := waitOutboundBackoff(context.Background(), time.Millisecond); err != nil {
+		t.Fatalf("expected elapsed backoff to pass, got %v", err)
+	}
+}
+
 func TestSend_CustomHeaders(t *testing.T) {
 	var receivedHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"strings"
@@ -111,6 +112,25 @@ func TestTailAuthHeaders_IncludeTenantWithoutToken(t *testing.T) {
 	}
 	if got := header.Get("Authorization"); got != "" {
 		t.Fatalf("Authorization = %q, want empty", got)
+	}
+}
+
+func TestWaitTailBackoff_Cancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	if waitTailBackoff(ctx, time.Second) {
+		t.Fatal("expected cancelled backoff to return false")
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("cancelled backoff took %s", elapsed)
+	}
+}
+
+func TestWaitTailBackoff_Elapsed(t *testing.T) {
+	if !waitTailBackoff(context.Background(), time.Millisecond) {
+		t.Fatal("expected elapsed backoff to return true")
 	}
 }
 
