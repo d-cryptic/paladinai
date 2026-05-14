@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -198,11 +199,75 @@ func TestRunInitDryRun_DoesNotWriteProjectOrToken(t *testing.T) {
 	if !strings.Contains(stdout, "Writes: disabled") {
 		t.Fatalf("dry-run output missing write-disabled marker:\n%s", stdout)
 	}
+	if !strings.Contains(stdout, "Deployment: hosted") {
+		t.Fatalf("dry-run output missing deployment mode:\n%s", stdout)
+	}
 	if _, err := os.Stat(filepath.Join(projectDir, "paladin.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run must not write paladin.yaml, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(homeDir, ".paladin", "tokens")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run must not write token store, stat err=%v", err)
+	}
+}
+
+func TestResolveDeploymentModeRejectsInvalid(t *testing.T) {
+	_, err := resolveDeploymentMode("nomad", "silo")
+	if err == nil {
+		t.Fatal("expected invalid deployment mode error")
+	}
+	if !strings.Contains(err.Error(), "auto, hosted, k8s, docker, or binary") {
+		t.Fatalf("error = %q, want supported modes hint", err.Error())
+	}
+}
+
+func TestDetectDeploymentModeHostedForPoolAndBridge(t *testing.T) {
+	if got := detectDeploymentMode("pool"); got != deployModeHosted {
+		t.Fatalf("pool mode = %s, want hosted", got)
+	}
+	if got := detectDeploymentMode("bridge"); got != deployModeHosted {
+		t.Fatalf("bridge mode = %s, want hosted", got)
+	}
+}
+
+func TestDetectDeploymentModeSiloK8sWhenKubectlAndHelmExist(t *testing.T) {
+	oldLookPath := initLookPath
+	oldKubectlContext := initKubectlContext
+	t.Cleanup(func() {
+		initLookPath = oldLookPath
+		initKubectlContext = oldKubectlContext
+	})
+	initKubectlContext = func() error { return nil }
+	initLookPath = func(name string) (string, error) {
+		if name == "helm" {
+			return "/usr/local/bin/" + name, nil
+		}
+		return "", errors.New("missing")
+	}
+
+	if got := detectDeploymentMode("silo"); got != deployModeK8s {
+		t.Fatalf("mode = %s, want k8s", got)
+	}
+}
+
+func TestDetectDeploymentModeSiloDockerWhenComposeExists(t *testing.T) {
+	oldLookPath := initLookPath
+	oldKubectlContext := initKubectlContext
+	t.Cleanup(func() {
+		initLookPath = oldLookPath
+		initKubectlContext = oldKubectlContext
+	})
+	initKubectlContext = func() error { return errors.New("no context") }
+	initLookPath = func(name string) (string, error) {
+		switch name {
+		case "docker", "docker-compose":
+			return "/usr/local/bin/" + name, nil
+		default:
+			return "", errors.New("missing")
+		}
+	}
+
+	if got := detectDeploymentMode("silo"); got != deployModeDocker {
+		t.Fatalf("mode = %s, want docker", got)
 	}
 }
 
