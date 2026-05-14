@@ -167,6 +167,16 @@ func TestRunRoot_NonTTYShowsHelp(t *testing.T) {
 	assert.Contains(t, out, "dashboard")
 }
 
+func TestRootCommand_IncidentsAliasIsRegistered(t *testing.T) {
+	rootCmd.SetArgs([]string{"incidents", "--help"})
+	out := captureStdout(t, func() {
+		require.NoError(t, rootCmd.Execute())
+	})
+
+	assert.Contains(t, out, "Manage incidents")
+	assert.Contains(t, out, "list")
+}
+
 func TestRunRoot_TTYLaunchesDashboardPath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	oldIsTerminal := rootIsTerminal
