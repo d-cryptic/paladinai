@@ -1,10 +1,21 @@
 import { expect, test } from "@playwright/test";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import http from "node:http";
 
-const dashboardURL = pathToFileURL(
-  path.resolve(__dirname, "../../../ui/dashboard/index.html"),
-).toString();
+const dashboardURL = "http://127.0.0.1:4173";
+let dashboardServer: ChildProcessWithoutNullStreams;
+
+test.beforeAll(async () => {
+  dashboardServer = spawn("npm", ["run", "dev", "--", "--port", "4173"], {
+    cwd: "../../ui/dashboard",
+    stdio: "pipe",
+  });
+  await waitForDashboard();
+});
+
+test.afterAll(() => {
+  dashboardServer?.kill();
+});
 
 test.describe("local dashboard", () => {
   test.beforeEach(async ({ page }) => {
@@ -16,6 +27,8 @@ test.describe("local dashboard", () => {
     await expect(page.getByText("Active incidents")).toBeVisible();
     await expect(page.getByText("Payment DB connection exhaustion")).toBeVisible();
     await expect(page.getByText("Connection pool saturation")).toBeVisible();
+    await expect(page.getByText("Severity split")).toBeVisible();
+    await expect(page.getByText("Agent path")).toBeVisible();
   });
 
   test("filters incidents and updates selected detail", async ({ page }) => {
@@ -24,7 +37,7 @@ test.describe("local dashboard", () => {
     await expect(page.getByText("Auth latency spike")).toBeVisible();
     await expect(page.getByText("Payment DB connection exhaustion")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: /INC-2039/ })).toBeVisible();
-    await expect(page.locator("#detail-action")).toHaveText("Scale auth-cache read replicas");
+    await expect(page.getByTestId("detail-action")).toHaveText("Scale auth-cache read replicas");
   });
 
   test("supports theme toggle without layout overflow", async ({ page }) => {
@@ -47,3 +60,26 @@ test.describe("local dashboard", () => {
     expect(overflow).toBe(false);
   });
 });
+
+async function waitForDashboard() {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (await canConnect()) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("dashboard dev server did not start");
+}
+
+function canConnect() {
+  return new Promise<boolean>((resolve) => {
+    const request = http.get(dashboardURL, (response) => {
+      response.resume();
+      resolve(response.statusCode === 200);
+    });
+    request.on("error", () => resolve(false));
+    request.setTimeout(500, () => {
+      request.destroy();
+      resolve(false);
+    });
+  });
+}

@@ -32,7 +32,7 @@ Stage 5.5 plan file in `docs/plans/`; the current `5.5` marker is Stage 8's
 audit log subsection, implemented as the `audit_logs` migration with tenant RLS.
 
 Phases 12 onward (specialised agents, gateway, observability, security, API, deployment, billing, DR, enterprise scale) are in design — see `docs/plans/12..25.*.md`.
-The web dashboard has a local, static v2 surface at `ui/dashboard` with Playwright coverage while the production Next.js Stage 21 build remains planned.
+The web dashboard has a local React/Vite/shadcn-style v2 surface at `ui/dashboard` with Playwright coverage while the production Next.js Stage 21 build remains planned.
 
 ## Services
 
