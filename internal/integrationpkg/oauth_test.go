@@ -181,3 +181,43 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 		t.Error("Run did not stop after context cancel within 2s")
 	}
 }
+
+func TestRun_NonPositiveIntervalDoesNotPanic(t *testing.T) {
+	store := &fakeTokenStore{}
+	refresher := &fakeHTTPRefresher{}
+
+	r := NewOAuthRefresher(store, refresher, nil)
+	r.interval = 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(ctx)
+	}()
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Error("Run did not stop after context cancel within 2s")
+	}
+}
+
+func TestRunCycle_MissingDependenciesNoOp(t *testing.T) {
+	NewOAuthRefresher(nil, nil, nil).runCycle(context.Background())
+	NewOAuthRefresher(&fakeTokenStore{}, nil, nil).runCycle(context.Background())
+}
+
+func TestWithIntervalAndLookaheadIgnoreInvalidDurations(t *testing.T) {
+	r := NewOAuthRefresher(&fakeTokenStore{}, &fakeHTTPRefresher{}, nil)
+
+	r.WithInterval(0).WithLookahead(-time.Second)
+
+	if r.interval != defaultOAuthRefreshInterval {
+		t.Fatalf("interval changed on invalid duration: %s", r.interval)
+	}
+	if r.lookahead != defaultOAuthRefreshLookahead {
+		t.Fatalf("lookahead changed on invalid duration: %s", r.lookahead)
+	}
+}

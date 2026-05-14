@@ -169,6 +169,7 @@ func TestStartRefresh_RespectsContextCancel(t *testing.T) {
 	db := &fakeDB{rows: []fakeRow{{"triage", "*", "x"}}}
 	s, _ := New(context.Background(), db, zap.NewNop())
 	s.RefreshInterval = 10 * time.Millisecond
+	t.Cleanup(s.StopRefresh)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.StartRefresh(ctx)
@@ -187,6 +188,36 @@ func TestStartRefresh_NoOpWhenNilDB(t *testing.T) {
 	s, _ := New(context.Background(), nil, zap.NewNop())
 	// Should not panic; goroutine should exit immediately.
 	s.StartRefresh(context.Background())
+}
+
+func TestStartRefresh_NonPositiveIntervalDoesNotPanic(t *testing.T) {
+	db := &fakeDB{rows: []fakeRow{{"triage", "*", "x"}}}
+	s, _ := New(context.Background(), db, zap.NewNop())
+	s.RefreshInterval = 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.StartRefresh(ctx)
+	cancel()
+	s.StopRefresh()
+}
+
+func TestStartRefresh_CanBeCalledRepeatedly(t *testing.T) {
+	db := &fakeDB{rows: []fakeRow{{"triage", "*", "x"}}}
+	s, _ := New(context.Background(), db, zap.NewNop())
+	s.RefreshInterval = time.Hour
+	t.Cleanup(s.StopRefresh)
+
+	ctx := context.Background()
+	s.StartRefresh(ctx)
+	firstCancel := s.refreshCancel
+	if firstCancel == nil {
+		t.Fatal("expected first refresh cancel func")
+	}
+
+	s.StartRefresh(ctx)
+	if s.refreshCancel == nil {
+		t.Fatal("expected replacement refresh cancel func")
+	}
 }
 
 func TestRefresh_QueryError(t *testing.T) {

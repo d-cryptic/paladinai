@@ -52,6 +52,8 @@ type Store struct {
 	db              Querier
 	log             *zap.Logger
 	mu              sync.RWMutex
+	refreshMu       sync.Mutex
+	refreshCancel   context.CancelFunc
 	cache           map[string]string // key: "agentName:modelID" → content
 	RefreshInterval time.Duration
 }
@@ -111,16 +113,44 @@ func (s *Store) Get(agentName, modelID string) string {
 }
 
 // StartRefresh starts a background goroutine that refreshes prompts every
-// s.RefreshInterval. Cancel ctx to stop. Safe to call only once.
+// s.RefreshInterval. Cancel ctx or call StopRefresh to stop. Repeated calls
+// replace the previous loop so callers cannot accidentally leak refreshers.
 func (s *Store) StartRefresh(ctx context.Context) {
 	if s.db == nil {
 		return
 	}
-	go s.refreshLoop(ctx)
+	interval := s.RefreshInterval
+	if interval <= 0 {
+		s.log.Warn("promptstore: non-positive refresh interval, using default",
+			zap.Duration("interval", interval),
+			zap.Duration("default", DefaultRefreshInterval),
+		)
+		interval = DefaultRefreshInterval
+	}
+
+	s.refreshMu.Lock()
+	if s.refreshCancel != nil {
+		s.refreshCancel()
+	}
+	refreshCtx, cancel := context.WithCancel(ctx)
+	s.refreshCancel = cancel
+	s.refreshMu.Unlock()
+
+	go s.refreshLoop(refreshCtx, interval)
 }
 
-func (s *Store) refreshLoop(ctx context.Context) {
-	t := time.NewTicker(s.RefreshInterval)
+// StopRefresh stops the active background refresh loop, if one is running.
+func (s *Store) StopRefresh() {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	if s.refreshCancel != nil {
+		s.refreshCancel()
+		s.refreshCancel = nil
+	}
+}
+
+func (s *Store) refreshLoop(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {

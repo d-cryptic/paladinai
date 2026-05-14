@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+const (
+	defaultOAuthRefreshInterval  = 15 * time.Minute
+	defaultOAuthRefreshLookahead = 30 * time.Minute
+)
+
 // OAuthToken represents a stored OAuth credential set for one tenant+provider.
 type OAuthToken struct {
 	TenantID     string
@@ -66,26 +71,34 @@ func NewOAuthRefresher(store TokenStore, refresher HTTPRefresher, alertFn AlertF
 		store:     store,
 		refresher: refresher,
 		alertFn:   alertFn,
-		interval:  15 * time.Minute,
-		lookahead: 30 * time.Minute,
+		interval:  defaultOAuthRefreshInterval,
+		lookahead: defaultOAuthRefreshLookahead,
 	}
 }
 
 // WithInterval overrides the scan interval (useful for tests / faster refresh in prod).
 func (r *OAuthRefresher) WithInterval(d time.Duration) *OAuthRefresher {
-	r.interval = d
+	if d > 0 {
+		r.interval = d
+	}
 	return r
 }
 
 // WithLookahead overrides the expiry lookahead window.
 func (r *OAuthRefresher) WithLookahead(d time.Duration) *OAuthRefresher {
-	r.lookahead = d
+	if d > 0 {
+		r.lookahead = d
+	}
 	return r
 }
 
 // Run starts the refresh loop. It blocks until ctx is cancelled.
 func (r *OAuthRefresher) Run(ctx context.Context) {
-	ticker := time.NewTicker(r.interval)
+	interval := r.interval
+	if interval <= 0 {
+		interval = defaultOAuthRefreshInterval
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// Run one cycle immediately on startup.
@@ -102,6 +115,9 @@ func (r *OAuthRefresher) Run(ctx context.Context) {
 }
 
 func (r *OAuthRefresher) runCycle(ctx context.Context) {
+	if r.store == nil || r.refresher == nil {
+		return
+	}
 	tokens, err := r.store.ListExpiring(ctx, r.lookahead)
 	if err != nil {
 		// Non-fatal: log would happen at the call site via injected logger.
