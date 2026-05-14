@@ -129,14 +129,30 @@ func ValidateTenantID(tenantID string) error {
 	return nil
 }
 
-// NATSSubject returns the NATS subject for publishing this alert.
+// NATSSubjectE returns the NATS subject for publishing this alert.
 // Format: paladin.alerts.raw.<tenant_id>.<source>
-// Panics if TenantID is invalid — callers must validate before constructing an envelope.
-func (e *AlertEnvelope) NATSSubject() string {
+func (e *AlertEnvelope) NATSSubjectE() (string, error) {
 	if err := ValidateTenantID(e.TenantID); err != nil {
+		return "", err
+	}
+	source := string(e.Source)
+	if source == "" {
+		return "", fmt.Errorf("source must not be empty")
+	}
+	if !tenantIDPattern.MatchString(source) {
+		return "", fmt.Errorf("source %q contains invalid characters (only [a-zA-Z0-9_-] allowed)", source)
+	}
+	return fmt.Sprintf("paladin.alerts.raw.%s.%s", e.TenantID, source), nil
+}
+
+// NATSSubject returns the NATS subject for publishing this alert.
+// Panics if the tenant or source would create an invalid NATS subject.
+func (e *AlertEnvelope) NATSSubject() string {
+	subject, err := e.NATSSubjectE()
+	if err != nil {
 		panic(fmt.Sprintf("AlertEnvelope.NATSSubject: %s", err))
 	}
-	return fmt.Sprintf("paladin.alerts.raw.%s.%s", e.TenantID, string(e.Source))
+	return subject
 }
 
 // Clone returns a deep copy safe for concurrent modification.

@@ -88,8 +88,22 @@ func TestPublishAlert_InvalidTenantReturnsError(t *testing.T) {
 	env := newTestEnvelope("") // empty string fails ValidateTenantID
 	err := pub.PublishAlert(context.Background(), env)
 	require.Error(t, err, "invalid tenant ID must return an error, not panic")
-	assert.Contains(t, err.Error(), "invalid tenant")
+	assert.Contains(t, err.Error(), "invalid alert subject")
 	// Fake must not have been called.
+	assert.Empty(t, fake.lastSubject)
+}
+
+func TestPublishAlert_InvalidSourceReturnsError(t *testing.T) {
+	t.Parallel()
+	fake := &fakeJetStream{}
+	pub := publisher.NewFromJS(fake, zap.NewNop())
+
+	env := newTestEnvelope("acme-corp")
+	env.Source = alert.Source("bad.source")
+
+	err := pub.PublishAlert(context.Background(), env)
+	require.Error(t, err, "invalid source must return an error, not panic")
+	assert.Contains(t, err.Error(), "source")
 	assert.Empty(t, fake.lastSubject)
 }
 
