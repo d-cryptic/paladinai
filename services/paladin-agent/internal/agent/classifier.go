@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/internal/tenantguard"
 	"go.uber.org/zap"
 )
 
@@ -65,14 +66,14 @@ func (c *ClassifierAgent) Classify(ctx context.Context, env *alert.AlertEnvelope
 		"title":       env.Title,
 		"severity":    string(env.Severity),
 		"labels":      env.Labels,
-		"description": env.Description,
+		"description": tenantguard.WrapAlertContent(env.Description),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("classifier: marshal alert: %w", err)
 	}
 
 	resp, err := c.m.Generate(ctx, []*schema.Message{
-		schema.SystemMessage(classifierSystemPrompt),
+		schema.SystemMessage(tenantguard.TrustedBoundarySystemPrompt + "\n\n" + classifierSystemPrompt),
 		schema.UserMessage(string(alertJSON)),
 	})
 	if err != nil {

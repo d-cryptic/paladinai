@@ -10,6 +10,7 @@ import (
 	"github.com/paladinai/paladinai/internal/alert"
 	anthropicpkg "github.com/paladinai/paladinai/internal/anthropic"
 	"github.com/paladinai/paladinai/internal/cache"
+	"github.com/paladinai/paladinai/internal/tenantguard"
 )
 
 // PromptProvider returns the active system prompt for a named agent.
@@ -67,7 +68,7 @@ func (a *AnthropicTriager) Triage(ctx context.Context, env *alert.AlertEnvelope)
 		"status":      string(env.Status),
 		"labels":      env.Labels,
 		"annotations": env.Annotations,
-		"description": env.Description,
+		"description": tenantguard.WrapAlertContent(env.Description),
 		"starts_at":   env.StartsAt,
 	})
 	if err != nil {
@@ -80,6 +81,7 @@ func (a *AnthropicTriager) Triage(ctx context.Context, env *alert.AlertEnvelope)
 			sysPrompt = p
 		}
 	}
+	sysPrompt = tenantguard.TrustedBoundarySystemPrompt + "\n\n" + sysPrompt
 	if a.rag != nil {
 		sysPrompt += a.rag.Build(ctx, env)
 	}
