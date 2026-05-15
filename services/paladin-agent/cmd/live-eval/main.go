@@ -9,10 +9,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -325,90 +323,6 @@ func alertEnvelope(tc eval.TestCase) alert.AlertEnvelope {
 	return env
 }
 
-func summarize(model string, timeoutSeconds int, duration time.Duration, results []caseResult) liveSummary {
-	s := liveSummary{
-		Model:          model,
-		DurationMS:     duration.Milliseconds(),
-		ByCategory:     map[string]categoryStat{},
-		Results:        results,
-		LiveLLMCalls:   true,
-		TimeoutSeconds: timeoutSeconds,
-	}
-	var latencies []time.Duration
-	for _, r := range results {
-		s.Total++
-		s.MeanScore += r.Score
-		if r.ProviderError {
-			s.ProviderErrors++
-		}
-		if r.Pass {
-			s.Passed++
-		} else {
-			s.Failed++
-		}
-		latencies = append(latencies, r.duration)
-		stat := s.ByCategory[r.Category]
-		stat.Total++
-		stat.MeanScore += r.Score
-		if r.Pass {
-			stat.Passed++
-		} else {
-			stat.Failed++
-		}
-		s.ByCategory[r.Category] = stat
-	}
-	if s.Total > 0 {
-		s.PassRate = float64(s.Passed) / float64(s.Total)
-		s.MeanScore /= float64(s.Total)
-	}
-	modelScored := s.Total - s.ProviderErrors
-	if modelScored > 0 {
-		s.ModelPassRate = float64(s.Passed) / float64(modelScored)
-	}
-	s.LatencyMinMS, s.LatencyP50MS, s.LatencyP95MS, s.LatencyMaxMS = latencyStats(latencies)
-
-	for cat, stat := range s.ByCategory {
-		var catLatencies []time.Duration
-		for _, r := range results {
-			if r.Category == cat {
-				catLatencies = append(catLatencies, r.duration)
-			}
-		}
-		if stat.Total > 0 {
-			stat.PassRate = float64(stat.Passed) / float64(stat.Total)
-			stat.MeanScore /= float64(stat.Total)
-		}
-		_, stat.LatencyP50MS, stat.LatencyP95MS, _ = latencyStats(catLatencies)
-		s.ByCategory[cat] = stat
-	}
-	return s
-}
-
-func latencyStats(values []time.Duration) (int64, int64, int64, int64) {
-	if len(values) == 0 {
-		return 0, 0, 0, 0
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	return values[0].Milliseconds(),
-		percentile(values, 0.50).Milliseconds(),
-		percentile(values, 0.95).Milliseconds(),
-		values[len(values)-1].Milliseconds()
-}
-
-func percentile(values []time.Duration, p float64) time.Duration {
-	if len(values) == 0 {
-		return 0
-	}
-	idx := int(math.Ceil(p*float64(len(values)))) - 1
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= len(values) {
-		idx = len(values) - 1
-	}
-	return values[idx]
-}
-
 func errorResult(res caseResult, start time.Time, err error) caseResult {
 	res.Pass = false
 	res.Score = 0
@@ -626,14 +540,4 @@ func exitOnErr(label string, err error) {
 	}
 	fmt.Fprintf(os.Stderr, "%s: %v\n", label, err)
 	os.Exit(2)
-}
-
-func printText(summary liveSummary) {
-	fmt.Printf("model=%s total=%d pass_rate=%.2f mean_score=%.2f p50=%dms p95=%dms max=%dms\n",
-		summary.Model, summary.Total, summary.PassRate, summary.MeanScore,
-		summary.LatencyP50MS, summary.LatencyP95MS, summary.LatencyMaxMS)
-	for cat, stat := range summary.ByCategory {
-		fmt.Printf("%s total=%d pass_rate=%.2f mean_score=%.2f p50=%dms p95=%dms\n",
-			cat, stat.Total, stat.PassRate, stat.MeanScore, stat.LatencyP50MS, stat.LatencyP95MS)
-	}
 }
