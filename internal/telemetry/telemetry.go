@@ -151,11 +151,49 @@ func Attrs(attrs ...attribute.KeyValue) metric.MeasurementOption {
 	return metric.WithAttributes(attrs...)
 }
 
+// InjectTraceContext writes the current W3C trace context into message headers.
+func InjectTraceContext(ctx context.Context, header map[string][]string) {
+	if header == nil {
+		return
+	}
+	otel.GetTextMapPropagator().Inject(ctx, headerCarrier(header))
+}
+
+// ExtractTraceContext returns a context parented from W3C trace headers.
+func ExtractTraceContext(ctx context.Context, header map[string][]string) context.Context {
+	if header == nil {
+		return ctx
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, headerCarrier(header))
+}
+
 func normalizeGRPCEndpoint(endpoint string) string {
 	endpoint = strings.TrimSpace(endpoint)
 	endpoint = strings.TrimPrefix(endpoint, "http://")
 	endpoint = strings.TrimPrefix(endpoint, "https://")
 	return strings.TrimSuffix(endpoint, "/")
+}
+
+type headerCarrier map[string][]string
+
+func (h headerCarrier) Get(key string) string {
+	values := h[key]
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func (h headerCarrier) Set(key, value string) {
+	h[key] = []string{value}
+}
+
+func (h headerCarrier) Keys() []string {
+	keys := make([]string, 0, len(h))
+	for key := range h {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // noopSpanExporter discards all spans when no OTel endpoint is configured.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -237,7 +238,9 @@ func (c *Client) ensureStreams(ctx context.Context) error {
 
 // Publish publishes a raw message to the given subject.
 func (c *Client) Publish(ctx context.Context, subject string, data []byte) (*jetstream.PubAck, error) {
-	ack, err := c.js.Publish(ctx, subject, data)
+	msg := &nats.Msg{Subject: subject, Data: data, Header: nats.Header{}}
+	telemetry.InjectTraceContext(ctx, msg.Header)
+	ack, err := c.js.PublishMsg(ctx, msg)
 	if err != nil {
 		return nil, fmt.Errorf("publish to %s: %w", subject, err)
 	}

@@ -125,3 +125,24 @@ func TestCommonAttributes_OnlyNonEmptyValues(t *testing.T) {
 	assert.Equal(t, "paladin.tenant_id", string(attrs[0].Key))
 	assert.Equal(t, "paladin.severity", string(attrs[1].Key))
 }
+
+func TestTraceContextHeadersRoundTrip(t *testing.T) {
+	tid, err := trace.TraceIDFromHex("00112233445566778899aabbccddeeff")
+	require.NoError(t, err)
+	sid, err := trace.SpanIDFromHex("0011223344556677")
+	require.NoError(t, err)
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    tid,
+		SpanID:     sid,
+		TraceFlags: trace.FlagsSampled,
+		Remote:     false,
+	})
+	headers := map[string][]string{}
+
+	InjectTraceContext(trace.ContextWithSpanContext(context.Background(), sc), headers)
+	gotCtx := ExtractTraceContext(context.Background(), headers)
+
+	got := trace.SpanContextFromContext(gotCtx)
+	assert.Equal(t, tid, got.TraceID())
+	assert.True(t, got.IsRemote())
+}

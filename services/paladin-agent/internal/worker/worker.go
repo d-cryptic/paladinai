@@ -231,6 +231,7 @@ func acquireSlot(ctx context.Context, sem chan<- struct{}) bool {
 }
 
 func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
+	ctx = telemetry.ExtractTraceContext(ctx, msg.Headers())
 	// Recover from any panic in triage (e.g. nil-deref in Eino) to prevent
 	// crashing the whole consumer pool.
 	defer func() {

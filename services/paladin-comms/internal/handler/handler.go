@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	"github.com/paladinai/paladinai/services/paladin-comms/internal/notifier"
 	"go.uber.org/zap"
 )
@@ -70,6 +71,7 @@ func New(n notifier.Notifier, minSeverity string, log *zap.Logger) *Handler {
 
 // ProcessMessage handles one NATS message. It acks on success and naks on error.
 func (h *Handler) ProcessMessage(ctx context.Context, msg jetstream.Msg) error {
+	ctx = telemetry.ExtractTraceContext(ctx, msg.Headers())
 	result, err := parseTriageResult(msg.Data())
 	if err != nil {
 		_ = msg.Nak()

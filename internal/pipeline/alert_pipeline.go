@@ -16,6 +16,7 @@ import (
 
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/internal/correlation"
+	"github.com/paladinai/paladinai/internal/telemetry"
 )
 
 // Deduplicator is the interface satisfied by dedup.Deduplicator.
@@ -192,6 +193,7 @@ func (p *Pipeline) Run(ctx context.Context, js jetstream.JetStream, consumerName
 }
 
 func (p *Pipeline) handleMsg(ctx context.Context, msg jetstream.Msg) {
+	ctx = telemetry.ExtractTraceContext(ctx, msg.Headers())
 	var env alert.AlertEnvelope
 	if err := json.Unmarshal(msg.Data(), &env); err != nil {
 		p.log.Error("alert unmarshal failed, terming message",
