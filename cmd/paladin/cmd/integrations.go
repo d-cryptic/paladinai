@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -120,20 +121,9 @@ var integrationsEnableCmd = &cobra.Command{
 			projectFile = "paladin.yaml"
 		}
 
-		var configData []byte
-		configMap := map[string]any(nil)
-		if configFile != "" {
-			var err error
-			configData, err = os.ReadFile(configFile)
-			if err != nil {
-				return fmt.Errorf("read config file: %w", err)
-			}
-			if err := json.Unmarshal(configData, &configMap); err != nil {
-				return fmt.Errorf("parse config JSON: %w", err)
-			}
-			if configMap == nil {
-				return fmt.Errorf("config JSON must be an object")
-			}
+		configMap, err := readIntegrationConfigFile(configFile)
+		if err != nil {
+			return err
 		}
 
 		inlineConfig, secrets, err := integrationInlineConfig(cmd, args[0])
@@ -149,32 +139,9 @@ var integrationsEnableCmd = &cobra.Command{
 			}
 		}
 
-		payload := map[string]any{"name": args[0]}
-		if configMap != nil {
-			payload["config"] = configMap
-		}
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("marshal payload: %w", err)
-		}
-
-		u, err := url.Parse(apiURL(cmd))
-		if err != nil {
-			return fmt.Errorf("invalid api-url: %w", err)
-		}
-		u.Path = fmt.Sprintf("/api/v1/integrations/%s/enable", url.PathEscape(args[0]))
-
-		opts, err := commandOptions(cmd, tenant)
+		body, err := postIntegrationAction(cmd, tenant, args[0], "enable", configMap)
 		if err != nil {
 			return err
-		}
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			opts, bytes.NewReader(data))
-		if err != nil {
-			return err
-		}
-		if status < 200 || status >= 300 {
-			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 		if err := saveIntegrationSecrets(tenant, args[0], secrets); err != nil {
 			return err
@@ -207,23 +174,9 @@ var integrationsDisableCmd = &cobra.Command{
 		if projectFile == "" {
 			projectFile = "paladin.yaml"
 		}
-		u, err := url.Parse(apiURL(cmd))
-		if err != nil {
-			return fmt.Errorf("invalid api-url: %w", err)
-		}
-		u.Path = fmt.Sprintf("/api/v1/integrations/%s/disable", url.PathEscape(args[0]))
-
-		opts, err := commandOptions(cmd, tenant)
+		body, err := postIntegrationAction(cmd, tenant, args[0], "disable", nil)
 		if err != nil {
 			return err
-		}
-		body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(),
-			opts, nil)
-		if err != nil {
-			return err
-		}
-		if status < 200 || status >= 300 {
-			return fmt.Errorf("API error %d: %s", status, string(body))
 		}
 		if err := updateProjectIntegrationFromDefinition(cmd, projectFile, tenant, args[0], false, nil); err != nil {
 			return err
@@ -412,6 +365,58 @@ func writeIntegrationActionResult(cmd *cobra.Command, result integrationActionRe
 	}
 	fmt.Printf("Integration %q %s.\n", result.Name, state)
 	return nil
+}
+
+func readIntegrationConfigFile(path string) (map[string]any, error) {
+	if path == "" {
+		return nil, nil
+	}
+	configData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config file: %w", err)
+	}
+	var configMap map[string]any
+	if err := json.Unmarshal(configData, &configMap); err != nil {
+		return nil, fmt.Errorf("parse config JSON: %w", err)
+	}
+	if configMap == nil {
+		return nil, fmt.Errorf("config JSON must be an object")
+	}
+	return configMap, nil
+}
+
+func postIntegrationAction(cmd *cobra.Command, tenant, name, action string, config map[string]any) ([]byte, error) {
+	var bodyReader io.Reader
+	if action == "enable" || config != nil {
+		payload := map[string]any{"name": name}
+		if config != nil {
+			payload["config"] = config
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("marshal payload: %w", err)
+		}
+		bodyReader = bytes.NewReader(data)
+	}
+
+	u, err := url.Parse(apiURL(cmd))
+	if err != nil {
+		return nil, fmt.Errorf("invalid api-url: %w", err)
+	}
+	u.Path = fmt.Sprintf("/api/v1/integrations/%s/%s", url.PathEscape(name), action)
+
+	opts, err := commandOptions(cmd, tenant)
+	if err != nil {
+		return nil, err
+	}
+	body, status, err := client.DoJSON(cmd.Context(), http.MethodPost, u.String(), opts, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("API error %d: %s", status, string(body))
+	}
+	return body, nil
 }
 
 func integrationInlineConfig(cmd *cobra.Command, name string) (map[string]any, map[string]string, error) {
