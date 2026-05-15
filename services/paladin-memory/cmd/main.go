@@ -22,7 +22,9 @@ import (
 
 	memoryv1 "github.com/paladinai/paladinai/gen/go/memory/v1"
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	"github.com/paladinai/paladinai/internal/qdrant"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	"github.com/paladinai/paladinai/internal/topology"
 	memcfg "github.com/paladinai/paladinai/services/paladin-memory/config"
 	"github.com/paladinai/paladinai/services/paladin-memory/internal/handler"
@@ -55,6 +57,16 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	otel, err := telemetry.Init(ctx, "paladin-memory", cfg.Base.ServiceVersion, cfg.Base.OtelEndpoint, log)
+	if err != nil {
+		log.Fatal("telemetry init failed", zap.Error(err))
+	}
+	defer func() {
+		if err := otel.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
 
 	// Postgres pool — episodic memory.
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
@@ -153,7 +165,7 @@ func main() {
 	grpcServer := grpc.NewServer()
 	memoryv1.RegisterMemoryServiceServer(grpcServer, h)
 
-	httpSrv := memoryHealthServer(cfg.HTTPAddr, pool, rdb)
+	httpSrv := memoryHealthServer(cfg.HTTPAddr, pool, rdb, log)
 	serverErr := make(chan error, 2)
 	go func() {
 		log.Info("paladin-memory HTTP listening", zap.String("addr", cfg.HTTPAddr))
@@ -243,10 +255,10 @@ func stubEmbedderAllowed(cfg *memcfg.Config) bool {
 	}
 }
 
-func memoryHealthServer(addr string, pool *pgxpool.Pool, rdb *redis.Client) *http.Server {
+func memoryHealthServer(addr string, pool *pgxpool.Pool, rdb *redis.Client, log *zap.Logger) *http.Server {
 	return &http.Server{
 		Addr:         addr,
-		Handler:      memoryHealthHandler(pool.Ping, func(ctx context.Context) error { return rdb.Ping(ctx).Err() }),
+		Handler:      sharedmiddleware.Observability("paladin-memory", log)(memoryHealthHandler(pool.Ping, func(ctx context.Context) error { return rdb.Ping(ctx).Err() })),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

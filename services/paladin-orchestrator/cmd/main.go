@@ -19,8 +19,10 @@ import (
 	"github.com/paladinai/paladinai/internal/correlation"
 	"github.com/paladinai/paladinai/internal/dedup"
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/pipeline"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	"github.com/paladinai/paladinai/internal/workflow"
 	orchestratorcfg "github.com/paladinai/paladinai/services/paladin-orchestrator/config"
 )
@@ -95,6 +97,16 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	otel, err := telemetry.Init(ctx, "paladin-orchestrator", cfg.Base.ServiceVersion, cfg.Base.OtelEndpoint, log)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer func() {
+		if err := otel.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
+
 	// ── NATS ─────────────────────────────────────────────────────────────────
 	natsClient, err := internalnats.Connect(cfg.NatsURL, log)
 	if err != nil {
@@ -161,7 +173,7 @@ func run() error {
 	})
 	httpSrv := &http.Server{
 		Addr:         ":" + orchPort,
-		Handler:      mux,
+		Handler:      sharedmiddleware.Observability("paladin-orchestrator", log)(mux),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

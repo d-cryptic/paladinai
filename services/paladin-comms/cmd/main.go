@@ -13,7 +13,9 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	commscfg "github.com/paladinai/paladinai/services/paladin-comms/config"
 	"github.com/paladinai/paladinai/services/paladin-comms/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-comms/internal/notifier"
@@ -36,6 +38,16 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	otel, err := telemetry.Init(ctx, "paladin-comms", cfg.Base.ServiceVersion, cfg.Base.OtelEndpoint, log)
+	if err != nil {
+		log.Fatal("telemetry init failed", zap.Error(err))
+	}
+	defer func() {
+		if err := otel.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
 
 	// ── Build multi-notifier from enabled channels ────────────────────────────
 	var notifiers []notifier.Notifier
@@ -99,7 +111,7 @@ func main() {
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	httpSrv := &http.Server{
 		Addr:         ":" + commsPort,
-		Handler:      mux,
+		Handler:      sharedmiddleware.Observability("paladin-comms", log)(mux),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

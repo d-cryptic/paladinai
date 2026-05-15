@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/paladinai/paladinai/internal/config"
 )
 
 // Config holds paladin-memory service settings.
 type Config struct {
+	config.Base
+
 	// Env is the deployment environment. Development/test may use local fakes.
 	Env string
 	// GRPCAddr is the gRPC listener address (e.g. ":9010").
@@ -34,6 +38,10 @@ type Config struct {
 
 // Load reads Config from environment variables.
 func Load() (*Config, error) {
+	base, err := config.LoadBase()
+	if err != nil {
+		return nil, fmt.Errorf("memory: config: base: %w", err)
+	}
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		return nil, fmt.Errorf("memory: config: DATABASE_URL is required")
@@ -43,6 +51,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("memory: config: PALADIN_MEMORY_ALLOW_STUB_EMBEDDER: %w", err)
 	}
 	c := &Config{
+		Base:              base,
 		Env:               getEnv("ENV", "development"),
 		GRPCAddr:          getEnv("GRPC_ADDR", ":9010"),
 		HTTPAddr:          getEnv("MEMORY_HTTP_ADDR", ":9011"),
