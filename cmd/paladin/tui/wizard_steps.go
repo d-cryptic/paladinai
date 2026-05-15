@@ -112,18 +112,27 @@ func (m DetectModel) View() string {
 
 func runDetection() tea.Msg {
 	detected := []DetectedIntegration{}
+	podNames := kubernetesPodNames()
+	for _, name := range []string{"prometheus", "grafana", "alertmanager", "loki"} {
+		found := strings.Contains(podNames, name)
+		confidence := ""
+		if found {
+			confidence = "Medium"
+		}
+		detected = append(detected, DetectedIntegration{
+			Name:       name,
+			Found:      found,
+			Confidence: confidence,
+		})
+	}
+
 	probes := []struct {
 		name string
 		fn   func() (bool, string)
 	}{
-		{"prometheus", probeKubectl("prometheus")},
-		{"grafana", probeKubectl("grafana")},
-		{"alertmanager", probeKubectl("alertmanager")},
-		{"loki", probeKubectl("loki")},
 		{"datadog", probeEnvVar("DD_API_KEY")},
 		{"pagerduty", probeEnvVar("PAGERDUTY_TOKEN")},
 	}
-
 	for _, p := range probes {
 		found, confidence := p.fn()
 		detected = append(detected, DetectedIntegration{
@@ -135,13 +144,17 @@ func runDetection() tea.Msg {
 	return detectionDoneMsg{detected: detected}
 }
 
+func kubernetesPodNames() string {
+	out, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", "-o", "name").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(string(out))
+}
+
 func probeKubectl(pattern string) func() (bool, string) {
 	return func() (bool, string) {
-		out, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", "-o", "name").Output()
-		if err != nil {
-			return false, ""
-		}
-		if strings.Contains(strings.ToLower(string(out)), pattern) {
+		if strings.Contains(kubernetesPodNames(), pattern) {
 			return true, "Medium"
 		}
 		return false, ""
