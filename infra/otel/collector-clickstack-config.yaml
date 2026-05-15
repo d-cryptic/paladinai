@@ -20,10 +20,13 @@ processors:
         action: upsert
 
 exporters:
-  otlp/clickstack:
-    endpoint: clickstack:4317
-    tls:
-      insecure: true
+  clickhouse/clickstack:
+    endpoint: tcp://clickstack:9000?dial_timeout=10s
+    database: default
+    username: ${env:CLICKSTACK_CLICKHOUSE_USER}
+    password: ${env:CLICKSTACK_CLICKHOUSE_PASSWORD}
+    create_schema: false
+    timeout: 5s
   prometheus:
     endpoint: "0.0.0.0:8889"
     namespace: paladin
@@ -37,12 +40,12 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp/clickstack, debug]
+      exporters: [clickhouse/clickstack, debug]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp/clickstack, prometheus]
+      exporters: [prometheus]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp/clickstack, debug]
+      exporters: [clickhouse/clickstack, debug]

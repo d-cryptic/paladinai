@@ -330,6 +330,8 @@ services:
     image: docker.hyperdx.io/hyperdx/hyperdx-all-in-one:latest
     container_name: paladin-clickstack
     profiles: ["observability"]
+    environment:
+      HYPERDX_API_KEY: ${CLICKSTACK_API_KEY:-paladin-dev-clickstack-key}
     ports:
       - "8088:8080"    # HyperDX UI
       - "14317:4317"   # OTLP gRPC for direct local testing

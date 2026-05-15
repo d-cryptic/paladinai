@@ -4,7 +4,11 @@
 services:
   otel-collector:
     command: ["--config=/etc/otel-collector-clickstack.yaml"]
+    environment:
+      CLICKSTACK_CLICKHOUSE_USER: ${CLICKSTACK_CLICKHOUSE_USER:-api}
+      CLICKSTACK_CLICKHOUSE_PASSWORD: ${CLICKSTACK_CLICKHOUSE_PASSWORD:-api}
     volumes:
       - ./infra/otel/collector-clickstack-config.yaml:/etc/otel-collector-clickstack.yaml:ro
     depends_on:
-      - clickstack
+      clickstack:
+        condition: service_healthy
