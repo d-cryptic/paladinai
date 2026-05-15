@@ -1,0 +1,27 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+
+exporters:
+  otlphttp/langfuse:
+    endpoint: "https://cloud.langfuse.com/api/public/otel"
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
+      x-langfuse-ingestion-version: "4"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/langfuse]

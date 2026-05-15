@@ -1,4 +1,4 @@
-.PHONY: help up down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install eval-golden eval-live
+.PHONY: help up up-observability down build test lint fmt clean dev hatchet-token e2e integration-test playwright playwright-install eval-golden eval-live
 
 # Build env flags (common to all go commands)
 TMPDIR      ?= /tmp
@@ -23,6 +23,11 @@ up: ## Start all infrastructure services (NATS, Postgres, Valkey, Qdrant, etc.)
 	@echo "Waiting for services..."
 	@sleep 3
 	@docker compose ps
+
+up-observability: ## Start infra with ClickStack/HyperDX observability overlay
+	docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile observability up -d nats postgres valkey qdrant falkordb vault clickstack otel-collector prometheus grafana
+	@echo "HyperDX UI: http://localhost:8088"
+	@docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile observability ps
 
 up-all: ## Start full stack including Hatchet
 	docker compose up -d

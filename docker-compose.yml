@@ -22,6 +22,7 @@ volumes:
   hatchet_certs:
   hatchet_config:
   hatchet_rabbitmq_data:
+  clickstack_data:
 
 services:
   # ─────────────────────────────────────────────────────
@@ -320,6 +321,21 @@ services:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
       - "8889:8889"   # Prometheus metrics export
+    networks:
+      - paladin
+    logging: *default-logging
+    restart: unless-stopped
+
+  clickstack:
+    image: docker.hyperdx.io/hyperdx/hyperdx-all-in-one:latest
+    container_name: paladin-clickstack
+    profiles: ["observability"]
+    ports:
+      - "8088:8080"    # HyperDX UI
+      - "14317:4317"   # OTLP gRPC for direct local testing
+      - "14318:4318"   # OTLP HTTP for direct local testing
+    volumes:
+      - clickstack_data:/data
     networks:
       - paladin
     logging: *default-logging

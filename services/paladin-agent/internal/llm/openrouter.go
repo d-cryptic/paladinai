@@ -16,11 +16,11 @@ import (
 type Tier string
 
 const (
-	// TierA — fast, cheap (qwen/qwen3.6-flash). Use for classification, routing.
+	// TierA is fast and cheap. Use for classification and routing.
 	TierA Tier = "A"
-	// TierB — balanced (qwen/qwen3-8b). Default for triage + RCA.
+	// TierB is balanced. Default for triage and RCA.
 	TierB Tier = "B"
-	// TierC — powerful (deepseek/deepseek-v3.2). Use for complex reasoning.
+	// TierC is powerful. Use for complex reasoning.
 	TierC Tier = "C"
 )
 
@@ -72,7 +72,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("llm: init tier %s model %q: %w", tier, modelName, err)
 		}
-		models[tier] = m
+		models[tier] = newObservedModel(m, tier, modelName)
 	}
 
 	return &Client{models: models}, nil

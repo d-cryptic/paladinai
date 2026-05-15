@@ -1,0 +1,10 @@
+# Optional local observability overlay.
+# Run: make up-observability
+
+services:
+  otel-collector:
+    command: ["--config=/etc/otel-collector-clickstack.yaml"]
+    volumes:
+      - ./infra/otel/collector-clickstack-config.yaml:/etc/otel-collector-clickstack.yaml:ro
+    depends_on:
+      - clickstack
