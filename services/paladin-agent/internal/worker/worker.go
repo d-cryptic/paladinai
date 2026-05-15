@@ -13,8 +13,13 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/paladinai/paladinai/internal/alert"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
 
@@ -23,6 +28,46 @@ const (
 	defaultOperationWait = 60 * time.Second
 	ackWaitMargin        = 15 * time.Second
 )
+
+var (
+	workerTracer             = otel.Tracer("github.com/paladinai/paladinai/services/paladin-agent/internal/worker")
+	workerMeter              = otel.Meter("github.com/paladinai/paladinai/services/paladin-agent/internal/worker")
+	workerIncidentsCounter   metric.Int64Counter
+	workerFailuresCounter    metric.Int64Counter
+	workerDurationHistogram  metric.Float64Histogram
+	workerPublishHistogram   metric.Float64Histogram
+	workerInstrumentsInitErr error
+)
+
+func init() {
+	workerIncidentsCounter, workerInstrumentsInitErr = workerMeter.Int64Counter(
+		"paladin_incidents_triaged_total",
+		metric.WithDescription("Total incidents triaged by paladin-agent"),
+	)
+	if workerInstrumentsInitErr != nil {
+		return
+	}
+	workerFailuresCounter, workerInstrumentsInitErr = workerMeter.Int64Counter(
+		"paladin_agent_failures_total",
+		metric.WithDescription("Total failed paladin-agent worker operations"),
+	)
+	if workerInstrumentsInitErr != nil {
+		return
+	}
+	workerDurationHistogram, workerInstrumentsInitErr = workerMeter.Float64Histogram(
+		"paladin_agent_duration_seconds",
+		metric.WithDescription("End-to-end agent execution duration"),
+		metric.WithUnit("s"),
+	)
+	if workerInstrumentsInitErr != nil {
+		return
+	}
+	workerPublishHistogram, workerInstrumentsInitErr = workerMeter.Float64Histogram(
+		"paladin_agent_publish_duration_seconds",
+		metric.WithDescription("Agent result publish duration"),
+		metric.WithUnit("s"),
+	)
+}
 
 // Triager is satisfied by agent.TriageAgent, agent.CachedTriager, and test fakes.
 type Triager = agent.Triager
@@ -216,6 +261,15 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		_ = msg.Term()
 		return
 	}
+	attrs := telemetry.CommonAttributes(env.TenantID, env.CorrelationID, string(env.Severity))
+	attrs = append(attrs,
+		attribute.String("paladin.fingerprint", env.Fingerprint),
+		attribute.String("messaging.nats.subject", msg.Subject()),
+	)
+	ctx, span := workerTracer.Start(ctx, "paladin.agent.handle_message")
+	span.SetAttributes(attrs...)
+	start := time.Now()
+	defer span.End()
 
 	// Check delivery count for DLQ routing.
 	md, _ := msg.Metadata()
@@ -229,11 +283,16 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 
 	result, rcaResult, err := w.process(pctx, &env)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		workerRecordFailure(pctx, attrs, "process")
 		if deliveries >= maxDeliveries {
 			w.log.Error("worker: triage failed at max deliveries, routing to DLQ",
-				zap.String("fingerprint", env.Fingerprint),
-				zap.Uint64("deliveries", deliveries),
-				zap.Error(err),
+				append(telemetry.TraceFields(pctx),
+					zap.String("fingerprint", env.Fingerprint),
+					zap.Uint64("deliveries", deliveries),
+					zap.Error(err),
+				)...,
 			)
 			w.publishDLQ(ctx, &env, err)
 			_ = msg.Term()
@@ -241,9 +300,11 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		}
 		delay := nakDelay(deliveries)
 		w.log.Warn("worker: triage failed, nacking with backoff",
-			zap.String("fingerprint", env.Fingerprint),
-			zap.Duration("delay", delay),
-			zap.Error(err),
+			append(telemetry.TraceFields(pctx),
+				zap.String("fingerprint", env.Fingerprint),
+				zap.Duration("delay", delay),
+				zap.Error(err),
+			)...,
 		)
 		if nakErr := msg.NakWithDelay(delay); nakErr != nil {
 			w.log.Warn("worker: NakWithDelay failed", zap.Error(nakErr))
@@ -253,9 +314,14 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 
 	// Publish downstream before Acking.
 	if err := w.publishCombined(pctx, &env, result, rcaResult); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		workerRecordFailure(pctx, attrs, "publish")
 		w.log.Error("worker: publish result failed, nacking",
-			zap.String("fingerprint", env.Fingerprint),
-			zap.Error(err),
+			append(telemetry.TraceFields(pctx),
+				zap.String("fingerprint", env.Fingerprint),
+				zap.Error(err),
+			)...,
 		)
 		if nakErr := msg.NakWithDelay(nakDelay(deliveries)); nakErr != nil {
 			w.log.Warn("worker: NakWithDelay failed", zap.Error(nakErr))
@@ -263,6 +329,17 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 	w.recordIncident(&env, result, rcaResult)
+	outcome := workerOutcome(result)
+	if workerTelemetryReady() {
+		workerIncidentsCounter.Add(pctx, 1, telemetry.Attrs(append(attrs,
+			attribute.String("outcome", outcome),
+			attribute.String("agent_type", workerAgentType(rcaResult)),
+		)...))
+		workerDurationHistogram.Record(pctx, time.Since(start).Seconds(), telemetry.Attrs(append(attrs,
+			attribute.String("outcome", outcome),
+			attribute.String("agent_type", workerAgentType(rcaResult)),
+		)...))
+	}
 
 	if ackErr := msg.Ack(); ackErr != nil {
 		w.log.Warn("worker: Ack failed",
@@ -272,12 +349,14 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	}
 
 	w.log.Info("worker: pipeline complete",
-		zap.String("fingerprint", env.Fingerprint),
-		zap.String("correlation_id", env.CorrelationID),
-		zap.String("tenant", env.TenantID),
-		zap.String("severity", result.ConfirmedSeverity),
-		zap.Bool("needs_human", result.NeedsHuman),
-		zap.Bool("rca_ran", rcaResult != nil),
+		append(telemetry.TraceFields(pctx),
+			zap.String("fingerprint", env.Fingerprint),
+			zap.String("correlation_id", env.CorrelationID),
+			zap.String("tenant", env.TenantID),
+			zap.String("severity", result.ConfirmedSeverity),
+			zap.Bool("needs_human", result.NeedsHuman),
+			zap.Bool("rca_ran", rcaResult != nil),
+		)...,
 	)
 }
 
@@ -285,6 +364,8 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 // When rca is non-nil: publishes to paladin.alerts.analyzed.<tenantID>.<source>
 // When rca is nil:     publishes to paladin.alerts.triaged.<tenantID>.<source>
 func (w *Worker) publishCombined(ctx context.Context, env *alert.AlertEnvelope, triage *agent.TriageResult, rca *agent.RCAResult) error {
+	ctx, span := workerTracer.Start(ctx, "paladin.agent.publish_result")
+	defer span.End()
 	var subject string
 	var err error
 
@@ -294,15 +375,33 @@ func (w *Worker) publishCombined(ctx context.Context, env *alert.AlertEnvelope, 
 		subject, err = triagedSubject(env.TenantID, env.Source)
 	}
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("build result subject: %w", err)
 	}
+	span.SetAttributes(append(telemetry.CommonAttributes(env.TenantID, env.CorrelationID, string(env.Severity)),
+		attribute.String("messaging.destination.name", subject),
+		attribute.String("paladin.agent_type", workerAgentType(rca)),
+	)...)
 
 	payload, err := json.Marshal(workerResultPayload{Envelope: env, Triage: triage, RCA: rca})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("marshal result: %w", err)
 	}
+	start := time.Now()
 	if _, pubErr := w.pub.Publish(ctx, subject, payload); pubErr != nil {
+		span.RecordError(pubErr)
+		span.SetStatus(codes.Error, pubErr.Error())
 		return fmt.Errorf("publish to %s: %w", subject, pubErr)
+	}
+	if workerTelemetryReady() {
+		workerPublishHistogram.Record(ctx, time.Since(start).Seconds(), telemetry.Attrs(
+			attribute.String("tenant_id", env.TenantID),
+			attribute.String("subject", subject),
+			attribute.String("agent_type", workerAgentType(rca)),
+		))
 	}
 	return nil
 }
@@ -379,6 +478,9 @@ func (w *Worker) recordIncident(env *alert.AlertEnvelope, triage *agent.TriageRe
 }
 
 func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.TriageResult, *agent.RCAResult, error) {
+	ctx, span := workerTracer.Start(ctx, "paladin.agent.process")
+	span.SetAttributes(telemetry.CommonAttributes(env.TenantID, env.CorrelationID, string(env.Severity))...)
+	defer span.End()
 	if w.supervisor != nil {
 		state, err := w.supervisor.Process(ctx, &agent.IncidentState{
 			TenantID: env.TenantID,
@@ -386,7 +488,10 @@ func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.
 		})
 		if err == nil {
 			if state.TriageResult == nil {
-				return nil, nil, errors.New("supervisor: missing triage result")
+				err := errors.New("supervisor: missing triage result")
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+				return nil, nil, err
 			}
 			return state.TriageResult, state.RCAResult, nil
 		}
@@ -400,6 +505,8 @@ func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.
 	triage, err := w.triager.Triage(triageCtx, env)
 	triageCancel()
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, nil, err
 	}
 
@@ -419,6 +526,37 @@ func (w *Worker) process(ctx context.Context, env *alert.AlertEnvelope) (*agent.
 	}
 
 	return triage, rca, nil
+}
+
+func workerRecordFailure(ctx context.Context, attrs []attribute.KeyValue, stage string) {
+	if !workerTelemetryReady() {
+		return
+	}
+	workerFailuresCounter.Add(ctx, 1, telemetry.Attrs(append(attrs, attribute.String("stage", stage))...))
+}
+
+func workerTelemetryReady() bool {
+	return workerInstrumentsInitErr == nil
+}
+
+func workerOutcome(result *agent.TriageResult) string {
+	if result == nil {
+		return "unknown"
+	}
+	if result.NeedsHuman {
+		return "escalated"
+	}
+	if result.Degraded {
+		return "degraded"
+	}
+	return "resolved"
+}
+
+func workerAgentType(rca *agent.RCAResult) string {
+	if rca != nil {
+		return "rca"
+	}
+	return "triage"
 }
 
 func (w *Worker) effectiveTriageTimeout() time.Duration {

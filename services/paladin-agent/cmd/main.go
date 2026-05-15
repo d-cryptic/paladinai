@@ -21,6 +21,7 @@ import (
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
 	"github.com/paladinai/paladinai/internal/qdrant"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	agentcfg "github.com/paladinai/paladinai/services/paladin-agent/config"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/incident"
@@ -78,6 +79,16 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	otel, err := telemetry.Init(ctx, "paladin-agent", cfg.Base.ServiceVersion, cfg.Base.OtelEndpoint, log)
+	if err != nil {
+		log.Fatal("telemetry init failed", zap.Error(err))
+	}
+	defer func() {
+		if err := otel.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
 
 	// ── Prompt store (versioned system prompts, 60s hot-reload) ──────────────
 	var psQuerier promptstore.Querier
