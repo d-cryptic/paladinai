@@ -23,7 +23,7 @@ func clearBaseEnv(t *testing.T) {
 func clearLLMEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"OPENROUTER_API_KEY", "LLM_GATEWAY_URL",
-		"LLM_ALLOW_INSECURE_GATEWAY", "LLM_TIER_A", "LLM_TIER_B", "LLM_TIER_C"} {
+		"LLM_ALLOW_INSECURE_GATEWAY", "LLM_TIER_A", "LLM_TIER_B", "LLM_TIER_C", "LLM_MAX_TOKENS"} {
 		t.Setenv(k, "")
 	}
 }
@@ -89,6 +89,7 @@ func TestLoadLLM_DefaultTiersWhenUnset(t *testing.T) {
 	assert.Equal(t, "qwen/qwen3.6-flash", llm.TierA)
 	assert.Equal(t, "qwen/qwen3-8b", llm.TierB)
 	assert.Equal(t, "deepseek/deepseek-v3.2", llm.TierC)
+	assert.Equal(t, 512, llm.MaxTokens)
 }
 
 func TestLoadLLM_AllowsExplicitInsecureGatewayForLocalMocks(t *testing.T) {
@@ -109,6 +110,7 @@ func TestLoadLLM_EnvVarsOverrideTiers(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "sk-prod")
 	t.Setenv("LLM_TIER_A", "custom/fast")
 	t.Setenv("LLM_TIER_C", "custom/powerful")
+	t.Setenv("LLM_MAX_TOKENS", "256")
 
 	llm, err := config.LoadLLM()
 	require.NoError(t, err)
@@ -116,6 +118,7 @@ func TestLoadLLM_EnvVarsOverrideTiers(t *testing.T) {
 	assert.Equal(t, "custom/fast", llm.TierA)
 	assert.Equal(t, "qwen/qwen3-8b", llm.TierB, "TierB should remain default when not overridden")
 	assert.Equal(t, "custom/powerful", llm.TierC)
+	assert.Equal(t, 256, llm.MaxTokens)
 }
 
 // ── LoadServer ────────────────────────────────────────────────────────────────

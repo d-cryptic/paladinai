@@ -87,7 +87,7 @@ func Init(ctx context.Context, serviceName, serviceVersion, endpoint string, log
 	))
 
 	log.Info("otel tracing initialised",
-		zap.String("service", serviceName),
+		zap.String("otel_service_name", serviceName),
 		zap.String("endpoint", endpoint),
 		zap.String("grpc_target", target),
 	)

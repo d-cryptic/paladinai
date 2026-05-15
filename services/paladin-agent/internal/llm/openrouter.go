@@ -40,6 +40,7 @@ type Config struct {
 	ModelTierA           string
 	ModelTierB           string
 	ModelTierC           string
+	MaxTokens            int
 }
 
 // Client wraps per-tier Eino chat models backed by OpenRouter.
@@ -63,11 +64,18 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 
 	models := make(map[Tier]model.ToolCallingChatModel, len(tiers))
+	maxTokens := cfg.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 512
+	}
+	temperature := float32(0)
 	for tier, modelName := range tiers {
 		m, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
-			BaseURL: cfg.BaseURL,
-			APIKey:  cfg.APIKey.Reveal(),
-			Model:   modelName,
+			BaseURL:     cfg.BaseURL,
+			APIKey:      cfg.APIKey.Reveal(),
+			Model:       modelName,
+			MaxTokens:   &maxTokens,
+			Temperature: &temperature,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("llm: init tier %s model %q: %w", tier, modelName, err)

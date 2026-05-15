@@ -119,6 +119,7 @@ func main() {
 		ModelTierA:           cfg.LLM.TierA,
 		ModelTierB:           cfg.LLM.TierB,
 		ModelTierC:           cfg.LLM.TierC,
+		MaxTokens:            cfg.LLM.MaxTokens,
 	})
 	if err != nil {
 		log.Fatal("llm client init failed", zap.Error(err))

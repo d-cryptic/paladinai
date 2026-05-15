@@ -11,12 +11,14 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/paladinai/paladinai/internal/alert"
 	"github.com/paladinai/paladinai/internal/eval"
 	"github.com/paladinai/paladinai/internal/logger"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/agent"
 	"github.com/paladinai/paladinai/services/paladin-agent/internal/llm"
 	"go.uber.org/zap"
@@ -119,6 +121,19 @@ func main() {
 	defer func() { _ = log.Sync() }()
 
 	ctx := context.Background()
+	otelProvider, err := telemetry.Init(ctx,
+		"paladin-agent-live-eval",
+		envOr("OTEL_SERVICE_VERSION", "dev"),
+		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		log,
+	)
+	exitOnErr("telemetry init", err)
+	defer func() {
+		if err := otelProvider.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
+
 	llmClient, err := llm.New(ctx, llm.Config{
 		BaseURL:              envOr("LLM_GATEWAY_URL", "https://openrouter.ai/api/v1"),
 		APIKey:               llm.Secret(key),
@@ -126,6 +141,7 @@ func main() {
 		ModelTierA:           selectedModel,
 		ModelTierB:           selectedModel,
 		ModelTierC:           selectedModel,
+		MaxTokens:            envInt("LLM_MAX_TOKENS", 512),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "llm init: %v\n", err)
@@ -508,6 +524,18 @@ func envBool(key string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func envInt(key string, fallback int) int {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
 
 func cloneMap(in map[string]string) map[string]string {

@@ -51,6 +51,8 @@ type LLM struct {
 	TierA string // fast, cheap: qwen/qwen3.6-flash
 	TierB string // balanced: qwen/qwen3-8b
 	TierC string // powerful: deepseek/deepseek-v3.2
+	// MaxTokens bounds generated tokens for latency and cost.
+	MaxTokens int
 }
 
 func LoadLLM() (LLM, error) {
@@ -65,6 +67,7 @@ func LoadLLM() (LLM, error) {
 		TierA:                getEnv("LLM_TIER_A", "qwen/qwen3.6-flash"),
 		TierB:                getEnv("LLM_TIER_B", "qwen/qwen3-8b"),
 		TierC:                getEnv("LLM_TIER_C", "deepseek/deepseek-v3.2"),
+		MaxTokens:            getEnvInt("LLM_MAX_TOKENS", 512),
 	}, nil
 }
 

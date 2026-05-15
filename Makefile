@@ -12,6 +12,7 @@ GOPROXY     := file://$(HOME)/go/pkg/mod/cache/download,http://proxy.golang.org,
 export TMPDIR GOFLAGS GONOSUMDB GOINSECURE GOCACHE GOMODCACHE GOPROXY
 
 SERVICES := paladin-ingest paladin-edge paladin-agent paladin-hub paladin-memory paladin-auth paladin-ws paladin-orchestrator paladin-comms
+EVAL_GO_ENV := GOFLAGS='-mod=readonly' GOMODCACHE=$(HOME)/go/pkg/mod GOPROXY=https://proxy.golang.org,direct
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -120,14 +121,14 @@ clean: ## Remove build artifacts
 	rm -rf bin/ coverage.out coverage.html
 
 eval-smoke: ## Run smoke eval suite (no LLM, CI mode)
-	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8
+	$(EVAL_GO_ENV) go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8
 
 eval-golden: ## Regenerate and run 1000-case golden eval suite with JSON metrics
-	go run test/fixtures/generate_golden_pipeline_workflow.go
-	go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8 --json
+	$(EVAL_GO_ENV) go run ./test/fixtures/generate_golden_pipeline_workflow.go
+	$(EVAL_GO_ENV) go run ./cmd/paladin-eval/... --fixtures test/fixtures/ --threshold 0.8 --json
 
 eval-live: ## Run opt-in live OpenRouter eval (uses .env OPENROUTER_API_KEY)
-	go run ./services/paladin-agent/cmd/live-eval/... --fixtures test/fixtures/ --max $${LIVE_EVAL_MAX:-20} --model "$${LIVE_EVAL_MODEL:-$${LLM_TIER_A:-qwen/qwen3.6-flash}}" --shuffle --seed $${LIVE_EVAL_SEED:-0} --retries $${LIVE_EVAL_RETRIES:-4} --case-delay $${LIVE_EVAL_CASE_DELAY:-2s} --json
+	$(EVAL_GO_ENV) go run ./services/paladin-agent/cmd/live-eval/... --fixtures test/fixtures/ --max $${LIVE_EVAL_MAX:-20} --model "$${LIVE_EVAL_MODEL:-$${LLM_TIER_A:-qwen/qwen3.6-flash}}" --shuffle --seed $${LIVE_EVAL_SEED:-0} --retries $${LIVE_EVAL_RETRIES:-4} --case-delay $${LIVE_EVAL_CASE_DELAY:-2s} --json
 
 e2e: ## Run E2E smoke tests (requires all services running via make up)
 	go test -tags e2e -timeout 120s ./test/e2e/...
