@@ -252,7 +252,7 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 	}
 
 	// Publish downstream before Acking.
-	if err := w.publishCombined(ctx, &env, result, rcaResult); err != nil {
+	if err := w.publishCombined(pctx, &env, result, rcaResult); err != nil {
 		w.log.Error("worker: publish result failed, nacking",
 			zap.String("fingerprint", env.Fingerprint),
 			zap.Error(err),
@@ -285,38 +285,32 @@ func (w *Worker) handleMsg(ctx context.Context, msg jetstream.Msg) {
 // When rca is non-nil: publishes to paladin.alerts.analyzed.<tenantID>.<source>
 // When rca is nil:     publishes to paladin.alerts.triaged.<tenantID>.<source>
 func (w *Worker) publishCombined(ctx context.Context, env *alert.AlertEnvelope, triage *agent.TriageResult, rca *agent.RCAResult) error {
-	var payload []byte
 	var subject string
 	var err error
 
 	if rca != nil {
-		payload, err = json.Marshal(struct {
-			Envelope *alert.AlertEnvelope `json:"envelope"`
-			Triage   *agent.TriageResult  `json:"triage"`
-			RCA      *agent.RCAResult     `json:"rca"`
-		}{Envelope: env, Triage: triage, RCA: rca})
-		if err != nil {
-			return fmt.Errorf("marshal result: %w", err)
-		}
 		subject, err = analyzedSubject(env.TenantID, env.Source)
 	} else {
-		payload, err = json.Marshal(struct {
-			Envelope *alert.AlertEnvelope `json:"envelope"`
-			Triage   *agent.TriageResult  `json:"triage"`
-		}{Envelope: env, Triage: triage})
-		if err != nil {
-			return fmt.Errorf("marshal result: %w", err)
-		}
 		subject, err = triagedSubject(env.TenantID, env.Source)
 	}
 	if err != nil {
 		return fmt.Errorf("build result subject: %w", err)
 	}
 
+	payload, err := json.Marshal(workerResultPayload{Envelope: env, Triage: triage, RCA: rca})
+	if err != nil {
+		return fmt.Errorf("marshal result: %w", err)
+	}
 	if _, pubErr := w.pub.Publish(ctx, subject, payload); pubErr != nil {
 		return fmt.Errorf("publish to %s: %w", subject, pubErr)
 	}
 	return nil
+}
+
+type workerResultPayload struct {
+	Envelope *alert.AlertEnvelope `json:"envelope"`
+	Triage   *agent.TriageResult  `json:"triage"`
+	RCA      *agent.RCAResult     `json:"rca,omitempty"`
 }
 
 func (w *Worker) publishDLQ(ctx context.Context, env *alert.AlertEnvelope, triageErr error) {
