@@ -16,6 +16,7 @@ import (
 
 	"github.com/paladinai/paladinai/internal/auth"
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	"github.com/paladinai/paladinai/internal/telemetry"
 	cfg "github.com/paladinai/paladinai/services/paladin-auth/config"
 	"github.com/paladinai/paladinai/services/paladin-auth/internal/handler"
@@ -90,6 +91,7 @@ func run() error {
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
+	r.Use(sharedmiddleware.Observability("paladin-auth", log))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

@@ -25,6 +25,7 @@ import (
 
 	"github.com/paladinai/paladinai/internal/auth"
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	"github.com/paladinai/paladinai/internal/telemetry"
 )
 
@@ -114,6 +115,7 @@ func run() error {
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
+	r.Use(sharedmiddleware.Observability("paladin-edge", log))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: conf.AllowedOrigins,
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},

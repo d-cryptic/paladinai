@@ -18,6 +18,7 @@ import (
 	"github.com/paladinai/paladinai/internal/anthropic"
 	"github.com/paladinai/paladinai/internal/cache"
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	internalnats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/promptstore"
 	"github.com/paladinai/paladinai/internal/qdrant"
@@ -260,6 +261,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.Recoverer)
+	r.Use(sharedmiddleware.Observability("paladin-agent", log))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)

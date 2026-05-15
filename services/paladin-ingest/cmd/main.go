@@ -23,6 +23,7 @@ import (
 	"github.com/paladinai/paladinai/services/paladin-ingest/internal/publisher"
 
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	inats "github.com/paladinai/paladinai/internal/nats"
 	"github.com/paladinai/paladinai/internal/storm"
 	"github.com/paladinai/paladinai/internal/telemetry"
@@ -96,6 +97,7 @@ func run() error {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(sharedmiddleware.Observability("paladin-ingest", log))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST"},

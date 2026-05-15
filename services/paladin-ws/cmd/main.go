@@ -165,6 +165,7 @@ func newBaseRouter() chi.Router {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(jwtmw.Observability("paladin-ws", zap.NewNop()))
 	return r
 }
 

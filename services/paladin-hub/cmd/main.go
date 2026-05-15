@@ -14,7 +14,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/paladinai/paladinai/internal/logger"
+	sharedmiddleware "github.com/paladinai/paladinai/internal/middleware"
 	"github.com/paladinai/paladinai/internal/qdrant"
+	"github.com/paladinai/paladinai/internal/telemetry"
 	hubcfg "github.com/paladinai/paladinai/services/paladin-hub/config"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-hub/internal/store"
@@ -46,6 +48,16 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	otel, err := telemetry.Init(ctx, "paladin-hub", cfg.Base.ServiceVersion, cfg.Base.OtelEndpoint, log)
+	if err != nil {
+		log.Fatal("telemetry init failed", zap.Error(err))
+	}
+	defer func() {
+		if err := otel.ShutdownWithTimeout(telemetry.DefaultShutdownTimeout); err != nil {
+			log.Warn("otel shutdown failed", zap.Error(err))
+		}
+	}()
 
 	// Use PostgresStore when DATABASE_URL is set; fall back to MemStore in dev.
 	var s store.Store
@@ -123,6 +135,7 @@ func main() {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
+	r.Use(sharedmiddleware.Observability("paladin-hub", log))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
