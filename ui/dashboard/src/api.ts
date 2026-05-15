@@ -198,13 +198,11 @@ export async function requestIncidentReplay(incidentID: string, signal?: AbortSi
 }
 
 async function fetchIncidents(apiBaseURL: string, token: string, tenantID: string, signal?: AbortSignal): Promise<Incident[]> {
-  const response = await getJSON<APIResponse<AgentIncident[]>>(`${apiBaseURL}/incidents`, token, tenantID, signal)
-  return (response.data ?? []).map(toDashboardIncident)
+  return fetchAPIData(apiBaseURL, "/incidents", token, tenantID, signal, toDashboardIncident)
 }
 
 async function fetchRunbooks(apiBaseURL: string, token: string, tenantID: string, signal?: AbortSignal): Promise<RunbookRecord[]> {
-  const response = await getJSON<APIResponse<RunbookWire[]>>(`${apiBaseURL}/runbooks`, token, tenantID, signal)
-  return (response.data ?? []).map((runbook, index) => ({
+  return fetchAPIData(apiBaseURL, "/runbooks", token, tenantID, signal, (runbook: RunbookWire, index) => ({
     id: String(runbook.id || `runbook-${index + 1}`),
     title: String(runbook.title || "Untitled runbook"),
     slug: String(runbook.slug || runbook.id || runbook.title || `runbook-${index + 1}`),
@@ -216,12 +214,27 @@ async function fetchRunbooks(apiBaseURL: string, token: string, tenantID: string
 }
 
 async function fetchIntegrations(apiBaseURL: string, token: string, tenantID: string, signal?: AbortSignal): Promise<IntegrationRecord[]> {
-  const response = await getJSON<APIResponse<MCPServerWire[]>>(`${apiBaseURL}/mcp/servers`, token, tenantID, signal)
-  return (response.data ?? []).map((server) => ({
+  return fetchAPIData(apiBaseURL, "/mcp/servers", token, tenantID, signal, (server: MCPServerWire) => ({
     name: String(server.name || server.id || "unknown"),
     detail: `${Array.isArray(server.capabilities) ? server.capabilities.length : 0} tools`,
     status: server.healthy === false ? "degraded" : "enabled",
   }))
+}
+
+async function fetchAPIData<Wire, View>(
+  apiBaseURL: string,
+  path: string,
+  token: string,
+  tenantID: string,
+  signal: AbortSignal | undefined,
+  mapItem: (item: Wire, index: number) => View,
+): Promise<View[]> {
+  const response = await getJSON<APIResponse<Wire[]>>(apiURL(apiBaseURL, path), token, tenantID, signal)
+  return (response.data ?? []).map(mapItem)
+}
+
+function apiURL(apiBaseURL: string, path: string): string {
+  return `${apiBaseURL.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`
 }
 
 async function getJSON<T>(url: string, token: string, tenantID: string, signal?: AbortSignal): Promise<T> {
