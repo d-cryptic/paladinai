@@ -13,6 +13,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
 	"github.com/paladinai/paladinai/internal/logger"
@@ -23,6 +27,37 @@ import (
 	wshandler "github.com/paladinai/paladinai/services/paladin-ws/internal/handler"
 	"github.com/paladinai/paladinai/services/paladin-ws/internal/hub"
 )
+
+var (
+	wsTracer            = otel.Tracer("github.com/paladinai/paladinai/services/paladin-ws/cmd")
+	wsMeter             = otel.Meter("github.com/paladinai/paladinai/services/paladin-ws/cmd")
+	wsBroadcastCounter  metric.Int64Counter
+	wsBroadcastFailures metric.Int64Counter
+	wsBroadcastDuration metric.Float64Histogram
+	wsTelemetryInitErr  error
+)
+
+func init() {
+	wsBroadcastCounter, wsTelemetryInitErr = wsMeter.Int64Counter(
+		"paladin_ws_broadcasts_total",
+		metric.WithDescription("Total NATS alert messages handled by paladin-ws"),
+	)
+	if wsTelemetryInitErr != nil {
+		return
+	}
+	wsBroadcastFailures, wsTelemetryInitErr = wsMeter.Int64Counter(
+		"paladin_ws_broadcast_failures_total",
+		metric.WithDescription("Total failed paladin-ws NATS broadcasts"),
+	)
+	if wsTelemetryInitErr != nil {
+		return
+	}
+	wsBroadcastDuration, wsTelemetryInitErr = wsMeter.Float64Histogram(
+		"paladin_ws_broadcast_duration_seconds",
+		metric.WithDescription("paladin-ws NATS broadcast handling duration"),
+		metric.WithUnit("s"),
+	)
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -194,9 +229,25 @@ func startNATSConsumer(ctx context.Context, nc *inats.Client, conf cfg.Config, h
 	broadcast := wshandler.NATSHandler(h, log)
 
 	cc, err := consumer.Consume(func(msg jetstream.Msg) {
+		msgCtx := telemetry.ExtractTraceContext(ctx, msg.Headers())
+		attrs := []attribute.KeyValue{
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", msg.Subject()),
+			attribute.String("messaging.operation.name", "process"),
+		}
+		msgCtx, span := wsTracer.Start(msgCtx, "paladin.ws.broadcast")
+		span.SetAttributes(attrs...)
+		start := time.Now()
+		defer span.End()
+
 		if broadcast(msg.Data()) {
+			recordWSBroadcast(msgCtx, attrs, "ack", time.Since(start))
 			msg.Ack() //nolint:errcheck
 		} else {
+			err := fmt.Errorf("invalid websocket broadcast payload")
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			recordWSBroadcast(msgCtx, attrs, "term", time.Since(start))
 			// Permanently bad message (malformed JSON, missing tenant_id).
 			// Term prevents pointless redeliveries.
 			msg.Term() //nolint:errcheck
@@ -216,6 +267,20 @@ func startNATSConsumer(ctx context.Context, nc *inats.Client, conf cfg.Config, h
 		zap.String("consumer", conf.NATSConsumer),
 	)
 	return nil
+}
+
+func recordWSBroadcast(ctx context.Context, base []attribute.KeyValue, outcome string, duration time.Duration) {
+	if wsTelemetryInitErr != nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, len(base)+1)
+	attrs = append(attrs, base...)
+	attrs = append(attrs, attribute.String("outcome", outcome))
+	wsBroadcastCounter.Add(ctx, 1, telemetry.Attrs(attrs...))
+	if outcome != "ack" {
+		wsBroadcastFailures.Add(ctx, 1, telemetry.Attrs(attrs...))
+	}
+	wsBroadcastDuration.Record(ctx, duration.Seconds(), telemetry.Attrs(attrs...))
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {
